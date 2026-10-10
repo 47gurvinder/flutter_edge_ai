@@ -8,15 +8,15 @@ library;
 
 import 'dart:async';
 
-import 'package:flutter_edge_ai/core/domain/model_source.dart';
-import 'package:flutter_edge_ai/core/di/service_registry.dart';
-import 'package:flutter_edge_ai/core/model.dart';
-import 'package:flutter_edge_ai/core/model_management/active_embedding_identity.dart';
-import 'package:flutter_edge_ai/core/model_management/active_identity_store.dart';
-import 'package:flutter_edge_ai/core/model_management/constants/preferences_keys.dart';
-import 'package:flutter_edge_ai/core/model_management/managers/web_model_manager.dart';
-import 'package:flutter_edge_ai/core/model_management/model_specs.dart';
-import 'package:flutter_edge_ai/core/services/model_repository.dart' as repo;
+import 'package:flutter_edge_ai/src/domain/model_source.dart';
+import 'package:flutter_edge_ai/src/di/service_registry.dart';
+import 'package:flutter_edge_ai/src/model.dart';
+import 'package:flutter_edge_ai/src/model_management/active_embedding_identity.dart';
+import 'package:flutter_edge_ai/src/model_management/active_identity_store.dart';
+import 'package:flutter_edge_ai/src/model_management/constants/preferences_keys.dart';
+import 'package:flutter_edge_ai/src/model_management/managers/web_model_manager.dart';
+import 'package:flutter_edge_ai/src/model_management/model_specs.dart';
+import 'package:flutter_edge_ai/src/services/model_repository.dart' as repo;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

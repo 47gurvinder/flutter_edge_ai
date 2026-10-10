@@ -7,13 +7,13 @@
 
 import 'dart:async';
 
-import 'package:flutter_edge_ai/core/lifecycle/close_notifier.dart';
-import 'package:flutter_edge_ai/core/registry/embedding_backend_provider.dart';
-import 'package:flutter_edge_ai/core/registry/embedding_registry.dart';
-import 'package:flutter_edge_ai/core/registry/runtime_config.dart';
-import 'package:flutter_edge_ai/desktop/flutter_edge_ai_desktop.dart';
-import 'package:flutter_edge_ai/flutter_edge_ai_interface.dart';
-import 'package:flutter_edge_ai/mobile/flutter_edge_ai_mobile.dart';
+import 'package:flutter_edge_ai/src/lifecycle/close_notifier.dart';
+import 'package:flutter_edge_ai/src/registry/embedding_backend_provider.dart';
+import 'package:flutter_edge_ai/src/registry/embedding_registry.dart';
+import 'package:flutter_edge_ai/src/registry/runtime_config.dart';
+import 'package:flutter_edge_ai/src/desktop/flutter_edge_ai_desktop.dart';
+import 'package:flutter_edge_ai/src/interface.dart';
+import 'package:flutter_edge_ai/src/mobile/flutter_edge_ai_mobile.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

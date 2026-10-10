@@ -24,21 +24,31 @@
 /// reimplementing the isolate facade.
 library;
 
-// The runtime-agnostic `ForwardPass` seam (design doc §2, §11 D3/D4): pure
-// Dart, no engine dependency. Engine packages (flutter_edge_ai_litertlm,
-// flutter_edge_ai_onnx) implement `EmbeddingForwardPass` and build a
-// `ForwardPassDescriptor` from a top-level factory tear-off to plug into the
-// common embedder below.
-// Moved to core so an engine package can implement the seam without depending
-// on this one. Re-exported here so a single import still covers the whole
-// embedding surface for app and test code.
-export 'package:flutter_edge_ai/core/embedding/forward_pass.dart';
-export 'package:flutter_edge_ai/core/embedding/pooling.dart';
-// The tokenizer seam (design D-T1): pure Dart, no engine dependency, no
-// native library at all — engine packages implement `EmbeddingTokenizer` and
-// build a `ForwardPassDescriptor.tokenizerFactory` from a top-level factory
-// tear-off, same shape as `EmbeddingForwardPassFactory` above.
-export 'package:flutter_edge_ai/core/embedding/tokenizer_adapter.dart';
+// The embedding seam core owns, re-exported so a single import still covers
+// the whole embedding surface for app and test code:
+// - the runtime-agnostic `ForwardPass` seam (design doc §2, §11 D3/D4): engine
+//   packages (flutter_edge_ai_litertlm, flutter_edge_ai_onnx) implement
+//   `EmbeddingForwardPass` and build a `ForwardPassDescriptor` from a
+//   top-level factory tear-off to plug into the common embedder;
+// - the tokenizer seam (design D-T1): engine packages implement
+//   `EmbeddingTokenizer` and build a `ForwardPassDescriptor.tokenizerFactory`
+//   from a top-level factory tear-off;
+// - the common embedder: background-isolate worker + `EmbeddingModel` facade
+//   over any `ForwardPassDescriptor`. Core's engine library selects the web
+//   stub under `dart.library.js_interop`; web engine packages build their own
+//   `EmbeddingModel` directly and never reach it.
+export 'package:flutter_edge_ai/engine.dart'
+    show
+        CommonEmbeddingModel,
+        EmbeddingForwardPass,
+        EmbeddingForwardPassFactory,
+        EmbeddingOutputContract,
+        EmbeddingTokenizer,
+        EmbeddingTokenizerFactory,
+        ForwardPassDescriptor,
+        ForwardResult,
+        TokenizedInput,
+        meanPoolAndNormalize;
 // The tokenizer families this package implements, as a registrable
 // provider. This is what lets an engine ask for a tokenizer instead of
 // naming one — and therefore what lets it stop depending on this package.
@@ -49,17 +59,8 @@ export 'src/tokenizer_provider.dart';
 // `dart_sentencepiece_tokenizer`, which imports `dart:io`/`dart:isolate`
 // unconditionally) — deliberately NOT exported from this barrel so importing
 // this package can never break a web build. They're used internally by
-// engine backends (reached only via the native-only
-// `common_embedding_model.dart` arm below); native-only engine/test code
+// engine backends (reached only via core's native-only
+// `CommonEmbeddingModel`); native-only engine/test code
 // that needs them directly imports
 // `package:flutter_edge_ai_embeddings/src/embedding_tokenizer.dart` /
 // `package:flutter_edge_ai_embeddings/src/wordpiece_embedding_tokenizer.dart`.
-
-// The common embedder: background-isolate worker + `EmbeddingModel` facade
-// over any `ForwardPassDescriptor`. Conditional export — the real worker
-// needs `dart:isolate` semantics that only make sense on native platforms;
-// web engine packages build their own `EmbeddingModel` directly (see
-// `flutter_edge_ai_litertlm`'s web arm) and never reach this file.
-export 'package:flutter_edge_ai/core/embedding/common_embedding_model.dart'
-    if (dart.library.js_interop)
-        'package:flutter_edge_ai/core/embedding/common_embedding_model_stub.dart';

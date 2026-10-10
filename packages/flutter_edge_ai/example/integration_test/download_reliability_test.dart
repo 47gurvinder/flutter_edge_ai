@@ -27,7 +27,9 @@ import 'package:http/http.dart' as http;
 import 'package:integration_test/integration_test.dart';
 import 'package:background_downloader/background_downloader.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
-import 'package:flutter_edge_ai/mobile/smart_downloader.dart';
+// ignore: implementation_imports — device test of core's downloader
+import 'package:flutter_edge_ai/src/mobile/smart_downloader.dart'
+    show SmartDownloader;
 import 'package:path_provider/path_provider.dart';
 import 'inference_test_helpers.dart' show registerTestEngines;
 

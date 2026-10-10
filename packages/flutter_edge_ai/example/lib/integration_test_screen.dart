@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart' show rootBundle;
-import 'package:flutter_edge_ai/mobile/smart_downloader.dart';
-import 'package:flutter_edge_ai/core/api/flutter_edge_ai.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+// ignore: implementation_imports — in-app download test screen drives core's downloader
+import 'package:flutter_edge_ai/src/mobile/smart_downloader.dart'
+    show SmartDownloader;
 import 'package:flutter_edge_ai/flutter_edge_ai.dart' as legacy;
-import 'package:flutter_edge_ai/mobile/flutter_edge_ai_mobile.dart'
-    as legacy_mobile;
+import 'package:flutter_edge_ai/flutter_edge_ai.dart' as legacy_mobile;
+// ignore: implementation_imports — in-app test screen builds bundled specs through core's manager
+import 'package:flutter_edge_ai/src/mobile/flutter_edge_ai_mobile.dart'
+    as legacy_mobile
+    show MobileModelManager;
 import 'package:path_provider/path_provider.dart';
 import 'package:background_downloader/background_downloader.dart';
 import 'package:flutter_edge_ai_example/utils/test_preferences.dart';

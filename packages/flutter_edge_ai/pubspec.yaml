@@ -72,7 +72,7 @@ flutter:
         pluginClass: FlutterEdgeAiPlugin
       web:
         pluginClass: FlutterEdgeAiWeb
-        fileName: web/flutter_edge_ai_web.dart
+        fileName: src/web/flutter_edge_ai_web.dart
       macos:
         pluginClass: FlutterEdgeAiPlugin
         dartPluginClass: FlutterEdgeAiDesktop

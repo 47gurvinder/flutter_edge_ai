@@ -17,9 +17,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:flutter_edge_ai/core/api/flutter_edge_ai.dart';
-import 'package:flutter_edge_ai/core/di/service_registry.dart';
-import 'package:flutter_edge_ai/core/model.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+// ignore: implementation_imports — asserts against core's managed storage paths
+import 'package:flutter_edge_ai/src/di/service_registry.dart'
+    show ServiceRegistry;
 import 'inference_test_helpers.dart' show registerTestEngines;
 
 void main() {

@@ -17,9 +17,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+// ignore: implementation_imports — reads core's file-system service to check install paths
+import 'package:flutter_edge_ai/src/di/service_registry.dart'
+    show ServiceRegistry;
 import 'inference_test_helpers.dart' show registerTestEngines;
-import 'package:flutter_edge_ai/core/di/service_registry.dart';
-import 'package:flutter_edge_ai/core/model.dart';
 
 // ── Model URLs (for iOS download, macOS/Android use local files) ──
 const _gemma4Url =

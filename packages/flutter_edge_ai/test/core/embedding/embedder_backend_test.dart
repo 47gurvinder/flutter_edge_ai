@@ -1,12 +1,12 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter_edge_ai/core/domain/platform_types.dart';
-import 'package:flutter_edge_ai/core/embedding/embedder_backend_notice.dart';
-import 'package:flutter_edge_ai/core/utils/edge_ai_log.dart';
-import 'package:flutter_edge_ai/core/embedding/common_embedding_model.dart';
-import 'package:flutter_edge_ai/core/embedding/forward_pass.dart';
-import 'package:flutter_edge_ai/core/embedding/tokenizer_adapter.dart';
-import 'package:flutter_edge_ai/core/registry/runtime_config.dart';
-import 'package:flutter_edge_ai/flutter_edge_ai_interface.dart';
+import 'package:flutter_edge_ai/src/domain/platform_types.dart';
+import 'package:flutter_edge_ai/src/embedding/embedder_backend_notice.dart';
+import 'package:flutter_edge_ai/src/utils/edge_ai_log.dart';
+import 'package:flutter_edge_ai/src/embedding/common_embedding_model.dart';
+import 'package:flutter_edge_ai/src/embedding/forward_pass.dart';
+import 'package:flutter_edge_ai/src/embedding/tokenizer_adapter.dart';
+import 'package:flutter_edge_ai/src/registry/runtime_config.dart';
+import 'package:flutter_edge_ai/src/interface.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Nothing but the defaults, to pin what an implementation gets for free.

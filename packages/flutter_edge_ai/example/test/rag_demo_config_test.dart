@@ -1,9 +1,13 @@
 import 'dart:convert';
 import 'dart:async';
 
-import 'package:flutter_edge_ai/core/model_management/constants/preferences_keys.dart';
-import 'package:flutter_edge_ai/core/model_management/active_embedding_identity.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+// ignore: implementation_imports — fakes core's persisted embedder identity
+import 'package:flutter_edge_ai/src/model_management/active_embedding_identity.dart'
+    show ActiveEmbeddingIdentityRecord;
+// ignore: implementation_imports — writes core's persisted identity keys
+import 'package:flutter_edge_ai/src/model_management/constants/preferences_keys.dart'
+    show PreferencesKeys;
 import 'package:flutter_edge_ai_example/gemma_bootstrap.dart';
 import 'package:flutter_edge_ai_example/models/base_model.dart';
 import 'package:flutter_edge_ai_example/models/embedding_model.dart' as catalog;

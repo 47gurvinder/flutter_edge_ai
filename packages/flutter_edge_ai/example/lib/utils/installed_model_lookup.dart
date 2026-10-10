@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter_edge_ai/core/di/service_registry.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+// ignore: implementation_imports — example app resolves installed files through core's model repository (no public API)
+import 'package:flutter_edge_ai/src/di/service_registry.dart'
+    show ServiceRegistry;
 import 'package:flutter_edge_ai_example/models/base_model.dart';
 import 'package:flutter_edge_ai_example/models/embedding_model.dart'
     as example_embedding;

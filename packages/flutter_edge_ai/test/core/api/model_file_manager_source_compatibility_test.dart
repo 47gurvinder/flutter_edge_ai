@@ -1,5 +1,5 @@
-import 'package:flutter_edge_ai/core/model_management/model_specs.dart';
-import 'package:flutter_edge_ai/model_file_manager_interface.dart';
+import 'package:flutter_edge_ai/src/model_management/model_specs.dart';
+import 'package:flutter_edge_ai/src/model_file_manager_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

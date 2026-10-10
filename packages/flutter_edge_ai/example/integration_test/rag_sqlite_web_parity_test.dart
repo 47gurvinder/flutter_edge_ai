@@ -43,6 +43,7 @@ import 'package:flutter_edge_ai_rag/flutter_edge_ai_rag.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+// ignore: implementation_imports — shares the sqlite package's native/web parity cases
 import 'package:flutter_edge_ai_sqlite/src/testing/parity_cases.dart';
 
 void main() {

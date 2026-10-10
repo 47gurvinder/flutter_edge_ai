@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_edge_ai/core/utils/edge_ai_log.dart';
+import 'package:flutter_edge_ai/src/utils/edge_ai_log.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 
 void main() {

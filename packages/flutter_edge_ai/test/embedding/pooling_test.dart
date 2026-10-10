@@ -5,8 +5,8 @@
 
 import 'dart:math' as math;
 
-import 'package:flutter_edge_ai/core/embedding/forward_pass.dart';
-import 'package:flutter_edge_ai/core/embedding/pooling.dart';
+import 'package:flutter_edge_ai/src/embedding/forward_pass.dart';
+import 'package:flutter_edge_ai/src/embedding/pooling.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Fake forward-pass returning a pre-baked [ForwardResult], for pipeline

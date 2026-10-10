@@ -5,7 +5,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+import 'package:flutter_edge_ai/engine.dart';
 import 'package:flutter_edge_ai_onnx/src/embedding/onnx_embedding_forward_pass.dart';
 import 'package:flutter_edge_ai_onnx/src/embedding/ort_client.dart';
 import 'package:flutter_test/flutter_test.dart';

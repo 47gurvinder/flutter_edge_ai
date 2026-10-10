@@ -21,7 +21,9 @@ import 'package:flutter_edge_ai/flutter_edge_ai.dart'
     show FlutterEdgeAi, FlutterEdgeAiPlugin, TtsModelSpec, TtsModelType;
 import 'package:flutter_edge_ai_speech/flutter_edge_ai_speech.dart'
     show LiteRtTtsBackend;
+// ignore: implementation_imports — drives speech's TTS core and model profiles directly
 import 'package:flutter_edge_ai_speech/src/litert/tts_core.dart' show TtsCore;
+// ignore: implementation_imports — drives speech's TTS core and model profiles directly
 import 'package:flutter_edge_ai_speech/src/model/tts_model_profile.dart'
     show TtsModelProfile;
 
