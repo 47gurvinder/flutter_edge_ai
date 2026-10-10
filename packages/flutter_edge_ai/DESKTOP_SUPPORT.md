@@ -26,7 +26,7 @@ Detailed setup and reference for running Flutter Edge AI on **macOS, Windows, an
 │              Flutter Desktop App                     │
 │                                                      │
 │   ┌──────────────────────────────────────────────┐ │
-│   │  FlutterEdgeAiDesktop (lib/desktop/)           │ │
+│   │  FlutterEdgeAiDesktop (lib/src/desktop/)       │ │
 │   │           ↓                                    │ │
 │   │  LiteRtLmFfiClient                            │ │
 │   │  (flutter_edge_ai_litertlm/lib/src/ffi/)        │ │
@@ -462,7 +462,7 @@ plugin, delete the file and the engine rebuilds the cache on first run.
 ## API Reference
 
 `FlutterEdgeAi`, `InferenceModel`, `InferenceModelSession`, `InferenceChat` —
-all platform-agnostic. See `lib/flutter_edge_ai_interface.dart` and the
+all platform-agnostic. See `lib/src/interface.dart` and the
 [example app](example/) for usage patterns.
 
 For native debugging on iOS / Linux, see comments in
