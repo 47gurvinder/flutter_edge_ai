@@ -468,7 +468,8 @@ class FlutterEdgeAi {
     // them to createSession finds out, instead of a reasoning model silently
     // truncating mid-<think>.
     if (defaults != null &&
-        (defaults.thinkingDeclared != null || defaults.minOutputTokens != null)) {
+        (defaults.thinkingDeclared != null ||
+            defaults.minOutputTokens != null)) {
       edgeAiLog(
         '[flutter_edge_ai] getActiveModel: manifest defaults carry session-level '
         'fields (thinkingDeclared/minOutputTokens) that getActiveModel does not apply '

@@ -128,7 +128,9 @@ class WebInferenceModel extends InferenceModel with CloseNotifier {
     // Audio modality is handled via supportAudio flag in the model
     if (enableAudioModality == true && !supportAudio) {
       if (kDebugMode) {
-        edgeAiLog('Warning: Audio modality requested but supportAudio is false');
+        edgeAiLog(
+          'Warning: Audio modality requested but supportAudio is false',
+        );
       }
     }
 
@@ -408,7 +410,9 @@ class WebModelSession extends InferenceModelSession {
         // Create proper image object for MediaPipe
         final imageObj = <String, String>{'imageSource': part.dataUrl}.jsify();
         if (kDebugMode) {
-          edgeAiLog('🖼️ _createPromptArray: Created image object with jsify()');
+          edgeAiLog(
+            '🖼️ _createPromptArray: Created image object with jsify()',
+          );
         }
         jsArray.add(imageObj as JSAny);
       } else if (part is AudioPromptPart) {
@@ -587,7 +591,9 @@ class WebModelSession extends InferenceModelSession {
               _controller?.add(partial);
               if (complete) {
                 if (kDebugMode) {
-                  edgeAiLog('✅ getResponseAsync: Multimodal response completed');
+                  edgeAiLog(
+                    '✅ getResponseAsync: Multimodal response completed',
+                  );
                 }
                 _controller?.close();
               }

@@ -9,7 +9,10 @@ void main() {
       'severity order is none < info < verbose (edgeAiLog filters on .index)',
       () {
         expect(EdgeAiLogLevel.none.index, lessThan(EdgeAiLogLevel.info.index));
-        expect(EdgeAiLogLevel.info.index, lessThan(EdgeAiLogLevel.verbose.index));
+        expect(
+          EdgeAiLogLevel.info.index,
+          lessThan(EdgeAiLogLevel.verbose.index),
+        );
       },
     );
   });

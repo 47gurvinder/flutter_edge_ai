@@ -283,7 +283,11 @@ void main() {
     };
     for (final repo in byRepo.keys) {
       final r = await resolve(repo);
-      expect(r.runtime.thinkingDeclared, thinkingRepos.contains(repo), reason: repo);
+      expect(
+        r.runtime.thinkingDeclared,
+        thinkingRepos.contains(repo),
+        reason: repo,
+      );
     }
     // The channel markers stay exact in the data (whitespace included) even
     // though v1 consumes only the declared bool — worth pinning so a future

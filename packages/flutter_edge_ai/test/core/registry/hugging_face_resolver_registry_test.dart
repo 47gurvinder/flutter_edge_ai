@@ -161,7 +161,10 @@ void main() {
 
     test('manifest default wins when the explicit argument is omitted', () {
       expect(FlutterEdgeAi.mergeRuntimeDefault(null, 2048, 1024), 2048);
-      expect(FlutterEdgeAi.mergeRuntimeDefault<bool>(null, true, false), isTrue);
+      expect(
+        FlutterEdgeAi.mergeRuntimeDefault<bool>(null, true, false),
+        isTrue,
+      );
     });
 
     test(

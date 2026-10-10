@@ -1755,10 +1755,8 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
     _log('📋 Using Modern API with active inference model...');
 
     final startInit = DateTime.now();
-    final inferenceModel = await legacy.FlutterEdgeAiPlugin.instance.createModel(
-      modelType: legacy.ModelType.gemmaIt,
-      maxTokens: 512,
-    );
+    final inferenceModel = await legacy.FlutterEdgeAiPlugin.instance
+        .createModel(modelType: legacy.ModelType.gemmaIt, maxTokens: 512);
     final initDuration = DateTime.now().difference(startInit);
     _log('✅ Model initialized in ${initDuration.inMilliseconds}ms');
 
@@ -2263,7 +2261,9 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
       _currentTestIndex++;
       _log('▶️  [$_currentTestIndex/$_totalTests]   ▶️ Run Inference');
       _log('  🔧 Getting active model with Modern API...');
-      final inferenceModel2 = await FlutterEdgeAi.getActiveModel(maxTokens: 512);
+      final inferenceModel2 = await FlutterEdgeAi.getActiveModel(
+        maxTokens: 512,
+      );
       _log('  ✅ Model ready');
       _log('  🔧 Creating session...');
       final session2 = await inferenceModel2.createSession();
@@ -2645,7 +2645,9 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
       _currentTestIndex++;
       _log('▶️  [$_currentTestIndex/$_totalTests]   ▶️ Run Inference');
       _log('  🔧 Getting active model with Modern API...');
-      final inferenceModel6 = await FlutterEdgeAi.getActiveModel(maxTokens: 512);
+      final inferenceModel6 = await FlutterEdgeAi.getActiveModel(
+        maxTokens: 512,
+      );
       _log('  ✅ Model ready');
       _log('  🔧 Creating session...');
       final session6 = await inferenceModel6.createSession();
