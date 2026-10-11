@@ -63,6 +63,7 @@ final class _FakeHost implements EmbeddingHost {
   final calls = <_Call>[];
   final died = Completer<String>();
   final closeGate = Completer<void>();
+  Object? closeError;
   bool closeCalled = false;
   bool closed = false;
 
@@ -89,6 +90,8 @@ final class _FakeHost implements EmbeddingHost {
     }
     await closeGate.future;
     closed = true;
+    final error = closeError;
+    if (error != null) throw error;
   }
 }
 
@@ -735,6 +738,39 @@ void main() {
       await second;
       expect(fired, 1);
       expect(hostClosedWhenFired, isTrue);
+    });
+
+    test('a host-close failure reaches the caller; a listener that also '
+        'throws is printed, not swapped in; listeners still fire', () async {
+      final fake = _FakeHost()
+        ..closeError = StateError('host close failed')
+        ..closeGate.complete();
+      final model = CommonEmbeddingModel.withHost(fake);
+      var fired = false;
+      model.addCloseListener(() {
+        fired = true;
+        throw StateError('listener failed');
+      });
+
+      final printed = <String>[];
+      Object? caught;
+      await runZoned(
+        () async {
+          try {
+            await model.close();
+          } catch (e) {
+            caught = e;
+          }
+        },
+        zoneSpecification: ZoneSpecification(
+          print: (self, parent, zone, line) => printed.add(line),
+        ),
+      );
+
+      expect('$caught', contains('host close failed'));
+      expect(fired, isTrue);
+      expect(printed.join('\n'), contains('listener failed'));
+      expect(model.isClosed, isTrue);
     });
 
     test('a later close waits for the same teardown', () async {

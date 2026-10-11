@@ -4,6 +4,8 @@
 // Both run the same RequestPump, load check and failure encoding, so a model
 // behaves the same on every platform.
 
+import 'dart:async';
+
 import 'package:flutter_edge_ai/src/utils/edge_ai_log.dart';
 
 import 'embedding_exceptions.dart';
@@ -74,3 +76,28 @@ Future<String?> closePassReportingFailure(EmbeddingPass pass) async {
 const closedBeforeRun = EmbedderClosedException(
   'The embedding model was closed before this request ran.',
 );
+
+/// Runs every step of a teardown, each in its own try/catch: a step that
+/// throws never skips the ones after it. The first error reaches the caller
+/// with its own stack; every later one is printed, so none is lost or
+/// swapped in for the first. [what] names the teardown in those lines.
+Future<void> runTeardown(
+  String what,
+  List<FutureOr<void> Function()> steps,
+) async {
+  Object? first;
+  StackTrace? firstStack;
+  for (final step in steps) {
+    try {
+      await step();
+    } catch (e, st) {
+      if (first == null) {
+        first = e;
+        firstStack = st;
+      } else {
+        warnEmbeddingHost('$what: a later step also failed: $e\n$st');
+      }
+    }
+  }
+  if (first != null) Error.throwWithStackTrace(first, firstStack!);
+}

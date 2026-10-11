@@ -442,15 +442,16 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
   Future<void> _close() async {
     _isClosed = true;
     _failPermitWaiters();
-    try {
-      await _host.close();
-    } finally {
-      // AFTER the teardown: a listener is app code, and one that threw first
-      // would leave the host running with nobody able to close it. The window
-      // meanwhile is covered by [isClosed], already true, which the embedder
-      // cache checks on every read.
-      _notifyClosed();
-    }
+    // Listeners AFTER the host's teardown: a listener is app code, and one
+    // that threw first would leave the host running with nobody able to close
+    // it. The window meanwhile is covered by [isClosed], already true, which
+    // the embedder cache checks on every read. Each step runs whatever the
+    // other did; a failing host close reaches the caller, and a listener that
+    // also throws is printed rather than swapped in for it.
+    await runTeardown('closing the $_engine embedder for $_label', [
+      _host.close,
+      _notifyClosed,
+    ]);
   }
 
   void _notifyClosed() {

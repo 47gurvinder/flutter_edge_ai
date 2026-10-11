@@ -4,6 +4,7 @@
 import 'dart:async';
 
 import 'package:flutter_edge_ai/src/embedding/embedding_exceptions.dart';
+import 'package:flutter_edge_ai/src/embedding/embedding_host.dart';
 import 'package:flutter_edge_ai/src/embedding/embedding_modality.dart';
 import 'package:flutter_edge_ai/src/embedding/embedding_pass.dart';
 import 'package:flutter_edge_ai/src/embedding/load_check.dart';
@@ -109,6 +110,50 @@ void main() {
       final pump = RequestPump<String>((_) async {})..requestClose();
       expect(pump.file('late', media: false), isFalse);
       expect(pump.queued, 0);
+    });
+  });
+
+  group('runTeardown', () {
+    test('every step runs; the first error reaches the caller with its '
+        'stack; later ones are printed', () async {
+      final ran = <String>[];
+      final printed = <String>[];
+      Object? caught;
+      StackTrace? caughtStack;
+      await runZoned(
+        () async {
+          try {
+            await runTeardown('closing the test embedder', [
+              () {
+                ran.add('a');
+                throw StateError('first');
+              },
+              () async {
+                ran.add('b');
+                throw StateError('second');
+              },
+              () => ran.add('c'),
+            ]);
+          } catch (e, st) {
+            caught = e;
+            caughtStack = st;
+          }
+        },
+        zoneSpecification: ZoneSpecification(
+          print: (self, parent, zone, line) => printed.add(line),
+        ),
+      );
+
+      expect(ran, ['a', 'b', 'c']);
+      expect('$caught', contains('first'));
+      expect('$caughtStack', contains('host_parts_test'));
+      expect(printed.join('\n'), contains('second'));
+    });
+
+    test('no error, nothing thrown or printed', () async {
+      final ran = <int>[];
+      await runTeardown('x', [() => ran.add(1), () async => ran.add(2)]);
+      expect(ran, [1, 2]);
     });
   });
 

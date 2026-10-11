@@ -510,15 +510,30 @@ Future<void> _workerEntry(_Init init) async {
 
   init.replyTo.send(_Ready(commandPort.sendPort, info, modalities));
 
-  final String? closeError;
+  Object? runError;
+  StackTrace? runStack;
   try {
     await pump.run();
-  } finally {
-    // Also on an unexpected throw out of the loop, so the native model is
-    // freed either way. That throw then escapes as an uncaught error and ends
-    // the isolate without a _CloseAck: the main side receives it through
-    // `onError`, then the onExit, and reports both as an unexpected exit.
-    closeError = await closePassReportingFailure(pass);
+  } catch (e, st) {
+    runError = e;
+    runStack = st;
+  }
+  // Also after an unexpected throw out of the loop, so the native model is
+  // freed either way.
+  final closeError = await closePassReportingFailure(pass);
+  if (runError != null) {
+    // The loop's error goes on as an uncaught error and ends the isolate
+    // without a _CloseAck: the main side receives it through `onError`, then
+    // the onExit, and reports both as an unexpected exit. A close that also
+    // failed is printed here, not dropped.
+    if (closeError != null) {
+      warnEmbeddingHost(
+        'the $engine embedding pass for ${init.label} also failed to close '
+        'after its worker loop failed; its native model may still be '
+        'resident: $closeError',
+      );
+    }
+    Error.throwWithStackTrace(runError, runStack!);
   }
   // Ack and exit in one step: nothing of this worker runs after the ack, so
   // the main side never has to kill it (W4).

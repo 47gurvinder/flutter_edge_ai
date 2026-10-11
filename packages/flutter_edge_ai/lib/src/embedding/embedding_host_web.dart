@@ -217,14 +217,19 @@ final class _InlineEmbeddingHost implements EmbeddingHost {
       ),
     );
     try {
-      await _runDone;
-      final error = await closePassReportingFailure(_pass);
-      if (error != null) {
-        warnEmbeddingHost(
-          'the $_engine embedding pass for $_label failed to close; its '
-          'native model may still be resident: $error',
-        );
-      }
+      // The pass is closed even if the serving loop ended in an error.
+      await runTeardown('closing the $_engine embedder for $_label', [
+        () => _runDone,
+        () async {
+          final error = await closePassReportingFailure(_pass);
+          if (error != null) {
+            warnEmbeddingHost(
+              'the $_engine embedding pass for $_label failed to close; its '
+              'native model may still be resident: $error',
+            );
+          }
+        },
+      ]);
     } finally {
       notice.cancel();
     }
