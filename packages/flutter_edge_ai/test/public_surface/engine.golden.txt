@@ -22,6 +22,7 @@ EmbeddingForwardPass class abstract
 EmbeddingForwardPassFactory typedef
 EmbeddingInstallation class
 EmbeddingInstallationBuilder class
+EmbeddingModality enum
 EmbeddingModel class abstract
 EmbeddingModelSpec class
 EmbeddingOutputContract enum
@@ -29,6 +30,7 @@ EmbeddingTokenizer class abstract
 EmbeddingTokenizerFactory typedef
 EmbeddingTokenizerProvider class abstract
 EmbeddingTokenizerRegistry class
+EncodedMediaFormat class final
 ErrorHandlingResult class
 ErrorType enum
 EstimatedDimensions class
@@ -133,4 +135,5 @@ isDesktop getter
 isLiteRtLmFilename function
 meanPoolAndNormalize function
 sanitizeHfDirName function
+sniffEncodedMediaFormat function
 supportedLoraRanks variable const

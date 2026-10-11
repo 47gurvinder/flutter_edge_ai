@@ -1,8 +1,8 @@
 // Standalone library: the MediaPipe-web inference model + session + prompt
 // parts, extracted from core's `flutter_edge_ai_web.dart`. Consumes the shared
-// public web infra that STAYS in core (`web_model_source.dart`,
-// `web_image_format.dart`) plus the sibling MediaPipe JS interop
-// (`llm_inference_web.dart`).
+// public web infra that STAYS in core (the web model sources from
+// `engine_web.dart`, `detectImageMimeType` from `engine.dart`) plus the sibling
+// MediaPipe JS interop (`llm_inference_web.dart`).
 import 'dart:async';
 import 'package:flutter_edge_ai/engine.dart';
 import 'package:flutter_edge_ai/engine_web.dart';

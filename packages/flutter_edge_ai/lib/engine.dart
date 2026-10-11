@@ -26,9 +26,10 @@ export 'src/utils/edge_ai_log.dart' show edgeAiLog, edgeAiLogLevel;
 // File naming (top-level functions over FileNameUtils, which stays internal).
 export 'src/utils/file_names.dart' show isLiteRtLmFilename, sanitizeHfDirName;
 
-// Media sniffing for LLM web arms. Pure Dart, so it is web-safe and lives here
-// rather than in engine_web.dart.
-export 'src/web/web_image_format.dart' show detectImageMimeType;
+// Media sniffing for LLM web arms (sniffEncodedMediaFormat is in the app
+// library). Pure Dart, so it is web-safe and lives here rather than in
+// engine_web.dart.
+export 'src/media/encoded_media_format.dart' show detectImageMimeType;
 
 // Inference-engine helpers. (`supportedLoraRanks` and
 // `defaultMaxFunctionBufferLength` reach engines through the app library.)

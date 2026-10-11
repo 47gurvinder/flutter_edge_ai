@@ -53,6 +53,11 @@ export 'src/registry/hugging_face_resolver.dart'
 
 export 'src/domain/platform_types.dart'
     show ActivationDataType, PreferredBackend;
+
+// Embedding inputs.
+export 'src/embedding/embedding_modality.dart' show EmbeddingModality;
+export 'src/media/encoded_media_format.dart'
+    show EncodedMediaFormat, sniffEncodedMediaFormat;
 export 'src/message.dart' show Message, MessageType;
 export 'src/model.dart' show ModelFileType, ModelType;
 export 'src/model_response.dart'

@@ -18,9 +18,11 @@ EdgeAiLogLevel enum
 EmbeddingBackendProvider class abstract
 EmbeddingInstallation class
 EmbeddingInstallationBuilder class
+EmbeddingModality enum
 EmbeddingModel class abstract
 EmbeddingModelSpec class
 EmbeddingTokenizerProvider class abstract
+EncodedMediaFormat class final
 ErrorHandlingResult class
 ErrorType enum
 EstimatedDimensions class
@@ -107,4 +109,5 @@ VisionSpecs class abstract
 WebStorageMode enum
 defaultMaxFunctionBufferLength variable const
 isDesktop getter
+sniffEncodedMediaFormat function
 supportedLoraRanks variable const
