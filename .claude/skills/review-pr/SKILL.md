@@ -71,10 +71,14 @@ From the diff, detect which package(s)/area(s) are affected:
 
 For RAG diffs, review these invariants explicitly: core exposes no RAG facade or
 vector-store contracts; providers depend only on `flutter_edge_ai_rag`; every
-persistent index is bound to a stable embedding profile; raw-vector creation
-cannot infer an identity; legacy adoption is explicit and dimension-checked;
-Web SQLite has one live owner per location; open is single-flight; and indexes
-are disposed before their borrowed core/custom embedder.
+persistent index is bound to a stable embedding profile and one document
+modality (`VectorStoreBinding`), the version-1 profile record is always written
+and an image/audio binding stores the U+001F-qualified id there so older
+releases refuse it (`tool/rag_store_compat/run_downgrade_harness.sh`);
+raw-vector creation cannot infer an identity; legacy adoption is explicit,
+text-only and dimension-checked; Web SQLite has one live owner per location;
+open is single-flight; and indexes are disposed before their borrowed
+core/custom embedder.
 
 ### Ground rules for every agent — REVIEWERS DO NOT WRITE
 
