@@ -5,7 +5,7 @@ part of '../model_specs.dart';
 /// file, and a schemeless string an asset.
 ///
 /// The deprecated [InferenceModelSpec.fromLegacyUrl] builds its sources here
-/// until its removal in 2.4.0. Not exported.
+/// until its removal in 2.5.0. Not exported.
 @internal
 ModelSource modelSourceFromLegacyUrl(String url) {
   if (url.startsWith('https://') || url.startsWith('http://')) {
@@ -240,7 +240,7 @@ class InferenceModelSpec extends ModelSpec {
     'ModelSource.asset(path) for asset:// or a bare path, '
     'ModelSource.bundled(name) for native://, ModelSource.file(path) for '
     'file://. This factory defaulted to modelType: ModelType.general; pass '
-    'it explicitly. Removed in 2.4.0.',
+    'it explicitly. Removed in 2.5.0.',
   )
   factory InferenceModelSpec.fromLegacyUrl({
     required String name,

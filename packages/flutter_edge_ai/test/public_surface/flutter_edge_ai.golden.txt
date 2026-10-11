@@ -86,6 +86,7 @@ RateLimitedError class final
 RawSdkResponseSession mixin
 ResolvedHfFile class
 ResolvedHfModel class
+ResolvedSampling class final
 ResponseAction enum
 ResponseValidationResult class
 SamplingParams class final
