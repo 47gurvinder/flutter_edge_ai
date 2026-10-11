@@ -65,8 +65,7 @@ export 'src/model_response.dart'
 export 'src/function_call_parser.dart' show FunctionCallParser;
 export 'src/tool.dart' show Tool, ToolChoice;
 export 'src/utils/edge_ai_log.dart' show EdgeAiLogLevel;
-export 'src/chat.dart'
-    show InferenceChat, StopTokenFilter, defaultMaxFunctionBufferLength;
+export 'src/chat.dart' show InferenceChat, defaultMaxFunctionBufferLength;
 export 'src/extensions.dart' show ModelThinkingFilter;
 export 'src/model_management/cancel_token.dart'
     show CancelToken, DownloadCancelledException;
