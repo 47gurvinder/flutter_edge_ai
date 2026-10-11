@@ -7,6 +7,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_edge_ai/src/domain/model_source.dart';
 import 'package:flutter_edge_ai/src/di/service_registry.dart';
@@ -92,6 +93,38 @@ void main() {
           'that mixed identity is what loads the wrong weights',
     );
   });
+
+  test(
+    'a record the 2.2 rules refuse fails closed on web and says why',
+    () async {
+      await ServiceRegistry.initialize();
+      resetRejectedActiveEmbeddingIdentity();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        PreferencesKeys.activeEmbeddingIdentityRecord,
+        jsonEncode({
+          'schemaVersion': 1,
+          'active': true,
+          'name': 'eg2',
+          'modelSource': NetworkSource('https://x/eg2.litertlm').encode(),
+          'tokenizerSource': NetworkSource('https://x/t.model').encode(),
+          'modelFilename': 'eg2.litertlm',
+          'tokenizerFilename': 'eg2__t.model',
+          'modelFilenameExplicit': false,
+          'tokenizerFilenameExplicit': false,
+        }),
+      );
+
+      final manager = WebModelManager();
+      await manager.ensureInitialized();
+      expect(manager.activeEmbeddingModel, isNull);
+      expect(
+        rejectedActiveEmbeddingIdentity,
+        contains('carries its own tokenizer'),
+      );
+      resetRejectedActiveEmbeddingIdentity();
+    },
+  );
 
   test('a self-contained (.litertlm) embedder survives a web restart (identity '
       'v2, no tokenizer)', () async {
