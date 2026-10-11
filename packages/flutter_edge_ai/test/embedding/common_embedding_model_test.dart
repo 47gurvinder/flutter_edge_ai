@@ -658,6 +658,49 @@ void main() {
       expect(fake.calls, hasLength(2));
     });
 
+    test('a refused input is named by its index', () async {
+      final model = CommonEmbeddingModel.withHost(_imageHost());
+      await expectLater(
+        model.embedAll([
+          EmbeddingInput.text('fine'),
+          EmbeddingInput.image(_jpeg),
+          EmbeddingInput.image(_png),
+        ], taskType: TaskType.none),
+        throwsA(
+          isA<EmbeddingFormatNotSupportedException>()
+              .having((e) => e.message, 'message', startsWith('Input 2 of 3:'))
+              .having((e) => e.detected, 'detected', EncodedMediaFormat.png),
+        ),
+      );
+      final textOnly = CommonEmbeddingModel.withHost(_FakeHost());
+      await expectLater(
+        textOnly.embedAll([
+          EmbeddingInput.text('fine'),
+          EmbeddingInput.image(_jpeg),
+        ], taskType: TaskType.none),
+        throwsA(
+          isA<EmbeddingModalityNotLoadedException>().having(
+            (e) => e.message,
+            'message',
+            startsWith('Input 1 of 2:'),
+          ),
+        ),
+      );
+    });
+
+    test(
+      'no inputs on a closed model still fails as closed (§4.3 step 1)',
+      () async {
+        final fake = _FakeHost()..closeGate.complete();
+        final model = CommonEmbeddingModel.withHost(fake);
+        await model.close();
+        await expectLater(
+          model.embedAll(const [], taskType: TaskType.none),
+          throwsA(isA<EmbedderClosedException>()),
+        );
+      },
+    );
+
     test('no inputs, no requests', () async {
       final fake = _FakeHost();
       expect(

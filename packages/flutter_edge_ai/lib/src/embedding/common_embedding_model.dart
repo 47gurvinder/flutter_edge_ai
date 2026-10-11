@@ -170,10 +170,15 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
     // Read once: the caller's list may change while the call runs, and an
     // input appended later would be neither validated nor counted.
     final batch = List<EmbeddingInput>.unmodifiable(inputs);
-    // Every input is checked before the first one is sent.
-    for (final input in batch) {
-      final refused = _validate(input);
-      if (refused != null) return Future.error(refused);
+    // A closed model refuses the call itself, empty or not (§4.3 step 1).
+    if (_isClosed) return Future.error(_closedError());
+    // Every input is checked before the first one is sent, and a refusal
+    // says which input it was.
+    for (var i = 0; i < batch.length; i++) {
+      final refused = _validate(batch[i]);
+      if (refused != null) {
+        return Future.error(_naming(refused, i, batch.length));
+      }
     }
     if (cancelToken?.isCancelled ?? false) {
       return Future.error(const EmbeddingCancelledException());
@@ -233,6 +238,38 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
       if (refused != null) return refused;
     }
     return null;
+  }
+
+  /// [refused] with "Input [index] of [count]: " in front of its message.
+  static EmbeddingException _naming(
+    EmbeddingException refused,
+    int index,
+    int count,
+  ) {
+    final message = 'Input $index of $count: ${refused.message}';
+    return switch (refused) {
+      EmbeddingModalityNotLoadedException(:final modality, :final loaded) =>
+        EmbeddingModalityNotLoadedException(
+          message,
+          modality: modality,
+          loaded: loaded,
+        ),
+      UnsupportedEmbeddingCombinationException(:final requested) =>
+        UnsupportedEmbeddingCombinationException(message, requested: requested),
+      EmbeddingFormatNotSupportedException(
+        :final modality,
+        :final detected,
+        :final accepted,
+      ) =>
+        EmbeddingFormatNotSupportedException(
+          message,
+          modality: modality,
+          detected: detected,
+          accepted: accepted,
+        ),
+      // _validate returns nothing else per input (closed is checked first).
+      _ => refused,
+    };
   }
 
   EmbeddingFormatNotSupportedException? _checkFormat(
