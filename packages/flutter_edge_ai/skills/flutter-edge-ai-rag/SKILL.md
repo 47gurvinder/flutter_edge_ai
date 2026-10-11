@@ -161,7 +161,7 @@ final eg2Index = await rag.open(
   `EmbeddingInputTooLongException` whose `actualTokens` is null — LiteRT-LM
   reports the overflow without a count.
 - It runs on CPU (`activeBackend` is `PreferredBackend.cpu`) and keeps a weight
-  cache of about 71 MB under the app-support directory next to the 165 MB
+  cache of about 71 MB under the app-support directory, on top of the 165 MB
   bundle.
 - EmbeddingGemma 1 and 2 both produce 768-d vectors but are different spaces:
   give each its own location and profile ID — the dimension check alone cannot

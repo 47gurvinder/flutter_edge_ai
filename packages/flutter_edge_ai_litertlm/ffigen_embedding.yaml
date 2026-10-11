@@ -8,8 +8,10 @@
 # verbatim at the pinned commit b2f686e2 (= v0.18.0, the source of
 # native-v0.18.0-d). Every LiteRT-LM pin bump replaces them and regenerates.
 #
-# Regenerate (from this directory, with package:ffigen 20.1.1 and libclang):
-#   dart run ffigen --config ffigen_embedding.yaml
+# Regenerate (from this directory; ffigen is no dependency of the workspace,
+# and 20.1.1 is the version that reproduces the generated files' format):
+#   dart pub global activate ffigen 20.1.1
+#   dart pub global run ffigen --config ffigen_embedding.yaml
 name: 'LiteRtLmEmbeddingBindings'
 description: >-
   FFI bindings for the LiteRT-LM EmbeddingEngine, ModelInfo and error-reporter
