@@ -261,6 +261,39 @@ void main() {
       await b.close();
     });
 
+    test('a failed load leaves nothing on the page: close disposes the '
+        'tokenizer v1 loaded before the model failed', () async {
+      // v1 loads the tokenizer, then compiles the model; when the compile
+      // fails the tokenizer stays allocated, and the next load overwrote it
+      // without freeing it — a leaked SentencePiece processor.
+      final page = _FakePage()..failNextLoad = true;
+      final failed = _pass(page);
+      await expectLater(failed.load(), throwsStateError);
+      expect(page.tokenizerLoaded, isTrue, reason: 'what v1 leaves behind');
+
+      await failed.close();
+
+      expect(page.disposes, 1);
+      expect(page.tokenizerLoaded, isFalse);
+    });
+
+    test('a pass that never reached the bundle disposes nothing', () async {
+      final page = _FakePage();
+      await _pass(page).close();
+      final unresolvable = LiteRtJsEmbeddingPass(
+        LiteRtJsEmbeddingConfig(
+          modelPath: 'opfs://m',
+          tokenizerPath: 'opfs://t',
+          bundle: page,
+          resolveUrl: (_) => Future.error(StateError('no OPFS')),
+          revokeUrl: (_) {},
+        ),
+      );
+      await expectLater(unresolvable.load(), throwsStateError);
+      await unresolvable.close();
+      expect(page.disposes, 0);
+    });
+
     test(
       'a failed load does not block the lane: the next pass loads',
       () async {

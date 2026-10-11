@@ -124,7 +124,8 @@ void main() {
     await b.close();
   });
 
-  test('a failed load does not block the lane: the next pass loads', () async {
+  test('a failed load does not block the lane, and what it left is '
+      'disposed before the next pass loads', () async {
     _installStubs(loadDelays: const [Duration.zero]);
     var failNext = true;
     final realLoad = globalContext['loadLiteRtEmbeddings'] as JSFunction;
@@ -141,13 +142,15 @@ void main() {
     final failed = _pass();
     await expectLater(failed.load(), throwsException);
     await failed.close();
-    expect(_disposes, 0, reason: 'a pass that never loaded disposes nothing');
+    // v1 may have loaded the tokenizer before the model failed; the close
+    // frees it rather than let the next load overwrite it.
+    expect(_disposes, 1, reason: 'a failed load is cleaned up');
 
     final next = _pass();
     await next.load();
     expect(_loads, 1, reason: 'only the second pass reached the real load');
     await next.close();
-    expect(_disposes, 1);
+    expect(_disposes, 2);
   });
 
   test('bundle API v1: the query and document prompts, no input limit, and '

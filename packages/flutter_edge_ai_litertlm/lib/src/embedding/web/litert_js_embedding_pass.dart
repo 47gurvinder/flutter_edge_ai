@@ -112,9 +112,13 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
     return previous.then((_) => op()).whenComplete(gate.complete);
   }
 
-  /// Whether this pass's load reached the page state (and its close must
-  /// therefore dispose it).
-  bool _loaded = false;
+  /// Whether this pass's load reached the bundle — and its close must
+  /// therefore dispose the page state, even when the load FAILED: v1 loads the
+  /// tokenizer before it compiles the model, so a failed compile leaves the
+  /// tokenizer allocated, and the next load would overwrite it without freeing
+  /// it. `cleanupLiteRtEmbeddings` checks each piece and is safe on partial
+  /// state.
+  bool _touchedPage = false;
   bool _closed = false;
 
   @override
@@ -142,6 +146,7 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
     try {
       final modelUrl = await _config.resolveUrl(_config.modelPath);
       try {
+        _touchedPage = true;
         await _bundle.load(modelUrl, tokenizerUrl, wasmPath);
       } finally {
         // The bundle has read the model by now (or failed to).
@@ -151,7 +156,6 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
       _releaseIfCreated(_config.tokenizerPath, tokenizerUrl);
     }
     _loadedWasmPath ??= wasmPath;
-    _loaded = true;
     if (kDebugMode) edgeAiLog('LiteRT.js embeddings loaded');
     // v1 cannot report the model's input length.
     return EmbeddingPassInfo(dimension: _bundle.dimension);
@@ -194,8 +198,8 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
     // included, so that one is never leaked — and ahead of any load a
     // replacement starts after this call.
     return _onPage(() async {
-      if (!_loaded) return;
-      _loaded = false;
+      if (!_touchedPage) return;
+      _touchedPage = false;
       await _bundle.dispose();
       if (kDebugMode) edgeAiLog('LiteRT.js embeddings disposed');
     });
