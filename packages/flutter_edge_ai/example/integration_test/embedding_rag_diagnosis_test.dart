@@ -41,55 +41,51 @@ const _queries = [
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets(
-    'RAG ranking diagnosis with EmbeddingGemma',
-    (tester) async {
-      await registerTestEngines();
+  testWidgets('RAG ranking diagnosis with EmbeddingGemma', (tester) async {
+    await registerTestEngines();
 
-      await FlutterEdgeAi.installEmbedder()
-          .modelFromAsset(_modelPath)
-          .tokenizerFromAsset(_tokenizerPath)
-          .install();
+    await FlutterEdgeAi.installEmbedder()
+        .modelFromAsset(_modelPath)
+        .tokenizerFromAsset(_tokenizerPath)
+        .install();
 
-      final model = await FlutterEdgeAi.getActiveEmbedder();
+    final model = await FlutterEdgeAi.getActiveEmbedder();
 
-      try {
-        print('\n\n========== RAW embeddings ==========');
-        final docEmbRaw = <String, List<double>>{};
-        for (final entry in _documents.entries) {
-          docEmbRaw[entry.key] = await model.embed(
-            EmbeddingInput.text(entry.value),
-            taskType: TaskType.retrievalQuery,
-          );
-        }
-        for (final query in _queries) {
-          final queryEmb = await model.embed(
+    try {
+      print('\n\n========== RAW embeddings ==========');
+      final docEmbRaw = <String, List<double>>{};
+      for (final entry in _documents.entries) {
+        docEmbRaw[entry.key] = await model.embed(
+          EmbeddingInput.text(entry.value),
+          taskType: TaskType.retrievalQuery,
+        );
+      }
+      for (final query in _queries) {
+        final queryEmb = await model.embed(
+          EmbeddingInput.text(query),
+          taskType: TaskType.retrievalQuery,
+        );
+        _printRanking(query, queryEmb, docEmbRaw);
+      }
+
+      print('\n\n========== L2 NORMALIZED embeddings ==========');
+      final docEmbNorm = <String, List<double>>{};
+      for (final entry in docEmbRaw.entries) {
+        docEmbNorm[entry.key] = _l2Normalize(entry.value);
+      }
+      for (final query in _queries) {
+        final queryEmb = _l2Normalize(
+          await model.embed(
             EmbeddingInput.text(query),
             taskType: TaskType.retrievalQuery,
-          );
-          _printRanking(query, queryEmb, docEmbRaw);
-        }
-
-        print('\n\n========== L2 NORMALIZED embeddings ==========');
-        final docEmbNorm = <String, List<double>>{};
-        for (final entry in docEmbRaw.entries) {
-          docEmbNorm[entry.key] = _l2Normalize(entry.value);
-        }
-        for (final query in _queries) {
-          final queryEmb = _l2Normalize(
-            await model.embed(
-              EmbeddingInput.text(query),
-              taskType: TaskType.retrievalQuery,
-            ),
-          );
-          _printRanking(query, queryEmb, docEmbNorm);
-        }
-      } finally {
-        await model.close();
+          ),
+        );
+        _printRanking(query, queryEmb, docEmbNorm);
       }
-    },
-    timeout: const Timeout(Duration(minutes: 10)),
-  );
+    } finally {
+      await model.close();
+    }
+  }, timeout: const Timeout(Duration(minutes: 10)));
 }
 
 void _printRanking(

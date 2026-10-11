@@ -158,21 +158,17 @@ void main() {
     }
   }, timeout: const Timeout(Duration(minutes: 5)));
 
-  testWidgets(
-    'EmbeddingGemma 256 — full RAG flow',
-    (_) async {
-      await registerTestEngines();
-      await FlutterEdgeAi.installEmbedder()
-          .modelFromFile(await _docsPath(_gemmaModelName))
-          .tokenizerFromFile(await _docsPath(_gemmaTokenizerName))
-          .install();
-      final model = await FlutterEdgeAi.getActiveEmbedder();
-      try {
-        await _exercise('EmbeddingGemma256', model);
-      } finally {
-        await model.close();
-      }
-    },
-    timeout: const Timeout(Duration(minutes: 5)),
-  );
+  testWidgets('EmbeddingGemma 256 — full RAG flow', (_) async {
+    await registerTestEngines();
+    await FlutterEdgeAi.installEmbedder()
+        .modelFromFile(await _docsPath(_gemmaModelName))
+        .tokenizerFromFile(await _docsPath(_gemmaTokenizerName))
+        .install();
+    final model = await FlutterEdgeAi.getActiveEmbedder();
+    try {
+      await _exercise('EmbeddingGemma256', model);
+    } finally {
+      await model.close();
+    }
+  }, timeout: const Timeout(Duration(minutes: 5)));
 }

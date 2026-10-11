@@ -80,44 +80,42 @@ void main() {
     );
   }
 
-  testWidgets(
-    'Embedding: EmbeddingGemma (BPE) + Gecko (Unigram)',
-    (tester) async {
-      await registerTestEngines();
+  testWidgets('Embedding: EmbeddingGemma (BPE) + Gecko (Unigram)', (
+    tester,
+  ) async {
+    await registerTestEngines();
 
-      // --- EmbeddingGemma ---
-      await FlutterEdgeAi.installEmbedder()
-          .modelFromAsset(
-            'assets/models/embeddinggemma-300M_seq256_mixed-precision.tflite',
-          )
-          .tokenizerFromAsset('assets/models/sentencepiece.model')
-          .install();
+    // --- EmbeddingGemma ---
+    await FlutterEdgeAi.installEmbedder()
+        .modelFromAsset(
+          'assets/models/embeddinggemma-300M_seq256_mixed-precision.tflite',
+        )
+        .tokenizerFromAsset('assets/models/sentencepiece.model')
+        .install();
 
-      var model = await FlutterEdgeAi.getActiveEmbedder();
-      try {
-        await verifyEmbeddings(model, 'EmbeddingGemma-BPE');
-      } finally {
-        await model.close();
-      }
+    var model = await FlutterEdgeAi.getActiveEmbedder();
+    try {
+      await verifyEmbeddings(model, 'EmbeddingGemma-BPE');
+    } finally {
+      await model.close();
+    }
 
-      // --- Gecko 64 ---
-      await FlutterEdgeAi.installEmbedder()
-          .modelFromAsset('assets/models/Gecko_64_quant.tflite')
-          .tokenizerFromAsset('assets/models/sentencepiece.model')
-          .install();
+    // --- Gecko 64 ---
+    await FlutterEdgeAi.installEmbedder()
+        .modelFromAsset('assets/models/Gecko_64_quant.tflite')
+        .tokenizerFromAsset('assets/models/sentencepiece.model')
+        .install();
 
-      model = await FlutterEdgeAi.getActiveEmbedder();
-      try {
-        await verifyEmbeddings(
-          model,
-          'Gecko64-Unigram',
-          minSimThreshold: 0.3,
-          maxDiffThreshold: 0.7,
-        );
-      } finally {
-        await model.close();
-      }
-    },
-    timeout: const Timeout(Duration(minutes: 10)),
-  );
+    model = await FlutterEdgeAi.getActiveEmbedder();
+    try {
+      await verifyEmbeddings(
+        model,
+        'Gecko64-Unigram',
+        minSimThreshold: 0.3,
+        maxDiffThreshold: 0.7,
+      );
+    } finally {
+      await model.close();
+    }
+  }, timeout: const Timeout(Duration(minutes: 10)));
 }
