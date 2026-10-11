@@ -142,8 +142,9 @@ void main() {
         embedding: const [1.0, 0.0, 0.0],
       );
 
-      await expectLater(
-        index.addVector(
+      // Argument validation throws synchronously, before a future exists.
+      expect(
+        () => index.addVector(
           id: 'doc2',
           content: 'Document 2',
           embedding: const [1.0, 0.0, 0.0, 0.0],
