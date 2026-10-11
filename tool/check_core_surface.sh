@@ -21,11 +21,9 @@
 #       not: packages/<pkg>/{lib,hook,bin}/ and packages/<pkg>/example/lib/
 #       (example/lib is in the pub archive; .pubignore drops only test/,
 #       example/integration_test/ and example/build/).
-#       TEMPORARY carve-out, removed by the train's PR B/C before the release
-#       PR F: three files of core's example app still reach core internals
-#       through annotated imports and are checked like tests (rule (b)) —
-#         packages/flutter_edge_ai/example/lib/integration_test_screen.dart
-#         packages/flutter_edge_ai/example/lib/utils/installed_model_lookup.dart
+#       TEMPORARY carve-out, removed by the train's PR C before the release
+#       PR F: one file of core's example app still reaches core internals
+#       through an annotated import and is checked like a test (rule (b)) —
 #         packages/flutter_edge_ai/example/lib/services/embedding_catalog_provenance.dart
 #       Any other example/lib file falls under (c).
 #
@@ -95,9 +93,7 @@ BEGIN {
   public["engine_web.dart"] = 1
   public["genai.dart"] = 1
   violations = 0; annotated = 0; files = 0
-  # TEMPORARY (see the header): removed by PR B/C before the release PR.
-  carve_out["packages/flutter_edge_ai/example/lib/integration_test_screen.dart"] = 1
-  carve_out["packages/flutter_edge_ai/example/lib/utils/installed_model_lookup.dart"] = 1
+  # TEMPORARY (see the header): removed by PR C before the release PR.
   carve_out["packages/flutter_edge_ai/example/lib/services/embedding_catalog_provenance.dart"] = 1
   # The annotation: the comment line directly above the directive.
   ann_re = "^[ \t]*// ignore: implementation_imports — [^ \t].*$"
