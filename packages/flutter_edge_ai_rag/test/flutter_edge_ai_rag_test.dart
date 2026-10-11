@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_edge_ai/flutter_edge_ai.dart'
     show
+        EmbeddingInput,
         EmbeddingModel,
         EmbeddingModelSpec,
         ModelSource,
@@ -1257,15 +1258,16 @@ class _FakeEmbedder implements RagEmbedder {
   }
 }
 
-// `extends`, not `implements`: core's EmbeddingModel gained members in 2.2.0,
-// which an `implements` fake would have to spell out one by one.
-// TRANSITIONAL(C stage 2): rewrite to the final fake shape (`final class …
-// extends EmbeddingModel` over `embed`/`dimension`) with the move to the new
-// API; stage 3 makes those abstract.
-class _FakeEmbeddingModel extends EmbeddingModel {
+/// A fake in the shape core 2.2 requires: a `final class` extending
+/// `EmbeddingModel` that implements `dimension`, `isClosed`, `embed`,
+/// `addCloseListener` and `close`. rag reaches it through the deprecated
+/// forwarders (`generateEmbedding`, `getDimension`), which call these.
+final class _FakeEmbeddingModel extends EmbeddingModel {
   _FakeEmbeddingModel({required this.dimension});
 
+  @override
   final int dimension;
+
   final List<TaskType> taskTypes = [];
   int closeCalls = 0;
 
@@ -1276,35 +1278,21 @@ class _FakeEmbeddingModel extends EmbeddingModel {
   bool get isClosed => closeCalls != 0;
 
   @override
-  void addCloseListener(void Function() listener) {}
-
-  @override
-  Future<void> close() async {
-    closeCalls++;
-  }
-
-  @override
-  Future<List<double>> generateEmbedding(
-    String text, {
-    TaskType taskType = TaskType.retrievalQuery,
+  Future<List<double>> embed(
+    EmbeddingInput input, {
+    required TaskType taskType,
   }) async {
     taskTypes.add(taskType);
     return [1, 2];
   }
 
   @override
-  Future<List<List<double>>> generateEmbeddings(
-    List<String> texts, {
-    TaskType taskType = TaskType.retrievalQuery,
-  }) async {
-    taskTypes.add(taskType);
-    return [
-      for (final _ in texts) [1, 2],
-    ];
-  }
+  void addCloseListener(void Function() listener) {}
 
   @override
-  Future<int> getDimension() async => dimension;
+  Future<void> close() async {
+    closeCalls++;
+  }
 }
 
 class _TestException implements Exception {
