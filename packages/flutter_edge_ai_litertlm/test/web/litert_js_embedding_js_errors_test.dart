@@ -4,9 +4,10 @@
 // inline host. A load failure must reach the caller as an
 // `EmbeddingLoadException`, an embed failure as an `EmbeddingEngineException`,
 // both tagged 'LiteRT.js' and carrying the JS message. A page without the
-// bundle at all fails the load by naming the missing file, and the close
-// behind that failure has nothing to dispose. The stubs are defined with
-// `eval`, so they are plain JS functions, not Dart closures.
+// bundle at all fails the load by naming the missing file, a page with a
+// stale (API v1) copy fails it with R5 §7's message, and the close behind
+// either failure has nothing to dispose. The stubs are defined with `eval`,
+// so they are plain JS functions, not Dart closures.
 //
 // Not run by tool/test_all.sh or CI, which run on the VM. Run:
 //   flutter test --platform chrome test/web/litert_js_embedding_js_errors_test.dart
@@ -30,25 +31,39 @@ void _js(String source) => globalContext.callMethod('eval'.toJS, source.toJS);
 
 /// A bundle whose every call succeeds; each test then breaks one function.
 void _installWorkingBundle() => _js('''
-  window.loadLiteRtEmbeddings = async function (model, tokenizer, wasm) {};
-  window.getLiteRtEmbeddingDimension = function () { return 4; };
-  window.isLiteRtEmbeddingsInitialized = function () { return true; };
-  window.generateEmbedding = async function (text) {
-    return new Float32Array([0.5, 0.5, 0.5, 0.5]);
+  window.liteRtEmbeddingsApiVersion = 2;
+  window.cleanups = 0;
+  window.loadLiteRtEmbeddings = async function (model, tokenizer, wasm) {
+    return { dimension: 4, maxInputTokens: 64 };
   };
-  window.generateDocumentEmbedding = window.generateEmbedding;
-  window.cleanupLiteRtEmbeddings = async function () {};
+  window.embedLiteRtText = async function (text) {
+    return { status: 'ok', values: new Float32Array([0.5, 0.5, 0.5, 0.5]) };
+  };
+  window.cleanupLiteRtEmbeddings = async function () { window.cleanups++; };
 ''');
 
 /// What a page without `<script src="litert_embeddings.js">` has: none of
 /// the bundle's window functions.
 void _removeBundle() => _js('''
+  delete window.liteRtEmbeddingsApiVersion;
   delete window.loadLiteRtEmbeddings;
-  delete window.getLiteRtEmbeddingDimension;
-  delete window.isLiteRtEmbeddingsInitialized;
-  delete window.generateEmbedding;
-  delete window.generateDocumentEmbedding;
+  delete window.embedLiteRtText;
   delete window.cleanupLiteRtEmbeddings;
+''');
+
+/// What a page with a copy from flutter_edge_ai_litertlm <= 1.11.x has: the
+/// v1 functions and no `liteRtEmbeddingsApiVersion`.
+void _installV1Bundle() => _js('''
+  delete window.liteRtEmbeddingsApiVersion;
+  delete window.embedLiteRtText;
+  window.cleanups = 0;
+  window.loadLiteRtEmbeddings = async function (model, tokenizer, wasm) {};
+  window.generateEmbedding = async function (text) {
+    return new Float32Array([0.5, 0.5, 0.5, 0.5]);
+  };
+  window.generateDocumentEmbedding = window.generateEmbedding;
+  window.getLiteRtEmbeddingDimension = function () { return 768; };
+  window.cleanupLiteRtEmbeddings = async function () { window.cleanups++; };
 ''');
 
 Future<EmbeddingHost> _start({
@@ -131,15 +146,49 @@ void main() {
     );
   });
 
+  test(
+    'a page with a stale (API v1) litert_embeddings.js: the load fails '
+    'with R5 §7\'s message, and the close behind it disposes nothing',
+    () async {
+      _installV1Bundle();
+      Future<void>? cleanup;
+      await expectLater(
+        _start(onFailedLoadCleanup: (c) => cleanup = c),
+        throwsA(
+          isA<EmbeddingLoadException>()
+              .having((e) => e.engine, 'engine', 'LiteRT.js')
+              .having(
+                (e) => e.message,
+                'message',
+                'web/litert_embeddings.js is older than '
+                    'flutter_edge_ai_litertlm 1.12.0; copy '
+                    'packages/flutter_edge_ai_litertlm/web/litert_embeddings.js '
+                    'into your web/',
+              ),
+        ),
+      );
+      await cleanup;
+      expect(
+        (globalContext['cleanups'] as JSNumber).toDartInt,
+        0,
+        reason: 'the stale bundle was never loaded, so nothing is disposed',
+      );
+    },
+  );
+
   group('an embed that fails in JS is an EmbeddingEngineException', () {
     for (final (how, stub) in [
       (
         'a synchronous throw',
-        "window.generateEmbedding = function () { throw new Error('sync embed boom'); };",
+        "window.embedLiteRtText = function () { throw new Error('sync embed boom'); };",
       ),
       (
         'a rejected promise',
-        "window.generateEmbedding = async function () { throw new Error('async embed boom'); };",
+        "window.embedLiteRtText = async function () { throw new Error('async embed boom'); };",
+      ),
+      (
+        'an answer with an unknown status',
+        "window.embedLiteRtText = async function () { return { status: 'embed boom' }; };",
       ),
     ]) {
       test(how, () async {

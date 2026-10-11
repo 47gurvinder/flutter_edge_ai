@@ -1,25 +1,45 @@
-// `LiteRtJsEmbeddingPass` (web, LiteRT.js bundle v1) on the VM, over a fake
-// bundle that keeps ONE page-global state the way `litert_embeddings.js`
-// does. The real interop is the browser suite's
-// (test/web/litert_js_embedding_pass_page_lane_test.dart); here: what reaches
-// the bundle, the v1 task-type limits, and the page-wide order of loads and
-// disposes across passes.
-
-import 'dart:async';
+// `LiteRtJsEmbeddingPass` (web, LiteRT.js bundle API v2) on the VM, over a
+// fake bundle that keeps ONE page-global state the way `litert_embeddings.js`
+// does. The real interop is the browser suites' (test/web/); here: the API
+// handshake, what reaches the bundle (`taskType.prefix + text`, for all nine
+// task types), the limit and dimension the bundle read from the model, typed
+// overflow, and the page-wide order of loads and disposes across passes.
 
 import 'package:flutter_edge_ai/engine.dart';
+// ignore: implementation_imports — the app-facing model over core's inline host, which is internal to core
+import 'package:flutter_edge_ai/src/embedding/common_embedding_model.dart';
+// ignore: implementation_imports — the app-facing model over core's inline host, which is internal to core
+import 'package:flutter_edge_ai/src/embedding/embedding_host_web.dart'
+    as inline;
 import 'package:flutter_edge_ai_litertlm/src/embedding/web/litert_js_embedding_pass.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The page-global state of the bundle, shared by every pass on the "page".
+///
+/// "Tokens" are one per character plus BOS and EOS, so a test can reason
+/// about lengths without a tokenizer.
 final class _FakePage implements LiteRtJsBundle {
-  _FakePage({this.loadDelays = const [Duration.zero]});
+  _FakePage({
+    this.loadDelays = const [Duration.zero],
+    this.maxInputTokens = 64,
+    this.dimension = 4,
+  });
 
   /// Per load, in order; the last one repeats.
   final List<Duration> loadDelays;
 
-  /// When set, the next load fails after fetching the tokenizer — as v1
-  /// does when the model fails to compile.
+  /// What the bundle reads from the model's input shape.
+  final int maxInputTokens;
+
+  /// What the bundle reads from the model's output shape.
+  final int dimension;
+
+  /// `liteRtEmbeddingsApiVersion` on this page; null = a bundle that set none.
+  @override
+  int? apiVersion = 2;
+
+  /// When set, the next load fails after fetching the tokenizer — as the
+  /// bundle does when the model fails to compile.
   bool failNextLoad = false;
 
   /// When true, `web/litert_embeddings.js` is not on the page: none of its
@@ -37,10 +57,12 @@ final class _FakePage implements LiteRtJsBundle {
   bool tokenizerLoaded = false;
   final loads = <({String model, String tokenizer})>[];
   int disposes = 0;
-  final prompts = <({String kind, String text})>[];
+
+  /// Every string that reached `embedLiteRtText`, in order.
+  final prompts = <String>[];
 
   @override
-  Future<void> load(
+  Future<({int dimension, int maxInputTokens})> load(
     String modelUrl,
     String tokenizerUrl,
     String wasmPath,
@@ -57,22 +79,19 @@ final class _FakePage implements LiteRtJsBundle {
       throw StateError('Failed to load LiteRT model: compile failed');
     }
     modelLoaded = true;
+    return (dimension: dimension, maxInputTokens: maxInputTokens);
   }
 
   @override
-  int get dimension => 4;
-
-  Future<List<double>> _embed(String kind, String text) async {
+  Future<LiteRtJsEmbedResult> embed(String prefixedText) async {
     if (!modelLoaded) throw StateError('page state was disposed');
-    prompts.add((kind: kind, text: text));
-    return const [0.5, 0.5, 0.5, 0.5];
+    prompts.add(prefixedText);
+    final ids = prefixedText.length + 2;
+    if (ids > maxInputTokens) {
+      return LiteRtJsTooLong(actualTokens: ids, maxInputTokens: maxInputTokens);
+    }
+    return LiteRtJsVector(List<double>.filled(dimension, 0.5));
   }
-
-  @override
-  Future<List<double>> embedQuery(String text) => _embed('query', text);
-
-  @override
-  Future<List<double>> embedDocument(String text) => _embed('document', text);
 
   @override
   Future<void> dispose() async {
@@ -89,22 +108,207 @@ Future<String> _fakeResolve(String path) async => path.startsWith('opfs://')
     ? 'blob:resolved/${path.substring('opfs://'.length)}'
     : path;
 
+LiteRtJsEmbeddingConfig _config(
+  _FakePage page, {
+  String modelPath = 'blob:model',
+  String tokenizerPath = 'blob:tokenizer',
+  List<String>? revoked,
+  List<String>? resolved,
+}) => LiteRtJsEmbeddingConfig(
+  modelPath: modelPath,
+  tokenizerPath: tokenizerPath,
+  bundle: page,
+  resolveUrl: (path) {
+    resolved?.add(path);
+    return _fakeResolve(path);
+  },
+  revokeUrl: (url) => revoked?.add(url),
+);
+
 LiteRtJsEmbeddingPass _pass(
   _FakePage page, {
   String modelPath = 'blob:model',
   String tokenizerPath = 'blob:tokenizer',
   List<String>? revoked,
 }) => LiteRtJsEmbeddingPass(
-  LiteRtJsEmbeddingConfig(
+  _config(
+    page,
     modelPath: modelPath,
     tokenizerPath: tokenizerPath,
-    bundle: page,
-    resolveUrl: _fakeResolve,
-    revokeUrl: (url) => revoked?.add(url),
+    revoked: revoked,
   ),
 );
 
+/// R5 §7's message, verbatim: what an app with a stale `web/` copy sees.
+const _staleBundleMessage =
+    'web/litert_embeddings.js is older than flutter_edge_ai_litertlm 1.12.0; '
+    'copy packages/flutter_edge_ai_litertlm/web/litert_embeddings.js into '
+    'your web/';
+
 void main() {
+  group('bundle API v2 handshake', () {
+    for (final version in [null, 1]) {
+      test('a page whose bundle announces ${version ?? 'no'} API version is '
+          'refused by name before anything is resolved or loaded', () async {
+        final page = _FakePage()..apiVersion = version;
+        final resolved = <String>[];
+        final pass = LiteRtJsEmbeddingPass(
+          _config(
+            page,
+            modelPath: 'opfs://m.tflite',
+            tokenizerPath: 'opfs://t.model',
+            resolved: resolved,
+          ),
+        );
+
+        await expectLater(
+          pass.load(),
+          throwsA(
+            isA<EmbeddingLoadException>()
+                .having((e) => e.engine, 'engine', 'LiteRT.js')
+                .having((e) => e.message, 'message', _staleBundleMessage),
+          ),
+        );
+        expect(resolved, isEmpty, reason: 'no blob: URL made for nothing');
+        expect(page.loads, isEmpty);
+        await pass.close();
+        expect(page.disposes, 0, reason: 'the page was never touched');
+      });
+    }
+
+    test('a bundle NEWER than this package is refused too, and says so rather '
+        'than call it older', () async {
+      final page = _FakePage()..apiVersion = 3;
+      await expectLater(
+        _pass(page).load(),
+        throwsA(
+          isA<EmbeddingLoadException>()
+              .having((e) => e.engine, 'engine', 'LiteRT.js')
+              .having(
+                (e) => e.message,
+                'message',
+                allOf(contains('API v3'), contains('litert_embeddings.js')),
+              ),
+        ),
+      );
+      expect(page.loads, isEmpty);
+    });
+  });
+
+  group('what reaches the bundle', () {
+    test('every task type reaches embedLiteRtText as taskType.prefix + text, '
+        'built by the one prefix function', () async {
+      final page = _FakePage(maxInputTokens: 64);
+      final pass = _pass(page);
+      await pass.load();
+
+      for (final type in TaskType.values) {
+        await pass.embed(EmbeddingInput.text('q'), type);
+      }
+
+      expect(page.prompts, [for (final t in TaskType.values) '${t.prefix}q']);
+      await pass.close();
+    });
+
+    test('empty and whitespace-only text are embedded, as native .tflite '
+        'embeds them (the prefix, BOS and EOS)', () async {
+      final page = _FakePage(maxInputTokens: 64);
+      final pass = _pass(page);
+      await pass.load();
+
+      final empty = await pass.embed(
+        EmbeddingInput.text(''),
+        TaskType.retrievalQuery,
+      );
+      final blank = await pass.embed(EmbeddingInput.text('  '), TaskType.none);
+
+      expect(empty, hasLength(4));
+      expect(blank, hasLength(4));
+      expect(page.prompts, [TaskType.retrievalQuery.prefix, '  ']);
+      await pass.close();
+    });
+  });
+
+  group('limit, dimension and overflow come from the model', () {
+    test('load reports the dimension and maxInputTokens the bundle read from '
+        'the model — no constant 768, no null limit', () async {
+      final info = await _pass(
+        _FakePage(maxInputTokens: 256, dimension: 768),
+      ).load();
+      expect(info.dimension, 768);
+      expect(info.maxInputTokens, 256);
+      expect(info.modalities, {EmbeddingModality.text});
+    });
+
+    test('too_long becomes EmbeddingInputTooLongException with both counts; '
+        'nothing is truncated and the pass keeps serving', () async {
+      final page = _FakePage(maxInputTokens: 8);
+      final pass = _pass(page);
+      await pass.load();
+
+      // TaskType.none adds no prefix: 6 characters + BOS + EOS = 8 ids fit.
+      expect(
+        await pass.embed(EmbeddingInput.text('abcdef'), TaskType.none),
+        hasLength(4),
+      );
+      await expectLater(
+        pass.embed(EmbeddingInput.text('abcdefg'), TaskType.none),
+        throwsA(
+          isA<EmbeddingInputTooLongException>()
+              .having((e) => e.maxInputTokens, 'maxInputTokens', 8)
+              .having((e) => e.actualTokens, 'actualTokens', 9),
+        ),
+      );
+      expect(
+        await pass.embed(EmbeddingInput.text('ab'), TaskType.none),
+        hasLength(4),
+        reason: 'an overflow does not break the pass',
+      );
+      await pass.close();
+    });
+
+    test('through core\'s inline host, the model an app gets reports the '
+        'limit and throws the typed overflow (EG1 seq256 numbers)', () async {
+      final page = _FakePage(maxInputTokens: 256, dimension: 768);
+      final host = await inline.startEmbeddingHost(
+        EmbeddingPassDescriptor<LiteRtJsEmbeddingConfig>(
+          engineTag: liteRtJsEngine,
+          factory: buildLiteRtJsEmbeddingPass,
+          config: _config(page),
+          activeBackend: null,
+        ),
+        declaredMedia: const {},
+        label: 'embeddinggemma-300M_seq256_mixed-precision.tflite',
+      );
+      final model = CommonEmbeddingModel.withHost(host, engine: liteRtJsEngine);
+      try {
+        expect(model.maxInputTokens, 256);
+        expect(model.dimension, 768);
+        // retrievalDocument's prefix is 20 characters: 20 + 300 + 2 = 322.
+        await expectLater(
+          model.embed(
+            EmbeddingInput.text('x' * 300),
+            taskType: TaskType.retrievalDocument,
+          ),
+          throwsA(
+            isA<EmbeddingInputTooLongException>()
+                .having((e) => e.maxInputTokens, 'maxInputTokens', 256)
+                .having((e) => e.actualTokens, 'actualTokens', 322),
+          ),
+        );
+        expect(
+          await model.embed(
+            EmbeddingInput.text('short'),
+            taskType: TaskType.retrievalQuery,
+          ),
+          hasLength(768),
+        );
+      } finally {
+        await model.close();
+      }
+    });
+  });
+
   group('opfs:// paths (WebStorageMode.streaming)', () {
     test('the bundle gets RESOLVED URLs for the model and the tokenizer, never '
         'an opfs:// path its fetch() would reject', () async {
@@ -141,7 +345,7 @@ void main() {
 
   group('object URLs the pass created', () {
     test('the blob: URLs made for opfs:// paths are revoked once the bundle '
-        'has read them — not before', () async {
+        'has read them — not before — and embedding works after', () async {
       final revoked = <String>[];
       final page = _FakePage()
         ..onLoad = () => expect(revoked, isEmpty, reason: 'still being read');
@@ -160,6 +364,10 @@ void main() {
           'blob:resolved/gemma.tflite',
           'blob:resolved/sentencepiece.model',
         ]),
+      );
+      expect(
+        await pass.embed(EmbeddingInput.text('q'), TaskType.retrievalQuery),
+        hasLength(4),
       );
       await pass.close();
     });
@@ -185,57 +393,6 @@ void main() {
       await pass.load();
       await pass.close();
       expect(revoked, isEmpty);
-    });
-  });
-
-  group('bundle API v1', () {
-    test('the query and document prompts get the RAW text — the bundle adds '
-        'the prefix, so the pass must not', () async {
-      final page = _FakePage();
-      final pass = _pass(page);
-      await pass.load();
-
-      await pass.embed(EmbeddingInput.text('q'), TaskType.retrievalQuery);
-      await pass.embed(EmbeddingInput.text('d'), TaskType.retrievalDocument);
-
-      expect(page.prompts, [
-        (kind: 'query', text: 'q'),
-        (kind: 'document', text: 'd'),
-      ]);
-      await pass.close();
-    });
-
-    test(
-      'the other seven task types are refused by name and reach nothing',
-      () async {
-        final page = _FakePage();
-        final pass = _pass(page);
-        await pass.load();
-
-        for (final type in TaskType.values.skip(2)) {
-          await expectLater(
-            pass.embed(EmbeddingInput.text('x'), type),
-            throwsA(
-              isA<EmbeddingEngineException>()
-                  .having((e) => e.engine, 'engine', 'LiteRT.js')
-                  .having(
-                    (e) => e.message,
-                    'message',
-                    contains('TaskType.${type.name}'),
-                  ),
-            ),
-          );
-        }
-        expect(page.prompts, isEmpty);
-        await pass.close();
-      },
-    );
-
-    test('load reports the bundle\'s dimension and no input limit (v1 cannot '
-        'tell)', () async {
-      final info = await _pass(_FakePage()).load();
-      expect(info.dimension, 4);
-      expect(info.maxInputTokens, isNull);
     });
   });
 
@@ -272,14 +429,14 @@ void main() {
     });
 
     test('a failed load leaves nothing on the page: close disposes the '
-        'tokenizer v1 loaded before the model failed', () async {
-      // v1 loads the tokenizer, then compiles the model; when the compile
-      // fails the tokenizer stays allocated, and the next load overwrote it
-      // without freeing it — a leaked SentencePiece processor.
+        'tokenizer the bundle loaded before the model failed', () async {
+      // The bundle loads the tokenizer, then compiles the model; when the
+      // compile fails the tokenizer stays allocated, and the next load
+      // overwrote it without freeing it — a leaked SentencePiece processor.
       final page = _FakePage()..failNextLoad = true;
       final failed = _pass(page);
       await expectLater(failed.load(), throwsStateError);
-      expect(page.tokenizerLoaded, isTrue, reason: 'what v1 leaves behind');
+      expect(page.tokenizerLoaded, isTrue, reason: 'what the bundle leaves');
 
       await failed.close();
 
@@ -315,15 +472,11 @@ void main() {
         final page = _FakePage()..missing = true;
         final resolved = <String>[];
         final pass = LiteRtJsEmbeddingPass(
-          LiteRtJsEmbeddingConfig(
+          _config(
+            page,
             modelPath: 'opfs://m.tflite',
             tokenizerPath: 'opfs://t.model',
-            bundle: page,
-            resolveUrl: (path) async {
-              resolved.add(path);
-              return 'blob:$path';
-            },
-            revokeUrl: (_) {},
+            resolved: resolved,
           ),
         );
 

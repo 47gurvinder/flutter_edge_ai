@@ -2,10 +2,11 @@
 // and `isInitialized` in litert_embeddings.js), while a `LiteRtJsEmbeddingPass`
 // is one per loaded embedder. These tests stand in for the JS with stubs on
 // `window` that share one flag, the way the real bundle does, and pin the
-// order of loads and disposes across passes, plus what the interim pass on
-// bundle API v1 serves through the real interop: the query and document
-// prompts with the raw text, nothing else, and no input limit. The same rules
-// over a fake bundle run on the VM (test/litert_js_embedding_pass_test.dart).
+// order of loads and disposes across passes, plus what the pass sends and
+// reads through the REAL interop on bundle API v2: `taskType.prefix + text`
+// for every task type, the dimension and input length the load reports, and a
+// `too_long` answer as the typed overflow. The same rules over a fake bundle
+// run on the VM (test/litert_js_embedding_pass_test.dart).
 //
 // Not run by tool/test_all.sh or CI, which run on the VM. Run:
 //   flutter test --platform chrome test/web/litert_js_embedding_pass_page_lane_test.dart
@@ -22,13 +23,25 @@ import 'package:flutter_edge_ai_litertlm/src/embedding/web/litert_web_embeddings
 import 'package:flutter_test/flutter_test.dart';
 
 /// The page-global state the real bundle keeps, reduced to the one flag the
-/// Dart side consults.
+/// stubs consult.
 bool _pageLoaded = false;
 int _loads = 0;
 int _disposes = 0;
 
-/// What reached the bundle: which prompt, and the text it was given.
-final _prompts = <({String kind, String text})>[];
+/// Every string that reached `embedLiteRtText`.
+final _prompts = <String>[];
+
+/// The input length the stub "model" reports; one id per character plus BOS
+/// and EOS.
+const _maxInputTokens = 64;
+
+JSObject _object(Map<String, JSAny?> fields) {
+  final object = JSObject();
+  for (final MapEntry(:key, :value) in fields.entries) {
+    object[key] = value;
+  }
+  return object;
+}
 
 /// [loadDelays] is per call, in order; the last one repeats.
 void _installStubs({required List<Duration> loadDelays}) {
@@ -37,12 +50,7 @@ void _installStubs({required List<Duration> loadDelays}) {
   _disposes = 0;
   _prompts.clear();
 
-  JSPromise<JSAny?> embed(String kind, JSString text) => () async {
-    if (!_pageLoaded) throw StateError('page state was disposed');
-    _prompts.add((kind: kind, text: text.toDart));
-    return Float32List(4).toJS;
-  }().toJS;
-
+  globalContext['liteRtEmbeddingsApiVersion'] = 2.toJS;
   globalContext['loadLiteRtEmbeddings'] =
       ((JSAny? model, JSAny? tokenizer, JSAny? wasm) {
         return () async {
@@ -51,6 +59,10 @@ void _installStubs({required List<Duration> loadDelays}) {
             loadDelays[(_loads - 1).clamp(0, loadDelays.length - 1)],
           );
           _pageLoaded = true;
+          return _object({
+            'dimension': 4.toJS,
+            'maxInputTokens': _maxInputTokens.toJS,
+          });
         }().toJS;
       }).toJS;
   globalContext['cleanupLiteRtEmbeddings'] = (() {
@@ -59,24 +71,32 @@ void _installStubs({required List<Duration> loadDelays}) {
       _pageLoaded = false;
     }().toJS;
   }).toJS;
-  globalContext['isLiteRtEmbeddingsInitialized'] =
-      (() => _pageLoaded.toJS).toJS;
-  globalContext['generateEmbedding'] = ((JSString text) => embed(
-    'query',
-    text,
-  )).toJS;
-  globalContext['generateDocumentEmbedding'] = ((JSString text) => embed(
-    'document',
-    text,
-  )).toJS;
-  globalContext['getLiteRtEmbeddingDimension'] = (() => 4.toJS).toJS;
+  globalContext['embedLiteRtText'] = ((JSString text) {
+    return () async {
+      if (!_pageLoaded) throw StateError('page state was disposed');
+      final prefixed = text.toDart;
+      _prompts.add(prefixed);
+      final ids = prefixed.length + 2;
+      if (ids > _maxInputTokens) {
+        return _object({
+          'status': 'too_long'.toJS,
+          'actualTokens': ids.toJS,
+          'maxInputTokens': _maxInputTokens.toJS,
+        });
+      }
+      return _object({
+        'status': 'ok'.toJS,
+        'values': Float32List.fromList([0.5, 0.5, 0.5, 0.5]).toJS,
+      });
+    }().toJS;
+  }).toJS;
 }
 
 LiteRtJsEmbeddingPass _pass() => LiteRtJsEmbeddingPass(
   LiteRtJsEmbeddingConfig(
     modelPath: 'm',
     tokenizerPath: 't',
-    bundle: WindowLiteRtJsBundle(),
+    bundle: const WindowLiteRtJsBundle(),
     resolveUrl: _unchanged,
     revokeUrl: _neverCalled,
   ),
@@ -133,17 +153,17 @@ void main() {
         ((JSAny? model, JSAny? tokenizer, JSAny? wasm) {
           if (failNext) {
             failNext = false;
-            return Future<void>.error(StateError('fetch failed')).toJS;
+            return Future<JSAny?>.error(StateError('fetch failed')).toJS;
           }
           return realLoad.callAsFunction(null, model, tokenizer, wasm)
               as JSPromise;
         }).toJS;
 
     final failed = _pass();
-    await expectLater(failed.load(), throwsException);
+    await expectLater(failed.load(), throwsA(anything));
     await failed.close();
-    // v1 may have loaded the tokenizer before the model failed; the close
-    // frees it rather than let the next load overwrite it.
+    // The bundle may have loaded the tokenizer before the model failed; the
+    // close frees it rather than let the next load overwrite it.
     expect(_disposes, 1, reason: 'a failed load is cleaned up');
 
     final next = _pass();
@@ -153,35 +173,39 @@ void main() {
     expect(_disposes, 2);
   });
 
-  test('bundle API v1: the query and document prompts, no input limit, and '
-      'the other seven task types refused by name', () async {
+  test('bundle API v2 through the real interop: the load reports the '
+      'model\'s limit, every task type arrives as prefix + text, and '
+      'too_long is the typed overflow', () async {
     _installStubs(loadDelays: const [Duration.zero]);
     final pass = _pass();
     final info = await pass.load();
-    expect(info.maxInputTokens, isNull, reason: 'v1 cannot tell');
+    expect(info.dimension, 4);
+    expect(info.maxInputTokens, _maxInputTokens);
 
-    await pass.embed(EmbeddingInput.text('q'), TaskType.retrievalQuery);
-    await pass.embed(EmbeddingInput.text('d'), TaskType.retrievalDocument);
-    // The RAW text: the v1 bundle prepends the prompt itself, so a prefix
-    // added in Dart would be embedded twice.
-    expect(_prompts, [
-      (kind: 'query', text: 'q'),
-      (kind: 'document', text: 'd'),
-    ]);
-
-    for (final type in TaskType.values.skip(2)) {
-      await expectLater(
-        pass.embed(EmbeddingInput.text('x'), type),
-        throwsA(
-          isA<EmbeddingEngineException>().having(
-            (e) => e.message,
-            'message',
-            contains('TaskType.${type.name}'),
-          ),
-        ),
-      );
+    for (final type in TaskType.values) {
+      expect(await pass.embed(EmbeddingInput.text('q'), type), [
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+      ]);
     }
-    expect(_prompts, hasLength(2), reason: 'nothing reached the bundle');
+    expect(_prompts, [for (final t in TaskType.values) '${t.prefix}q']);
+
+    // TaskType.none: 70 characters + BOS + EOS = 72 ids > 64.
+    await expectLater(
+      pass.embed(EmbeddingInput.text('x' * 70), TaskType.none),
+      throwsA(
+        isA<EmbeddingInputTooLongException>()
+            .having((e) => e.maxInputTokens, 'maxInputTokens', _maxInputTokens)
+            .having((e) => e.actualTokens, 'actualTokens', 72),
+      ),
+    );
+    // Empty text is embedded, as on native.
+    expect(
+      await pass.embed(EmbeddingInput.text(''), TaskType.none),
+      hasLength(4),
+    );
     await pass.close();
   });
 }

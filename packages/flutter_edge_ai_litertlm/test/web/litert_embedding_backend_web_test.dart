@@ -71,14 +71,17 @@ void main() {
       'opfs:// paths', () async {
     final received = <String>[];
     final revoked = <String>[];
+    globalContext['liteRtEmbeddingsApiVersion'] = 2.toJS;
     globalContext['loadLiteRtEmbeddings'] =
         ((JSString model, JSString tokenizer, JSAny? wasm) {
           received
             ..add(model.toDart)
             ..add(tokenizer.toDart);
-          return Future<void>.value().toJS;
+          final info = JSObject()
+            ..['dimension'] = 4.toJS
+            ..['maxInputTokens'] = 64.toJS;
+          return Future<JSObject>.value(info).toJS;
         }).toJS;
-    globalContext['getLiteRtEmbeddingDimension'] = (() => 4.toJS).toJS;
     globalContext['cleanupLiteRtEmbeddings'] = (() {
       return Future<void>.value().toJS;
     }).toJS;

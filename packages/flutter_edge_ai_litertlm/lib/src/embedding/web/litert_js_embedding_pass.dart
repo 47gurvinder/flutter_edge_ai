@@ -7,18 +7,14 @@
 // [LiteRtJsBundle] (the `dart:js_interop` one from the web backend, a fake in
 // the VM tests), so nothing here imports `dart:js_interop`.
 //
-// Interim, on bundle API v1: the bundle tokenizes and prefixes inside the JS,
-// and knows two prompts — `generateEmbedding` (the query prompt, which it uses
-// for every type but a document) and `generateDocumentEmbedding`. So this pass
-// serves `TaskType.retrievalQuery` and `.retrievalDocument` only and refuses
-// the other seven by name rather than embed them with the wrong prefix, and it
-// reports `maxInputTokens: null` because v1 cannot tell.
-//
-// Until then, an over-long input is TRUNCATED SILENTLY on web: v1 cuts the
-// ids (prefix, BOS, text, EOS) to the model's sequence length, which also
-// drops the EOS, and returns a vector of the cut text with no error — where
-// native throws `EmbeddingInputTooLongException`. Bundle API v2 (Dart builds
-// the prefix; overflow reported, never truncated) replaces all three.
+// Bundle API v2 (R5 §7): the pass builds `taskType.prefix + text` with the one
+// prefix function every engine uses, so all nine task types mean on web what
+// they mean on native; the bundle tokenizes that one string as
+// `[2, ...ids, 1]` — the native Dart tokenizer's ids — and reports the model's
+// dimension and input length at load. An input longer than that comes back as
+// `too_long` and is thrown as `EmbeddingInputTooLongException`, never
+// truncated. A page whose copy of the bundle does not announce v2 is refused
+// before anything loads.
 
 import 'dart:async';
 
@@ -27,27 +23,60 @@ import 'package:flutter_edge_ai/engine.dart';
 
 import 'web_runtime.dart';
 
-/// The `web/litert_embeddings.js` window API (bundle v1), as the pass uses it.
+/// The `web/litert_embeddings.js` window API (bundle API v2), as the pass uses
+/// it.
 abstract interface class LiteRtJsBundle {
   /// Whether `web/litert_embeddings.js` is on the page at all — its window
   /// API exists. When it is not, no call below can do anything but throw.
   bool get isPresent;
 
+  /// `liteRtEmbeddingsApiVersion`: [liteRtJsBundleApiVersion] for the bundle
+  /// this package ships; null when the page's copy sets none (every bundle
+  /// before v2).
+  int? get apiVersion;
+
   /// `loadLiteRtEmbeddings`: fetches the tokenizer, then fetches and compiles
-  /// the model. Page-global state.
-  Future<void> load(String modelUrl, String tokenizerUrl, String wasmPath);
+  /// the model, and reports what it read from the model — its output's last
+  /// dimension and its input's sequence length. Page-global state.
+  Future<({int dimension, int maxInputTokens})> load(
+    String modelUrl,
+    String tokenizerUrl,
+    String wasmPath,
+  );
 
-  /// `getLiteRtEmbeddingDimension`.
-  int get dimension;
-
-  /// `generateEmbedding`: the bundle prepends the query prompt.
-  Future<List<double>> embedQuery(String text);
-
-  /// `generateDocumentEmbedding`: the bundle prepends the document prompt.
-  Future<List<double>> embedDocument(String text);
+  /// `embedLiteRtText`: embeds [prefixedText] exactly as given.
+  Future<LiteRtJsEmbedResult> embed(String prefixedText);
 
   /// `cleanupLiteRtEmbeddings`: frees the model and the tokenizer.
   Future<void> dispose();
+}
+
+/// The window API version this package's `web/litert_embeddings.js`
+/// implements, and the only one the pass accepts.
+const liteRtJsBundleApiVersion = 2;
+
+/// What `embedLiteRtText` answered.
+sealed class LiteRtJsEmbedResult {
+  const LiteRtJsEmbedResult();
+}
+
+/// `{status: 'ok', values}`: the model's output vector.
+final class LiteRtJsVector extends LiteRtJsEmbedResult {
+  const LiteRtJsVector(this.values);
+
+  final List<double> values;
+}
+
+/// `{status: 'too_long', actualTokens, maxInputTokens}`: the ids — BOS and EOS
+/// included — are longer than the model's input. Nothing ran.
+final class LiteRtJsTooLong extends LiteRtJsEmbedResult {
+  const LiteRtJsTooLong({
+    required this.actualTokens,
+    required this.maxInputTokens,
+  });
+
+  final int actualTokens;
+  final int maxInputTokens;
 }
 
 /// What the web `LiteRtEmbeddingBackend.describe` hands core: the model and
@@ -122,11 +151,11 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
   }
 
   /// Whether this pass's load reached the bundle — and its close must
-  /// therefore dispose the page state, even when the load FAILED: v1 loads the
-  /// tokenizer before it compiles the model, so a failed compile leaves the
-  /// tokenizer allocated, and the next load would overwrite it without freeing
-  /// it. `cleanupLiteRtEmbeddings` checks each piece and is safe on partial
-  /// state.
+  /// therefore dispose the page state, even when the load FAILED: the bundle
+  /// loads the tokenizer before it compiles the model, so a failed compile
+  /// leaves the tokenizer allocated, and the next load would overwrite it
+  /// without freeing it. `cleanupLiteRtEmbeddings` checks each piece and is
+  /// safe on partial state.
   bool _touchedPage = false;
   bool _closed = false;
 
@@ -149,6 +178,10 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
         engine: liteRtJsEngine,
       );
     }
+    // Same reasoning: a stale copy is refused before it is touched. Its
+    // functions would otherwise embed every task type but a document with the
+    // query prompt and truncate long input without a word.
+    _checkApiVersion(_bundle.apiVersion);
     // Configurable since 2.2.0; the old hardcoded '/wasm/' was served by
     // nothing, so this call always failed. See [LiteRtWebRuntime].
     final wasmPath = LiteRtWebRuntime.wasmPath;
@@ -166,11 +199,12 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
     // Under WebStorageMode.streaming both are `opfs://`, which the bundle's
     // fetch() rejects: every LiteRT.js embedder failed to load there.
     final tokenizerUrl = await _config.resolveUrl(_config.tokenizerPath);
+    final ({int dimension, int maxInputTokens}) model;
     try {
       final modelUrl = await _config.resolveUrl(_config.modelPath);
       try {
         _touchedPage = true;
-        await _bundle.load(modelUrl, tokenizerUrl, wasmPath);
+        model = await _bundle.load(modelUrl, tokenizerUrl, wasmPath);
       } finally {
         // The bundle has read the model by now (or failed to).
         _releaseIfCreated(_config.modelPath, modelUrl);
@@ -180,10 +214,33 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
     }
     _loadedWasmPath ??= wasmPath;
     if (kDebugMode) edgeAiLog('LiteRT.js embeddings loaded');
-    // v1 cannot report the model's input length — and truncates an input
-    // over it silently, EOS included (see the header). Bundle v2 fixes both.
-    return EmbeddingPassInfo(dimension: _bundle.dimension);
+    // Both read from the model by the bundle: the output's last dimension and
+    // the input's sequence length, which the prefix, BOS and EOS count
+    // towards.
+    return EmbeddingPassInfo(
+      dimension: model.dimension,
+      maxInputTokens: model.maxInputTokens,
+    );
   });
+
+  static void _checkApiVersion(int? version) {
+    if (version == liteRtJsBundleApiVersion) return;
+    if (version == null || version < liteRtJsBundleApiVersion) {
+      throw const EmbeddingLoadException(
+        'web/litert_embeddings.js is older than flutter_edge_ai_litertlm '
+        '1.12.0; copy packages/flutter_edge_ai_litertlm/web/'
+        'litert_embeddings.js into your web/',
+        engine: liteRtJsEngine,
+      );
+    }
+    throw EmbeddingLoadException(
+      'web/litert_embeddings.js implements bundle API v$version, newer than '
+      'this flutter_edge_ai_litertlm (v$liteRtJsBundleApiVersion); copy the '
+      'litert_embeddings.js of the flutter_edge_ai_litertlm version your app '
+      'depends on into your web/',
+      engine: liteRtJsEngine,
+    );
+  }
 
   /// Revokes [url] when this pass created it — the `blob:` URL of an
   /// `opfs://` [rawPath] — and never a URL core owns. Each holds a
@@ -198,19 +255,18 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
     if (text == null) {
       throw StateError('LiteRtJsEmbeddingPass embeds text only');
     }
-    return switch (taskType) {
-      // The raw text: the v1 bundle prepends the prompt itself.
-      TaskType.retrievalQuery => _bundle.embedQuery(text),
-      TaskType.retrievalDocument => _bundle.embedDocument(text),
-      // The v1 bundle builds the prefix itself and knows only the query and
-      // document prompts; it would embed every other type with the query
-      // prompt. Refused instead of silently embedded with the wrong prefix.
-      _ => throw EmbeddingEngineException(
-        'web/litert_embeddings.js (bundle API v1) predates '
-        'TaskType.${taskType.name}; it embeds only TaskType.retrievalQuery '
-        'and TaskType.retrievalDocument.',
-        engine: liteRtJsEngine,
-      ),
+    // The one prefix function, as on native; empty text is embedded too.
+    final result = await _bundle.embed(taskType.prefix + text);
+    return switch (result) {
+      LiteRtJsVector(:final values) => values,
+      LiteRtJsTooLong(:final actualTokens, :final maxInputTokens) =>
+        throw EmbeddingInputTooLongException(
+          'The input is $actualTokens tokens (task prefix, BOS and EOS '
+          'included); this model takes at most $maxInputTokens. Split the '
+          'text and embed the pieces.',
+          maxInputTokens: maxInputTokens,
+          actualTokens: actualTokens,
+        ),
     };
   }
 
