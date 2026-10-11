@@ -137,8 +137,20 @@ int _acceleratorFor(EmbeddingBackend backend) {
   }
 }
 
+/// The production [LiteRtEmbeddingGraph]: the LiteRT C API. [allocator]
+/// counts the pass's own pointer allocations in tests.
+@visibleForTesting
+LiteRtEmbeddingGraph nativeLiteRtEmbeddingGraph({
+  Allocator allocator = calloc,
+}) => _NativeLiteRtEmbeddingGraph(allocator);
+
 /// [LiteRtEmbeddingGraph] over the LiteRT C API.
 final class _NativeLiteRtEmbeddingGraph implements LiteRtEmbeddingGraph {
+  _NativeLiteRtEmbeddingGraph([this._alloc = calloc]);
+
+  /// Every pointer [open] allocates, and frees.
+  final Allocator _alloc;
+
   final EmbeddingBackend backend = EmbeddingBackend.cpu;
 
   String _modelPath = '';
@@ -168,44 +180,58 @@ final class _NativeLiteRtEmbeddingGraph implements LiteRtEmbeddingGraph {
     LiteRtOptions? options;
     LiteRtCompiledModel? compiled;
     try {
-      final envPtr = calloc<LiteRtEnvironment>();
-      bindings
-          .createEnvironment(0, nullptr, envPtr)
-          .check('LiteRtCreateEnvironment');
-      environment = envPtr.value;
-      calloc.free(envPtr);
-
-      // Model from .tflite file.
-      final pathC = modelPath.toNativeUtf8();
-      final modelPtr = calloc<LiteRtModel>();
+      // Each output pointer is freed in a `finally`: a failing `.check()`
+      // must not leak it.
+      final envPtr = _alloc<LiteRtEnvironment>();
       try {
         bindings
-            .createModelFromFile(environment, pathC, modelPtr)
-            .check('LiteRtCreateModelFromFile($modelPath)');
+            .createEnvironment(0, nullptr, envPtr)
+            .check('LiteRtCreateEnvironment');
+        environment = envPtr.value;
       } finally {
-        calloc.free(pathC);
+        _alloc.free(envPtr);
       }
-      model = modelPtr.value;
-      calloc.free(modelPtr);
+
+      // Model from .tflite file.
+      final pathC = modelPath.toNativeUtf8(allocator: _alloc);
+      try {
+        final modelPtr = _alloc<LiteRtModel>();
+        try {
+          bindings
+              .createModelFromFile(environment, pathC, modelPtr)
+              .check('LiteRtCreateModelFromFile($modelPath)');
+          model = modelPtr.value;
+        } finally {
+          _alloc.free(modelPtr);
+        }
+      } finally {
+        _alloc.free(pathC);
+      }
 
       _refuseMultiInputGraph(bindings, model);
 
       // Compilation options.
-      final optsPtr = calloc<LiteRtOptions>();
-      bindings.createOptions(optsPtr).check('LiteRtCreateOptions');
-      options = optsPtr.value;
-      calloc.free(optsPtr);
+      final optsPtr = _alloc<LiteRtOptions>();
+      try {
+        bindings.createOptions(optsPtr).check('LiteRtCreateOptions');
+        options = optsPtr.value;
+      } finally {
+        _alloc.free(optsPtr);
+      }
       bindings
           .setOptionsHardwareAccelerators(options, _acceleratorFor(backend))
           .check('LiteRtSetOptionsHardwareAccelerators');
 
       // Compile.
-      final compiledPtr = calloc<LiteRtCompiledModel>();
-      bindings
-          .createCompiledModel(environment, model, options, compiledPtr)
-          .check('LiteRtCreateCompiledModel');
-      compiled = compiledPtr.value;
-      calloc.free(compiledPtr);
+      final compiledPtr = _alloc<LiteRtCompiledModel>();
+      try {
+        bindings
+            .createCompiledModel(environment, model, options, compiledPtr)
+            .check('LiteRtCreateCompiledModel');
+        compiled = compiledPtr.value;
+      } finally {
+        _alloc.free(compiledPtr);
+      }
 
       // seqLen + dim from the compiled tensor layouts.
       final int seqLen;
@@ -276,8 +302,8 @@ final class _NativeLiteRtEmbeddingGraph implements LiteRtEmbeddingGraph {
   /// multi-input graph is wrong for this pass whichever tokenizer produced
   /// the ids.
   void _refuseMultiInputGraph(LiteRtBindings bindings, LiteRtModel model) {
-    final sigPtr = calloc<LiteRtSignature>();
-    final countPtr = calloc<Size>();
+    final sigPtr = _alloc<LiteRtSignature>();
+    final countPtr = _alloc<Size>();
     try {
       bindings
           .getModelSignature(model, 0, sigPtr)
@@ -289,7 +315,7 @@ final class _NativeLiteRtEmbeddingGraph implements LiteRtEmbeddingGraph {
       if (count == 1) return;
 
       final names = <String>[];
-      final namePtr = calloc<Pointer<Utf8>>();
+      final namePtr = _alloc<Pointer<Utf8>>();
       try {
         for (var i = 0; i < count; i++) {
           if (bindings.getSignatureInputName(sigPtr.value, i, namePtr) == 0 &&
@@ -298,7 +324,7 @@ final class _NativeLiteRtEmbeddingGraph implements LiteRtEmbeddingGraph {
           }
         }
       } finally {
-        calloc.free(namePtr);
+        _alloc.free(namePtr);
       }
 
       throw StateError(
@@ -313,8 +339,8 @@ final class _NativeLiteRtEmbeddingGraph implements LiteRtEmbeddingGraph {
         '.onnx export of the same model.',
       );
     } finally {
-      calloc.free(sigPtr);
-      calloc.free(countPtr);
+      _alloc.free(sigPtr);
+      _alloc.free(countPtr);
     }
   }
 
