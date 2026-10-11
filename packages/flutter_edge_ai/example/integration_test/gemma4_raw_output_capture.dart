@@ -18,7 +18,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter_edge_ai/engine.dart' show ResolvedSampling;
+import 'package:flutter_edge_ai/flutter_edge_ai.dart' show ResolvedSampling;
 // ignore: implementation_imports — drives litertlm's FFI client directly to capture raw model output
 import 'package:flutter_edge_ai_litertlm/src/ffi/litert_lm_client.dart';
 import 'package:flutter_test/flutter_test.dart';
