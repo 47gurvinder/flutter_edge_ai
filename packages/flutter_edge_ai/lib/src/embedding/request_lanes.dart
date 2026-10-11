@@ -49,12 +49,16 @@ final class RequestLanes<T> {
 final class RequestPump<T> {
   /// [serve] runs one request and must not throw (W7): a throw ends [run].
   ///
-  /// [yieldToEventLoop] runs before every request (W2, see [run]); it must
-  /// complete only after the events queued before it have been handled. The
-  /// default, a zero-duration timer, is what the isolate host needs. The web
+  /// [yieldToEventLoop] runs before every request (W2, see [run]); it must give
+  /// the event loop a turn, so a close can arrive while requests are still
+  /// queued. The default, a zero-duration timer, is what the isolate host
+  /// needs: it completes only after the messages queued before it. The web
   /// inline host passes a `MessageChannel` message instead: browsers clamp
   /// nested zero-delay timers to at least 4 ms, which made every request on
-  /// the page cost ≈ 4.3 ms however fast the pass was.
+  /// the page cost ≈ 4.3 ms however fast the pass was. A message is not
+  /// ordered against the timer or input event a close comes from, so on the
+  /// page a close overtakes the queue within a few requests rather than
+  /// before the next one.
   RequestPump(
     this._serve, {
     Future<void> Function() yieldToEventLoop = _zeroTimer,
@@ -109,8 +113,11 @@ final class RequestPump<T> {
       // that queue. The default zero-duration timer is posted to the BACK of
       // the same queue, so by the time it fires the listener has filed the
       // close and [requestClose] has emptied the lanes. On the web page the
-      // same turn comes from a MessageChannel message: a task, like the timer
-      // or input event a close() is called from, but never clamped.
+      // turn comes from a MessageChannel message: a task too, never clamped,
+      // but from another task source than the timer or input event a close()
+      // is called from, so the browser may serve a few more requests before
+      // that close runs (test/web/inline_host_web_yield_test.dart checks that
+      // it still overtakes the queue).
       await _yield();
       if (_closeRequested) break;
       final next = _lanes.takeNext();
