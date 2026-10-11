@@ -1,15 +1,24 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter_edge_ai/src/utils/edge_ai_log.dart';
 import 'package:flutter_edge_ai/src/di/service_registry.dart';
 import 'package:flutter_edge_ai/src/model_management/model_specs.dart';
 import 'package:flutter_edge_ai/src/model_management/model_activation.dart';
+import 'package:flutter_edge_ai/src/registry/embedding_registry.dart';
 import 'package:flutter_edge_ai/src/utils/file_name_utils.dart';
+import 'package:flutter_edge_ai/src/utils/file_names.dart'
+    show isLiteRtLmFilename;
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:flutter_edge_ai/src/services/model_repository.dart' as repo;
 
+/// Said once per isolate when an embedder is installed before any embedding
+/// backend is registered (see [EmbeddingInstallationBuilder.install]).
+bool _noBackendNoticed = false;
+
 /// Fluent builder for embedding model installation
 ///
-/// Provides type-safe API for installing embedding models (requires model + tokenizer).
-/// Automatically sets the installed model as the active embedding model.
+/// Installs a model plus its tokenizer (`.tflite`, `.onnx`, …), or a single
+/// `.litertlm` bundle, which carries its own tokenizer. Automatically sets
+/// the installed model as the active embedding model.
 ///
 /// Usage:
 /// ```dart
@@ -18,6 +27,11 @@ import 'package:flutter_edge_ai/src/services/model_repository.dart' as repo;
 ///   .tokenizerFromNetwork('https://example.com/tokenizer.model', token: 'hf_...')
 ///   .withModelProgress((p) => print('Model: $p%'))
 ///   .withTokenizerProgress((p) => print('Tokenizer: $p%'))
+///   .install();
+///
+/// // A .litertlm embedder installs alone:
+/// await FlutterEdgeAi.installEmbedder()
+///   .modelFromNetwork('https://example.com/embedder.litertlm')
 ///   .install();
 /// ```
 class EmbeddingInstallationBuilder {
@@ -173,10 +187,20 @@ class EmbeddingInstallationBuilder {
   ///
   /// Returns [EmbeddingInstallation] with details about installed model.
   ///
-  /// Throws:
-  /// - [StateError] if model or tokenizer source not configured
-  /// - [DownloadCancelledException] if cancelled via cancelToken
-  /// - [Exception] on installation failure
+  /// Throws, before anything is downloaded:
+  /// - [DownloadCancelledException] if the cancel token is already cancelled
+  /// - [StateError] if no model source is set, or no tokenizer source for a
+  ///   model that needs one (anything but a `.litertlm` bundle)
+  /// - [ArgumentError] if a tokenizer is set for a `.litertlm` bundle, which
+  ///   carries its own
+  /// - [UnsupportedError] if embedding backends are registered and none of
+  ///   them can run the model on this platform — so an embedder that cannot
+  ///   run here is refused before a download of hundreds of megabytes. With no
+  ///   backend registered yet the install goes ahead (the app may register
+  ///   one later) and says so once in the debug log.
+  ///
+  /// and later [DownloadCancelledException] if cancelled via the cancel token,
+  /// or an [Exception] on installation failure.
   ///
   /// Note: This method is idempotent - calling install() on an already-installed
   /// model will skip download and just set it as active.
@@ -184,45 +208,51 @@ class EmbeddingInstallationBuilder {
     // Check cancellation before starting
     _cancelToken?.throwIfCancelled();
 
-    if (_modelSource == null || _tokenizerSource == null) {
+    final modelSource = _modelSource;
+    if (modelSource == null) {
+      throw StateError(
+        'A model source is required. Use modelFromNetwork() (or '
+        'modelFromAsset(), modelFromBundled(), modelFromFile()).',
+      );
+    }
+    final modelFile = _modelFilename == null
+        ? EmbeddingModelFile.fromSource(modelSource)
+        : EmbeddingModelFile(source: modelSource, filename: _modelFilename!);
+    if (!isLiteRtLmFilename(modelFile.filename) && _tokenizerSource == null) {
       throw StateError(
         'Both model and tokenizer required. Use modelFromNetwork() and tokenizerFromNetwork().',
       );
     }
 
-    final effectiveTokenizerSource = _tokenizerSource!;
-
-    // Create spec
-    final modelFile = _modelFilename == null
-        ? EmbeddingModelFile.fromSource(_modelSource!)
-        : EmbeddingModelFile(source: _modelSource!, filename: _modelFilename!);
+    // Throws ArgumentError for a .litertlm bundle given a tokenizer.
     final spec = EmbeddingModelSpec(
       name: FileNameUtils.getBaseName(modelFile.filename),
-      modelSource: _modelSource!,
-      tokenizerSource: effectiveTokenizerSource,
+      modelSource: modelSource,
+      tokenizerSource: _tokenizerSource,
       modelFilename: _modelFilename,
       tokenizerFilename: _tokenizerFilename,
       replacePolicy: ModelReplacePolicy.keep,
     );
+    _requireABackendThatCanRun(spec);
 
     final registry = ServiceRegistry.instance;
     final repository = registry.modelRepository;
 
-    // spec.files is [modelFile, tokenizerFile] in that fixed order (see
+    // spec.files is [model] or [model, tokenizer], in that fixed order (see
     // EmbeddingModelSpec.files) — reuse the already-namespaced identity.
     final files = spec.files;
     final modelFilename = files[0].filename;
-    final tokenizerFilename = files[1].filename;
+    final tokenizerFile = files.length > 1 ? files[1] : null;
 
-    // Check if both model and tokenizer are already installed
     final isModelInstalled = await repository.isInstalled(modelFilename);
-    final isTokenizerInstalled = await repository.isInstalled(
-      tokenizerFilename,
-    );
+    final isTokenizerInstalled =
+        tokenizerFile == null ||
+        await repository.isInstalled(tokenizerFile.filename);
 
     if (isModelInstalled && isTokenizerInstalled) {
       edgeAiLog(
-        'ℹ️  Embedding model already installed: $modelFilename + $tokenizerFilename (skipping download)',
+        'ℹ️  Embedding model already installed: '
+        '${files.map((f) => f.filename).join(' + ')} (skipping download)',
       );
     } else {
       final handlerRegistry = registry.sourceHandlerRegistry;
@@ -230,10 +260,10 @@ class EmbeddingInstallationBuilder {
       // Install model file if not already installed
       if (!isModelInstalled) {
         edgeAiLog('📥 Installing embedding model...');
-        final modelHandler = handlerRegistry.getHandler(_modelSource!);
+        final modelHandler = handlerRegistry.getHandler(modelSource);
         if (_onModelProgress != null) {
           await for (final progress in modelHandler!.installWithProgress(
-            _modelSource!,
+            modelSource,
             cancelToken: _cancelToken,
             targetFilename: modelFilename,
             modelType: repo.ModelType.embedding,
@@ -242,7 +272,7 @@ class EmbeddingInstallationBuilder {
           }
         } else {
           await modelHandler!.install(
-            _modelSource!,
+            modelSource,
             cancelToken: _cancelToken,
             targetFilename: modelFilename,
             modelType: repo.ModelType.embedding,
@@ -252,31 +282,32 @@ class EmbeddingInstallationBuilder {
         edgeAiLog('ℹ️  Embedding model file already installed: $modelFilename');
       }
 
-      // Install tokenizer file if not already installed
-      if (!isTokenizerInstalled) {
+      // Install tokenizer file if there is one and it is not installed yet
+      if (tokenizerFile != null && !isTokenizerInstalled) {
         edgeAiLog('📥 Installing tokenizer...');
-        final tokenizerHandler = handlerRegistry.getHandler(
-          effectiveTokenizerSource,
-        );
+        final tokenizerSource = tokenizerFile.source;
+        final tokenizerHandler = handlerRegistry.getHandler(tokenizerSource);
         if (_onTokenizerProgress != null) {
           await for (final progress in tokenizerHandler!.installWithProgress(
-            effectiveTokenizerSource,
+            tokenizerSource,
             cancelToken: _cancelToken,
-            targetFilename: tokenizerFilename,
+            targetFilename: tokenizerFile.filename,
             modelType: repo.ModelType.embedding,
           )) {
             _onTokenizerProgress!(progress);
           }
         } else {
           await tokenizerHandler!.install(
-            effectiveTokenizerSource,
+            tokenizerSource,
             cancelToken: _cancelToken,
-            targetFilename: tokenizerFilename,
+            targetFilename: tokenizerFile.filename,
             modelType: repo.ModelType.embedding,
           );
         }
-      } else {
-        edgeAiLog('ℹ️  Tokenizer file already installed: $tokenizerFilename');
+      } else if (tokenizerFile != null) {
+        edgeAiLog(
+          'ℹ️  Tokenizer file already installed: ${tokenizerFile.filename}',
+        );
       }
     }
 
@@ -287,6 +318,37 @@ class EmbeddingInstallationBuilder {
     edgeAiLog('✅ Embedding model installed and set as active: ${spec.name}');
 
     return EmbeddingInstallation(spec: spec);
+  }
+
+  /// The install pre-check (R5 §5.3, D13): when embedding backends are
+  /// registered, one of them must be able to run [spec] here, or nothing is
+  /// downloaded. With none registered yet the install proceeds — the app may
+  /// register one later — and says so once.
+  static void _requireABackendThatCanRun(EmbeddingModelSpec spec) {
+    final backends = EmbeddingRegistry.instance;
+    final filename = spec.files.first.filename;
+    if (!backends.hasAny) {
+      if (!_noBackendNoticed) {
+        _noBackendNoticed = true;
+        edgeAiLog(
+          'ℹ️  No embedding backend is registered yet, so whether one can run '
+          '$filename is not checked before it is installed. Pass one in '
+          'FlutterEdgeAi.initialize(embeddingBackends: ...).',
+        );
+      }
+      return;
+    }
+    if (backends.findFor(spec) != null) return;
+    final platform = kIsWeb ? 'web' : defaultTargetPlatform.name;
+    throw UnsupportedError(
+      'No registered embedding backend can run $filename on $platform. '
+      'Registered: '
+      '${backends.registered.map((b) => b.name).join(', ')}. Nothing was '
+      'downloaded. Register a backend that runs this model (e.g. '
+      'flutter_edge_ai_litertlm for .tflite and .litertlm, '
+      'flutter_edge_ai_onnx for .onnx), or install a model one of these '
+      'runs.',
+    );
   }
 }
 

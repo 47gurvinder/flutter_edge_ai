@@ -10,8 +10,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///
 /// This record deliberately contains no application-level embedding profile
 /// or RAG identity. It only preserves core model-management state.
+///
+/// Two schemas (R5 §5.4):
+///  * **v1** — a model plus its tokenizer. Written byte for byte as 2.1 wrote
+///    it, so a downgrade still reads it; [cleared] is v1 too.
+///  * **v2** — a self-contained model (`EmbeddingModelSpec.isSelfContained`,
+///    a `.litertlm` bundle): no tokenizer fields. A 2.1 reader accepts only
+///    schema 1, so it gets null and restores no active embedder — it fails
+///    closed instead of pairing the bundle with a tokenizer it never had.
 final class ActiveEmbeddingIdentityRecord {
+  /// The schema of a record with a tokenizer, and of [cleared].
   static const int currentSchemaVersion = 1;
+
+  /// The schema of a self-contained record.
+  static const int selfContainedSchemaVersion = 2;
 
   const ActiveEmbeddingIdentityRecord._({
     required this.schemaVersion,
@@ -27,12 +39,23 @@ final class ActiveEmbeddingIdentityRecord {
 
   factory ActiveEmbeddingIdentityRecord.fromSpec(EmbeddingModelSpec spec) {
     final files = spec.files;
+    final tokenizerSource = spec.tokenizerSource;
+    if (tokenizerSource == null) {
+      return ActiveEmbeddingIdentityRecord._(
+        schemaVersion: selfContainedSchemaVersion,
+        active: true,
+        name: spec.name,
+        modelSource: spec.modelSource.encode(),
+        modelFilename: files[0].filename,
+        modelFilenameExplicit: spec.modelFilename != null,
+      );
+    }
     return ActiveEmbeddingIdentityRecord._(
       schemaVersion: currentSchemaVersion,
       active: true,
       name: spec.name,
       modelSource: spec.modelSource.encode(),
-      tokenizerSource: spec.tokenizerSource.encode(),
+      tokenizerSource: tokenizerSource.encode(),
       modelFilename: files[0].filename,
       tokenizerFilename: files[1].filename,
       modelFilenameExplicit: spec.modelFilename != null,
@@ -47,16 +70,30 @@ final class ActiveEmbeddingIdentityRecord {
   final bool active;
   final String? name;
   final String? modelSource;
+
+  /// Null in a self-contained (v2) record.
   final String? tokenizerSource;
   final String? modelFilename;
+
+  /// Null in a self-contained (v2) record.
   final String? tokenizerFilename;
   final bool? modelFilenameExplicit;
+
+  /// Null in a self-contained (v2) record.
   final bool? tokenizerFilenameExplicit;
+
+  /// Whether this record names a self-contained model (schema v2).
+  bool get isSelfContained => schemaVersion == selfContainedSchemaVersion;
 
   String encode() => jsonEncode(<String, Object?>{
     'schemaVersion': schemaVersion,
     'active': active,
-    if (active) ...{
+    if (active && isSelfContained) ...{
+      'name': name,
+      'modelSource': modelSource,
+      'modelFilename': modelFilename,
+      'modelFilenameExplicit': modelFilenameExplicit,
+    } else if (active) ...{
       'name': name,
       'modelSource': modelSource,
       'tokenizerSource': tokenizerSource,
@@ -69,19 +106,24 @@ final class ActiveEmbeddingIdentityRecord {
 
   /// Returns null for malformed, partial, or unsupported records.
   ///
-  /// Active records are also checked for internal compatibility: their source
-  /// descriptors and explicitness flags must resolve back to the exact stored
-  /// filenames. This prevents a partial/mixed record from relabeling files.
+  /// Active records are also checked for internal compatibility: they are
+  /// rebuilt through the `EmbeddingModelSpec` constructor (so its invariants
+  /// apply), and their source descriptors and explicitness flags must resolve
+  /// back to the exact stored filenames. This prevents a partial/mixed record
+  /// from relabeling files.
   static ActiveEmbeddingIdentityRecord? tryDecode(String? encoded) {
     if (encoded == null) return null;
     try {
       final value = jsonDecode(encoded);
-      if (value is! Map<String, dynamic> ||
-          value['schemaVersion'] != currentSchemaVersion ||
-          value['active'] is! bool) {
+      if (value is! Map<String, dynamic> || value['active'] is! bool) {
         return null;
       }
+      final schemaVersion = value['schemaVersion'];
       final active = value['active'] as bool;
+      if (schemaVersion == selfContainedSchemaVersion) {
+        return active ? _decodeSelfContained(value) : null;
+      }
+      if (schemaVersion != currentSchemaVersion) return null;
       if (!active) {
         return const ActiveEmbeddingIdentityRecord.cleared();
       }
@@ -125,7 +167,8 @@ final class ActiveEmbeddingIdentityRecord {
         tokenizerFilename: tokenizerFilenameExplicit ? tokenizerFilename : null,
       );
       final resolved = reconstructed.files;
-      if (resolved[0].filename != modelFilename ||
+      if (resolved.length != 2 ||
+          resolved[0].filename != modelFilename ||
           resolved[1].filename != tokenizerFilename) {
         return null;
       }
@@ -146,6 +189,52 @@ final class ActiveEmbeddingIdentityRecord {
     }
   }
 
+  /// A v2 record: name, model source and model filename, no tokenizer. Only
+  /// ever active — a clear is written as v1.
+  static ActiveEmbeddingIdentityRecord? _decodeSelfContained(
+    Map<String, dynamic> value,
+  ) {
+    final name = value['name'];
+    final modelSource = value['modelSource'];
+    final modelFilename = value['modelFilename'];
+    final modelFilenameExplicit = value['modelFilenameExplicit'];
+    if (name is! String ||
+        name.isEmpty ||
+        modelSource is! String ||
+        modelFilename is! String ||
+        modelFilenameExplicit is! bool) {
+      return null;
+    }
+    FileNameUtils.validatePortableFileNameSegment(
+      modelFilename,
+      parameterName: 'modelFilename',
+    );
+    final decodedModelSource = ModelSource.tryDecode(modelSource);
+    if (decodedModelSource == null) return null;
+    // The constructor refuses anything but a self-contained bundle here.
+    final reconstructed = EmbeddingModelSpec(
+      name: name,
+      modelSource: decodedModelSource,
+      modelFilename: modelFilenameExplicit ? modelFilename : null,
+    );
+    final resolved = reconstructed.files;
+    if (resolved.length != 1 || resolved[0].filename != modelFilename) {
+      return null;
+    }
+    return ActiveEmbeddingIdentityRecord._(
+      schemaVersion: selfContainedSchemaVersion,
+      active: true,
+      name: name,
+      modelSource: modelSource,
+      modelFilename: modelFilename,
+      modelFilenameExplicit: modelFilenameExplicit,
+    );
+  }
+
+  /// The spec this record stands for. [runtimeModelSource] and
+  /// [runtimeTokenizerSource] replace the persisted sources (native restore
+  /// points them at the installed files); a self-contained record has no
+  /// tokenizer, so [runtimeTokenizerSource] is ignored for it.
   EmbeddingModelSpec toSpec({
     ModelSource? runtimeModelSource,
     ModelSource? runtimeTokenizerSource,
@@ -153,9 +242,18 @@ final class ActiveEmbeddingIdentityRecord {
     if (!active) {
       throw StateError('A cleared embedding identity has no model spec');
     }
+    final modelSource =
+        runtimeModelSource ?? ModelSource.tryDecode(this.modelSource!)!;
+    if (isSelfContained) {
+      return EmbeddingModelSpec(
+        name: name!,
+        modelSource: modelSource,
+        modelFilename: modelFilenameExplicit! ? modelFilename : null,
+      );
+    }
     return EmbeddingModelSpec(
       name: name!,
-      modelSource: runtimeModelSource ?? ModelSource.tryDecode(modelSource!)!,
+      modelSource: modelSource,
       tokenizerSource:
           runtimeTokenizerSource ?? ModelSource.tryDecode(tokenizerSource!)!,
       modelFilename: modelFilenameExplicit! ? modelFilename : null,

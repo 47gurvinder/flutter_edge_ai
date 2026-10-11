@@ -84,7 +84,11 @@ String? activeEmbeddingModelId() {
 String? embeddingProfileIdForSpec(EmbeddingModelSpec spec) {
   for (final model in example_embedding.EmbeddingModel.values) {
     final files = spec.files;
-    if (files.length == 2 &&
+    // Every catalog embedder ships a separate tokenizer, so a self-contained
+    // spec (a .litertlm bundle, no tokenizer) matches none of them.
+    final tokenizerSource = spec.tokenizerSource;
+    if (tokenizerSource != null &&
+        files.length == 2 &&
         files[0].filename == model.filename &&
         files[1].filename == model.tokenizerFilename &&
         _sourceMatchesCatalogModel(
@@ -93,7 +97,7 @@ String? embeddingProfileIdForSpec(EmbeddingModelSpec spec) {
           model.sourceType,
         ) &&
         _sourceMatchesCatalogModel(
-          spec.tokenizerSource,
+          tokenizerSource,
           model.tokenizerUrl,
           model.sourceType,
         )) {

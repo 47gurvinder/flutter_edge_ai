@@ -235,9 +235,11 @@ class WebModelManager extends ModelFileManager
           record.modelFilename!,
         );
         if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
-        final tokenizerInstalled = await repository.isInstalled(
-          record.tokenizerFilename!,
-        );
+        // A self-contained record (schema v2, a .litertlm bundle) has no
+        // tokenizer file.
+        final tokenizerInstalled =
+            record.isSelfContained ||
+            await repository.isInstalled(record.tokenizerFilename!);
         if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
         if (!modelInstalled || !tokenizerInstalled) {
           edgeAiLog(

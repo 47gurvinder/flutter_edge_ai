@@ -93,6 +93,39 @@ void main() {
     );
   });
 
+  test('a self-contained (.litertlm) embedder survives a web restart (identity '
+      'v2, no tokenizer)', () async {
+    await ServiceRegistry.initialize();
+    final spec = EmbeddingModelSpec(
+      name: 'eg2',
+      modelSource: NetworkSource('https://x/embeddinggemma-2.litertlm'),
+    );
+    final repository = ServiceRegistry.instance.modelRepository;
+    await repository.saveModel(
+      repo.ModelInfo(
+        id: spec.files.single.filename,
+        source: spec.modelSource,
+        installedAt: DateTime(2026),
+        sizeBytes: 2048,
+        type: repo.ModelType.embedding,
+        hasLoraWeights: false,
+      ),
+    );
+
+    await WebModelManager().setActiveEmbeddingModel(spec);
+    final prefs = await SharedPreferences.getInstance();
+    final persisted = ActiveEmbeddingIdentityRecord.tryDecode(
+      prefs.getString(PreferencesKeys.activeEmbeddingIdentityRecord),
+    );
+    expect(persisted?.schemaVersion, 2);
+
+    final freshManager = WebModelManager();
+    await freshManager.ensureInitialized();
+    final restored = freshManager.activeEmbeddingModel as EmbeddingModelSpec;
+    expect(restored, spec);
+    expect(restored.isSelfContained, isTrue);
+  });
+
   test(
     'explicit embedding identities survive a web restart unchanged',
     () async {
@@ -386,7 +419,7 @@ void main() {
       );
       await prefs.setString(
         PreferencesKeys.activeEmbeddingTokenizerSource,
-        spec.tokenizerSource.encode(),
+        spec.tokenizerSource!.encode(),
       );
 
       for (final atomicRecord in <String>[
@@ -578,7 +611,7 @@ void main() {
     );
     await prefs.setString(
       PreferencesKeys.activeEmbeddingTokenizerSource,
-      spec.tokenizerSource.encode(),
+      spec.tokenizerSource!.encode(),
     );
 
     await manager.clearActiveEmbeddingIdentity();

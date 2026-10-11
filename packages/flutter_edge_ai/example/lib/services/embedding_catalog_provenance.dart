@@ -222,7 +222,7 @@ bool _matchesCatalogSpec(
       files[1].filename == model.tokenizerFilename &&
       spec.modelSource.encode() ==
           _catalogSource(model.url, model.sourceType) &&
-      spec.tokenizerSource.encode() ==
+      spec.tokenizerSource?.encode() ==
           _catalogSource(model.tokenizerUrl, model.sourceType);
 }
 

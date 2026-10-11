@@ -377,9 +377,6 @@ class MobileModelManager extends ModelFileManager
         if (!record.active) return;
         final fs = ServiceRegistry.instance.fileSystemService;
         final originalModelSource = ModelSource.tryDecode(record.modelSource!);
-        final originalTokenizerSource = ModelSource.tryDecode(
-          record.tokenizerSource!,
-        );
         late final String modelPath;
         if (originalModelSource is FileSource) {
           modelPath = originalModelSource.path;
@@ -389,18 +386,28 @@ class MobileModelManager extends ModelFileManager
             return;
           }
         }
-        late final String tokenizerPath;
-        if (originalTokenizerSource is FileSource) {
-          tokenizerPath = originalTokenizerSource.path;
-        } else {
-          tokenizerPath = await fs.getReadTargetPath(record.tokenizerFilename!);
-          if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) {
-            return;
+        // A self-contained record (schema v2, a .litertlm bundle) has no
+        // tokenizer file to resolve or to find on disk.
+        String? tokenizerPath;
+        if (!record.isSelfContained) {
+          final originalTokenizerSource = ModelSource.tryDecode(
+            record.tokenizerSource!,
+          );
+          if (originalTokenizerSource is FileSource) {
+            tokenizerPath = originalTokenizerSource.path;
+          } else {
+            tokenizerPath = await fs.getReadTargetPath(
+              record.tokenizerFilename!,
+            );
+            if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) {
+              return;
+            }
           }
         }
         final modelExists = await fs.fileExists(modelPath);
         if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
-        final tokenizerExists = await fs.fileExists(tokenizerPath);
+        final tokenizerExists =
+            tokenizerPath == null || await fs.fileExists(tokenizerPath);
         if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
         if (!modelExists || !tokenizerExists) {
           edgeAiLog(
@@ -410,7 +417,9 @@ class MobileModelManager extends ModelFileManager
         }
         final restoredSpec = record.toSpec(
           runtimeModelSource: FileSource(modelPath),
-          runtimeTokenizerSource: FileSource(tokenizerPath),
+          runtimeTokenizerSource: tokenizerPath == null
+              ? null
+              : FileSource(tokenizerPath),
         );
         if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
         _publishCommittedEmbeddingSpec(restoredSpec, lease.generation);

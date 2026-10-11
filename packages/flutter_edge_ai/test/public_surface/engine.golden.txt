@@ -34,7 +34,7 @@ EmbeddingLoadException class final
 EmbeddingModality enum
 EmbeddingModalityNotLoadedException class final
 EmbeddingModel class abstract
-EmbeddingModelSpec class
+EmbeddingModelSpec class final
 EmbeddingOutputContract enum
 EmbeddingPass class abstract base
 EmbeddingPassDescriptor class final

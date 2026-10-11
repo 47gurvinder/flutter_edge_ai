@@ -30,7 +30,7 @@ EmbeddingLoadException class final
 EmbeddingModality enum
 EmbeddingModalityNotLoadedException class final
 EmbeddingModel class abstract
-EmbeddingModelSpec class
+EmbeddingModelSpec class final
 EmbeddingTokenizerProvider class abstract
 EncodedMediaFormat class final
 ErrorHandlingResult class
