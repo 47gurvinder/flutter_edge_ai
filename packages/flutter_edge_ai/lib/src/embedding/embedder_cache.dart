@@ -171,9 +171,9 @@ class EmbedderCache {
     // Checked, not trusted. Eviction rides the close listener, so a model that
     // never fires one — or that was already closed when it was recorded, after
     // which `fireCloseListeners` has nothing left to call — would be handed to
-    // every later caller, and every `generateEmbedding` on it throws. Only as
-    // good as the model's own `isClosed`: the interface default is false, for
-    // implementations that predate it.
+    // every later caller, and every request on it fails. Only as good as the
+    // model's own `isClosed` — which core's CommonEmbeddingModel answers from
+    // the moment close() is called.
     if (cached.model.isClosed) {
       edgeAiLog('ℹ️  Cached embedder is closed; building a new one for $label');
       _cached = null;
