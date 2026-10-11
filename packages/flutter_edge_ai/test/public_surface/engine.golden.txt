@@ -36,6 +36,9 @@ EmbeddingModalityNotLoadedException class final
 EmbeddingModel class abstract
 EmbeddingModelSpec class
 EmbeddingOutputContract enum
+EmbeddingPass class abstract base
+EmbeddingPassDescriptor class final
+EmbeddingPassInfo class final
 EmbeddingTokenizer class abstract
 EmbeddingTokenizerFactory typedef
 EmbeddingTokenizerProvider class abstract
@@ -118,6 +121,8 @@ SttModelType enum
 TaskType enum
 TextResponse class
 ThinkingResponse class
+TokenEmbeddingPass class abstract base
+TokenPassGraph class final
 TokenizedInput class
 Tool class
 ToolChoice enum

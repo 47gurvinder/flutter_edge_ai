@@ -39,6 +39,10 @@ export 'src/parsing/sdk_text_extractor.dart' show SdkTextExtractor;
 export 'src/model_management/model_specs.dart' show TtsModelTypeManifest;
 
 // Embedding SPI.
+export 'src/embedding/embedding_pass.dart'
+    show EmbeddingPass, EmbeddingPassDescriptor, EmbeddingPassInfo;
+export 'src/embedding/token_embedding_pass.dart'
+    show TokenEmbeddingPass, TokenPassGraph;
 export 'src/embedding/forward_result.dart'
     show EmbeddingOutputContract, ForwardResult, finalizeEmbedding;
 // TRANSITIONAL(C stage 3): remove — the pre-2.2 seam, still implemented by
