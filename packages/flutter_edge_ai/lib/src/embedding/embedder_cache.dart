@@ -278,11 +278,14 @@ class EmbedderCache {
   }
 
   /// Waits for the pending close, if any, until its deadline — whatever is
-  /// left of it, not a fresh limit per caller.
+  /// left of it, not a fresh limit per caller. The exception's `waited` is
+  /// what this caller waited: about the limit for one that came early, zero
+  /// for one that came after the deadline.
   Future<void> _awaitPendingClose(String label) async {
     final pending = _pendingClose;
     if (pending == null) return;
     final remaining = _closeWaitLimit - pending.elapsed;
+    final waiting = Stopwatch()..start();
     try {
       if (remaining <= Duration.zero) throw TimeoutException(null);
       await pending.done.timeout(remaining);
@@ -290,11 +293,12 @@ class EmbedderCache {
       pending.timedOutACaller = true;
       throw EmbedderCloseTimeoutException(
         'The previous embedder (${pending.params.modelPath}) has not finished '
-        'closing after ${_seconds(_closeWaitLimit)}, so no new embedder is '
-        'built for $label: two native models must not be resident at once. '
-        'Its close keeps running — usually a native call that has not '
-        'returned — and a request made after it finishes will succeed.',
-        waited: _closeWaitLimit,
+        'closing ${_seconds(pending.elapsed)} after it started (the limit is '
+        '${_seconds(_closeWaitLimit)}), so no new embedder is built for '
+        '$label: two native models must not be resident at once. Its close '
+        'keeps running — usually a native call that has not returned — and a '
+        'request made after it finishes will succeed.',
+        waited: waiting.elapsed,
       );
     }
   }

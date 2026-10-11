@@ -160,7 +160,7 @@ void main() {
                 .having(
                   (e) => e.waited,
                   'waited',
-                  const Duration(milliseconds: 100),
+                  greaterThanOrEqualTo(const Duration(milliseconds: 90)),
                 ),
           ),
         );
@@ -187,6 +187,36 @@ void main() {
       },
       timeout: const Timeout(Duration(seconds: 10)),
     );
+
+    test('waited is what THIS caller waited: about the limit for the first, '
+        'about zero for one that arrives after the deadline', () async {
+      const limit = Duration(milliseconds: 200);
+      final cache = EmbedderCache(closeWaitLimit: limit);
+      final gate = Completer<void>();
+      final model = _FakeEmbedder(closeGate: gate);
+      cache.record(model, paramsFor('/a'));
+
+      Future<Duration> waitedBy(String label) => cache
+          .reuseOrNull(paramsFor('/b'), label: label)
+          .then<Duration>(
+            (_) => fail('$label was told to build'),
+            onError: (Object e) =>
+                e is EmbedderCloseTimeoutException ? e.waited : throw e,
+          );
+
+      final first = await waitedBy('first');
+      final later = await waitedBy('later');
+      expect(first, greaterThanOrEqualTo(limit * 0.9));
+      expect(first, lessThan(limit * 2));
+      expect(
+        later,
+        lessThan(limit ~/ 4),
+        reason: 'the deadline had passed when it asked; it failed at once',
+      );
+
+      gate.complete();
+      await pumpEventQueue();
+    });
 
     test('callers queued behind a close share one deadline: all fail when it '
         'passes, not one limit apart, and its end is announced', () async {

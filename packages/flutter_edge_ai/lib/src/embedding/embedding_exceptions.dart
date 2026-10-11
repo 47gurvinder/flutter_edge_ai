@@ -31,14 +31,21 @@ final class EmbedderClosedException extends EmbeddingException {
   ]);
 }
 
-/// `FlutterEdgeAi.getActiveEmbedder` waited [waited] for the previous
-/// embedder's close and gave up. That close is still running (nothing is ever
-/// killed: a killed worker never frees its native model), and the next call
-/// waits for it again.
+/// The previous embedder's close did not finish within the limit (60 s),
+/// measured from the moment that close STARTED, so
+/// `FlutterEdgeAi.getActiveEmbedder` built nothing: two native models are
+/// never resident at once.
+///
+/// The close keeps running — nothing is killed, since a killed worker never
+/// frees its native model. Until it ends, every `getActiveEmbedder` call
+/// fails at once with this exception; a call made after it ends builds
+/// normally.
 final class EmbedderCloseTimeoutException extends EmbeddingException {
   const EmbedderCloseTimeoutException(super.message, {required this.waited});
 
-  /// How long the caller waited.
+  /// How long THIS call waited for the close: up to what was left of the
+  /// limit when it arrived, so about zero for a call made after the limit had
+  /// already passed.
   final Duration waited;
 }
 
