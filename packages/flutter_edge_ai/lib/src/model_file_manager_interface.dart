@@ -55,27 +55,6 @@ abstract class ModelFileManager {
   /// Modern API: Ensures a model spec is ready for use
   Future<void> ensureModelReadyFromSpec(ModelSpec spec);
 
-  /// Legacy API: Ensures a model is ready for use, handling all necessary operations
-  @Deprecated('Use ensureModelReadyFromSpec with ModelSource instead')
-  Future<void> ensureModelReady(String filename, String url);
-
-  /// Legacy API: Installs model from Flutter assets (debug only)
-  @Deprecated('Use FlutterEdgeAi.installModel().fromAsset() instead')
-  Future<void> installModelFromAsset(String path, {String? loraPath});
-
-  /// Legacy API: Installs model from Flutter assets with progress tracking (debug only)
-  @Deprecated(
-    'Use FlutterEdgeAi.installModel().fromAsset().withProgress() instead',
-  )
-  Stream<int> installModelFromAssetWithProgress(
-    String path, {
-    String? loraPath,
-  });
-
-  /// Legacy API: Sets direct path to existing model files
-  @Deprecated('Use FlutterEdgeAi.installModel().fromFile() instead')
-  Future<void> setModelPath(String path, {String? loraPath});
-
   /// Clears current model cache/state
   Future<void> clearModelCache();
 
@@ -124,18 +103,6 @@ abstract class ModelFileManager {
       'clearActiveTtsIdentity is not implemented by this ModelFileManager',
     );
   }
-
-  /// Legacy API: Sets path to LoRA weights for current model
-  @Deprecated('Use FlutterEdgeAi.installModel().withLoraFromFile() instead')
-  Future<void> setLoraWeightsPath(String path);
-
-  /// Legacy API: Removes LoRA weights from current model
-  @Deprecated('Reinstall model without LoRA using FlutterEdgeAi.installModel()')
-  Future<void> deleteLoraWeights();
-
-  /// Legacy API: Deletes current active model (legacy method without parameters)
-  @Deprecated('Use deleteModel(spec) with ModelSpec instead')
-  Future<void> deleteCurrentModel();
 
   /// Ensures the manager is fully initialized — active model/embedder state
   /// restored from storage (#227). Idempotent and safe to call concurrently;
