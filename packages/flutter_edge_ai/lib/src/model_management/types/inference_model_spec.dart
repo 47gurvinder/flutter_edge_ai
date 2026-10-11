@@ -235,8 +235,12 @@ class InferenceModelSpec extends ModelSpec {
   /// `http(s)://` becomes a network source, `asset://` an asset, `native://` a
   /// bundled resource, `file://` a file, and a schemeless string an asset.
   @Deprecated(
-    'Use InferenceModelSpec(modelSource: ModelSource.network(url), …) with an '
-    'explicit ModelSource. Removed in 2.4.0.',
+    'Use InferenceModelSpec(modelSource: …, modelType: …) with the source '
+    'that matches the URL: ModelSource.network(url) for http(s)://, '
+    'ModelSource.asset(path) for asset:// or a bare path, '
+    'ModelSource.bundled(name) for native://, ModelSource.file(path) for '
+    'file://. This factory defaulted to modelType: ModelType.general; pass '
+    'it explicitly. Removed in 2.4.0.',
   )
   factory InferenceModelSpec.fromLegacyUrl({
     required String name,
