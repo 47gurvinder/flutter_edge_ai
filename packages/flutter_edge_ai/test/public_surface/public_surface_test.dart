@@ -7,7 +7,7 @@
 // not. Any change to what an app or an engine package can name is therefore a
 // visible diff in review.
 //
-// Regenerate after an intended change:
+// Regenerate after an intended change (refused when CI is set):
 //   UPDATE_GOLDENS=1 flutter test test/public_surface/public_surface_test.dart
 //
 // Scope notes:
@@ -39,6 +39,8 @@ const _ownPackage = 'package:flutter_edge_ai/';
 
 void main() {
   final update = Platform.environment['UPDATE_GOLDENS'] == '1';
+  // Regenerating on CI would make the check pass by definition.
+  final onCi = (Platform.environment['CI'] ?? '').isNotEmpty;
 
   for (final library in _libraries) {
     test('$library export namespace matches its golden', () async {
@@ -48,6 +50,12 @@ void main() {
         'test/public_surface/${library.replaceAll('.dart', '')}.golden.txt',
       );
       if (update) {
+        if (onCi) {
+          fail(
+            'UPDATE_GOLDENS=1 is refused while CI is set: a regenerated golden '
+            'always matches. Regenerate locally and commit the reviewed diff.',
+          );
+        }
         golden.writeAsStringSync(actual);
         return;
       }
