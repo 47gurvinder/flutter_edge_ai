@@ -1,3 +1,5 @@
+// TRANSITIONAL(C stage 3): remove with legacy_common_embedding_model.dart.
+//
 // Web stub for `CommonEmbeddingModel`. The real implementation spawns a
 // worker isolate, which dart2js/dart2wasm cannot compile, so the barrel
 // selects this file under `if (dart.library.js_interop)`. Web engine arms

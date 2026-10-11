@@ -55,8 +55,10 @@ export 'src/embedding/forward_pass.dart'
 export 'src/embedding/pooling.dart' show meanPoolAndNormalize;
 export 'src/embedding/tokenizer_adapter.dart'
     show EmbeddingTokenizer, EmbeddingTokenizerFactory, TokenizedInput;
-// Real arm by default, web stub under js_interop: the worker needs
-// dart:isolate, and web engine arms build their own EmbeddingModel.
-export 'src/embedding/common_embedding_model.dart'
-    if (dart.library.js_interop) 'src/embedding/common_embedding_model_stub.dart'
+// TRANSITIONAL(C stage 3): remove — the pre-2.2 facade litertlm and onnx
+// still build natively until C stage 2 (real arm by default, web stub under
+// js_interop: its worker needs dart:isolate). Core's own CommonEmbeddingModel
+// (src/embedding/common_embedding_model.dart) is not exported.
+export 'src/embedding/legacy_common_embedding_model.dart'
+    if (dart.library.js_interop) 'src/embedding/legacy_common_embedding_model_stub.dart'
     show CommonEmbeddingModel;

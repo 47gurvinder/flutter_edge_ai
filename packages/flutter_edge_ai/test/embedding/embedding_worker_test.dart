@@ -20,7 +20,7 @@ import 'dart:isolate';
 
 // ignore: implementation_imports — a real Gemma SentencePiece tokenizer for the worker round trip (native-only, not exported)
 import 'package:flutter_edge_ai_embeddings/src/embedding_tokenizer.dart';
-import 'package:flutter_edge_ai/src/embedding/common_embedding_model.dart';
+import 'package:flutter_edge_ai/src/embedding/legacy_common_embedding_model.dart';
 import 'package:flutter_edge_ai/src/embedding/embedder_cache.dart';
 import 'package:flutter_edge_ai/src/embedding/embedding_worker.dart';
 import 'package:flutter_edge_ai/src/registry/runtime_config.dart'

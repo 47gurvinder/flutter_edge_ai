@@ -1,3 +1,7 @@
+// TRANSITIONAL(C stage 3): remove — the #609 worker behind the pre-2.2
+// facade (legacy_common_embedding_model.dart). Its successor is
+// embedding_host_io.dart, which runs an EmbeddingPass instead.
+//
 // Long-lived background isolate that drives a runtime-agnostic
 // [EmbeddingForwardPass] (built from a [ForwardPassDescriptor]'s top-level
 // factory tear-off — see `forward_pass.dart`) plus tokenization, which comes
