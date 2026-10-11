@@ -71,16 +71,20 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
   /// returns the model once it is loaded and checked against
   /// [declaredMedia]. [label] — the model file — names it in messages.
   ///
-  /// Fails with `EmbeddingLoadException`.
+  /// Fails with `EmbeddingLoadException`. A pass whose load failed is closed
+  /// behind the error; [onFailedLoadCleanup] gets a future that ends when it
+  /// has (see `EmbedderCache.trackFailedLoadCleanup`).
   static Future<CommonEmbeddingModel> start(
     EmbeddingPassDescriptor<Object> descriptor, {
     required Set<EmbeddingModality> declaredMedia,
     required String label,
+    void Function(Future<void> cleanup)? onFailedLoadCleanup,
   }) async {
     final running = await host.startEmbeddingHost(
       descriptor,
       declaredMedia: declaredMedia,
       label: label,
+      onFailedLoadCleanup: onFailedLoadCleanup,
     );
     return CommonEmbeddingModel._(
       running,
@@ -100,6 +104,7 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
     EmbeddingModel legacy, {
     required String engineTag,
     required String label,
+    void Function(Future<void> cleanup)? onFailedLoadCleanup,
   }) async {
     final config = LegacyModelConfig(legacy, engine: engineTag);
     final running = await inline.startInlineEmbeddingHost(
@@ -111,6 +116,7 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
       ),
       declaredMedia: const {},
       label: label,
+      onFailedLoadCleanup: onFailedLoadCleanup,
       passDied: config.died.future,
     );
     return CommonEmbeddingModel._(

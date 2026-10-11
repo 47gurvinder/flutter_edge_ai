@@ -282,6 +282,44 @@ void main() {
     }, timeout: const Timeout(Duration(seconds: 10)));
   });
 
+  group('EmbedderCache: a failed load still closing (R5 §4.6 step 5)', () {
+    test('the next build waits for it', () async {
+      final cache = EmbedderCache();
+      final cleanup = Completer<void>();
+      cache.trackFailedLoadCleanup(cleanup.future, paramsFor('/a'));
+
+      var answered = false;
+      final next = cache
+          .reuseOrInvalidate(paramsFor('/a'), label: 'retry')
+          .whenComplete(() => answered = true);
+      await pumpEventQueue();
+      expect(answered, isFalse, reason: 'two native models at once otherwise');
+
+      cleanup.complete();
+      expect((await next).reuse, isNull);
+    });
+
+    test('under the same bound as a replaced embedder', () async {
+      final cache = EmbedderCache(
+        closeWaitLimit: const Duration(milliseconds: 100),
+      );
+      cache.trackFailedLoadCleanup(Completer<void>().future, paramsFor('/a'));
+      await expectLater(
+        cache.reuseOrNull(paramsFor('/a'), label: 'retry'),
+        throwsA(isA<EmbedderCloseTimeoutException>()),
+      );
+    });
+
+    test('a cleanup that fails releases the wait too', () async {
+      final cache = EmbedderCache();
+      cache.trackFailedLoadCleanup(
+        Future<void>.error(StateError('close failed')),
+        paramsFor('/a'),
+      );
+      expect(await cache.reuseOrNull(paramsFor('/a'), label: 'retry'), isNull);
+    });
+  });
+
   group('EmbedderCache declared media (R5 §4.6)', () {
     ActiveEmbedderParams p({
       String model = '/m',

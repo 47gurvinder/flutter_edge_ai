@@ -30,17 +30,21 @@ const _slowCloseNotice = Duration(seconds: 30);
 ///
 /// Fails with `EmbeddingLoadException`. A pass whose load failed is closed
 /// behind the error, not before it: a close that never returns must not hold
-/// the caller, which may be the embedder cache's lane.
+/// the caller, which may be the embedder cache's lane. [onFailedLoadCleanup]
+/// receives, before the error is thrown, a future that ends when that close
+/// has, so the caller can hold the next build until then.
 Future<EmbeddingHost> startEmbeddingHost(
   EmbeddingPassDescriptor<Object> descriptor, {
   required Set<EmbeddingModality> declaredMedia,
   required String label,
   @visibleForTesting Duration slowLoadNotice = _slowLoadNotice,
   @visibleForTesting Duration slowCloseNotice = _slowCloseNotice,
+  void Function(Future<void> cleanup)? onFailedLoadCleanup,
 }) => startInlineEmbeddingHost(
   descriptor,
   declaredMedia: declaredMedia,
   label: label,
+  onFailedLoadCleanup: onFailedLoadCleanup,
   slowLoadNotice: slowLoadNotice,
   slowCloseNotice: slowCloseNotice,
 );
@@ -57,6 +61,7 @@ Future<EmbeddingHost> startInlineEmbeddingHost(
   required String label,
   Duration slowLoadNotice = _slowLoadNotice,
   Duration slowCloseNotice = _slowCloseNotice,
+  void Function(Future<void> cleanup)? onFailedLoadCleanup,
   Future<String>? passDied,
 }) async {
   final engine = descriptor.engineTag;
@@ -91,7 +96,9 @@ Future<EmbeddingHost> startInlineEmbeddingHost(
       passDied: passDied,
     );
   } catch (e, st) {
-    unawaited(_closeAfterFailedLoad(pass, engine, label));
+    final cleanup = _closeAfterFailedLoad(pass, engine, label, slowCloseNotice);
+    onFailedLoadCleanup?.call(cleanup);
+    unawaited(cleanup);
     Error.throwWithStackTrace(_loadFailure(e, engine), st);
   } finally {
     notice.cancel();
@@ -110,13 +117,26 @@ Future<void> _closeAfterFailedLoad(
   EmbeddingPass pass,
   String engine,
   String label,
+  Duration slowCloseNotice,
 ) async {
-  final error = await closePassReportingFailure(pass);
-  if (error != null) {
-    warnEmbeddingHost(
-      'the $engine embedding pass for $label failed to close after its load '
-      'failed; its native model may still be resident: $error',
-    );
+  final notice = Timer(
+    slowCloseNotice,
+    () => warnEmbeddingHost(
+      'closing the $engine embedding pass for $label after its load failed '
+      'has taken ${describeHostDuration(slowCloseNotice)} and is still '
+      'running. No new embedder is built until it ends.',
+    ),
+  );
+  try {
+    final error = await closePassReportingFailure(pass);
+    if (error != null) {
+      warnEmbeddingHost(
+        'the $engine embedding pass for $label failed to close after its load '
+        'failed; its native model may still be resident: $error',
+      );
+    }
+  } finally {
+    notice.cancel();
   }
 }
 

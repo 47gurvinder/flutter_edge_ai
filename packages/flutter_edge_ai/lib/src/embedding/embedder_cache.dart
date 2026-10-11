@@ -220,8 +220,28 @@ class EmbedderCache {
   /// and waits for it. The pending close clears itself whenever it ends,
   /// waited for or not.
   Future<void> _closeAndWait(_CachedEmbedder old, String label) async {
-    final pending = _PendingClose(old.params);
-    pending.done = _closeReportingFailure(old.model, old.params, label);
+    _track(_closeReportingFailure(old.model, old.params, label), old.params);
+    await _awaitPendingClose(label);
+  }
+
+  /// Records [cleanup] — the close of a pass whose load failed, which the
+  /// host runs behind the load's error — as the pending close: no embedder is
+  /// built until it ends, and the next caller waits for it under the same
+  /// bound as for a replaced embedder. Two native models are therefore never
+  /// resident at once, not even right after a failed load. A cleanup that
+  /// fails releases the wait (the host has already reported why).
+  void trackFailedLoadCleanup(
+    Future<void> cleanup,
+    ActiveEmbedderParams params,
+  ) => _track(
+    cleanup.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    params,
+  );
+
+  /// Makes [done] the pending close, clearing itself whenever it ends.
+  void _track(Future<void> done, ActiveEmbedderParams params) {
+    final pending = _PendingClose(params);
+    pending.done = done;
     _pendingClose = pending;
     unawaited(
       pending.done.whenComplete(() {
@@ -230,14 +250,13 @@ class EmbedderCache {
           // The callers it held were told to retry; say when that works.
           // ignore: avoid_print
           print(
-            '[flutter_edge_ai] the previous embedder (${old.params.modelPath}) '
+            '[flutter_edge_ai] the previous embedder (${params.modelPath}) '
             'finished closing after ${_seconds(pending.elapsed)}, past the '
             '${_seconds(_closeWaitLimit)} wait; embedders can be built again.',
           );
         }
       }),
     );
-    await _awaitPendingClose(label);
   }
 
   /// Waits for the pending close, if any, until its deadline — whatever is

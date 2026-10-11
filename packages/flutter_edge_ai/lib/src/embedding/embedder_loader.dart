@@ -136,12 +136,17 @@ Future<EmbeddingModel> loadActiveEmbedder({
     final descriptor = await backend.describe(active, config);
 
     // Step 4: core builds, hosts and checks the pass.
+    // A pass whose load fails is closed behind the error; the cache holds
+    // the next build until that close has ended (never two engines).
+    void holdNextBuild(Future<void> cleanup) =>
+        cache.trackFailedLoadCleanup(cleanup, build);
     final EmbeddingModel model;
     if (descriptor != null) {
       model = await CommonEmbeddingModel.start(
         descriptor,
         declaredMedia: build.media,
         label: modelPath,
+        onFailedLoadCleanup: holdNextBuild,
       );
     } else {
       model = await _buildThroughCreateModel(
@@ -150,6 +155,7 @@ Future<EmbeddingModel> loadActiveEmbedder({
         config,
         build.media,
         modelPath,
+        holdNextBuild,
       );
     }
 
@@ -173,6 +179,7 @@ Future<EmbeddingModel> _buildThroughCreateModel(
   RuntimeConfig config,
   Set<EmbeddingModality> media,
   String label,
+  void Function(Future<void> cleanup) onFailedLoadCleanup,
 ) async {
   if (media.isNotEmpty) {
     throw EmbeddingLoadException(
@@ -187,5 +194,6 @@ Future<EmbeddingModel> _buildThroughCreateModel(
     legacy,
     engineTag: backend.name,
     label: label,
+    onFailedLoadCleanup: onFailedLoadCleanup,
   );
 }

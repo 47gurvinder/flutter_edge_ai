@@ -138,13 +138,17 @@ final class _CloseAck {
 /// worker still has to close the pass it built: a native close that never
 /// returns must not hold the caller, which may be the embedder cache's lane —
 /// and with it every embedder request in the app. The close then runs in the
-/// worker on its own, and a failure is reported when it comes.
+/// worker on its own; [onFailedLoadCleanup] receives, before the error is
+/// thrown, a future that ends when the worker has closed the pass and exited,
+/// so the caller can hold the next build until then. A slow cleanup is
+/// reported after [slowCloseNotice], a failed one when it fails.
 Future<EmbeddingHost> startEmbeddingHost(
   EmbeddingPassDescriptor<Object> descriptor, {
   required Set<EmbeddingModality> declaredMedia,
   required String label,
   @visibleForTesting Duration slowLoadNotice = _slowLoadNotice,
   @visibleForTesting Duration slowCloseNotice = _slowCloseNotice,
+  void Function(Future<void> cleanup)? onFailedLoadCleanup,
 }) async {
   final engine = descriptor.engineTag;
   final fromWorker = ReceivePort();
@@ -169,6 +173,11 @@ Future<EmbeddingHost> startEmbeddingHost(
       uncaughtDuringLoad = _describeUncaught(msg);
     } else if (msg == null && !ready.isCompleted) {
       final reason = uncaughtDuringLoad;
+      warnEmbeddingHost(
+        'the $engine embedding worker for $label died during load'
+        '${reason == null ? '' : ' ($reason)'}; its pass may not have been '
+        'closed, so its native model may still be resident.',
+      );
       ready.completeError(
         EmbeddingLoadException(
           reason == null
@@ -215,9 +224,15 @@ Future<EmbeddingHost> startEmbeddingHost(
     // a close that fails. Otherwise it is already gone (onExit), or was never
     // started.
     if (loadFailureReported) {
-      sub.onData(
-        (msg) => _afterFailedLoad(msg, engine, label, sub, fromWorker),
+      final cleanup = _FailedLoadCleanup(
+        engine: engine,
+        label: label,
+        slowCloseNotice: slowCloseNotice,
+        sub: sub,
+        fromWorker: fromWorker,
       );
+      sub.onData(cleanup.onMessage);
+      onFailedLoadCleanup?.call(cleanup.done);
     } else {
       await sub.cancel();
       fromWorker.close();
@@ -245,32 +260,65 @@ Future<EmbeddingHost> startEmbeddingHost(
   return host;
 }
 
-/// What a worker whose load failed sends after the failure: the outcome of
-/// closing its pass, then its exit.
-void _afterFailedLoad(
-  dynamic msg,
-  String engine,
-  String label,
-  StreamSubscription<dynamic> sub,
-  ReceivePort fromWorker,
-) {
-  if (msg is _LoadCleanup) {
-    final error = msg.error;
-    if (error != null) {
-      warnEmbeddingHost(
-        'the $engine embedding pass for $label failed to close after its load '
-        'failed; its native model may still be resident: $error',
-      );
-    }
-  } else if (msg is List) {
-    warnEmbeddingHost(
-      'the $engine embedding worker for $label died while closing the pass '
-      'after its load failed; its native model may still be resident: '
-      '${_describeUncaught(msg)}',
+/// Follows a worker whose load failed while it closes the pass it built: what
+/// it sends after the failure is the outcome of that close, then its exit.
+/// [done] ends at the exit, whatever happened.
+final class _FailedLoadCleanup {
+  _FailedLoadCleanup({
+    required this.engine,
+    required this.label,
+    required Duration slowCloseNotice,
+    required this.sub,
+    required this.fromWorker,
+  }) {
+    _notice = Timer(
+      slowCloseNotice,
+      () => warnEmbeddingHost(
+        'closing the $engine embedding pass for $label after its load failed '
+        'has taken ${describeHostDuration(slowCloseNotice)}: the worker is '
+        'still inside its close. No new embedder is built until it ends.',
+      ),
     );
-  } else if (msg == null) {
-    unawaited(sub.cancel());
-    fromWorker.close();
+  }
+
+  final String engine;
+  final String label;
+  final StreamSubscription<dynamic> sub;
+  final ReceivePort fromWorker;
+  late final Timer _notice;
+  final _done = Completer<void>();
+  bool _reported = false;
+
+  Future<void> get done => _done.future;
+
+  void onMessage(dynamic msg) {
+    if (msg is _LoadCleanup) {
+      _reported = true;
+      final error = msg.error;
+      if (error != null) {
+        warnEmbeddingHost(
+          'the $engine embedding pass for $label failed to close after its '
+          'load failed; its native model may still be resident: $error',
+        );
+      }
+    } else if (msg is List) {
+      warnEmbeddingHost(
+        'the $engine embedding worker for $label died while closing the pass '
+        'after its load failed: ${_describeUncaught(msg)}',
+      );
+    } else if (msg == null) {
+      if (!_reported) {
+        warnEmbeddingHost(
+          'the $engine embedding worker for $label exited after its load '
+          'failed without reporting that the pass closed; its native model '
+          'may still be resident.',
+        );
+      }
+      _notice.cancel();
+      unawaited(sub.cancel());
+      fromWorker.close();
+      if (!_done.isCompleted) _done.complete();
+    }
   }
 }
 

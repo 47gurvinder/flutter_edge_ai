@@ -7,6 +7,7 @@
 // its entry point in EmbedderCache.serialize.
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_edge_ai/src/embedding/embedding_exceptions.dart';
@@ -180,6 +181,39 @@ void main() {
       await model.close();
     });
 
+    test('a pass still closing after its failed load holds the next build '
+        '(never two engines resident)', () async {
+      final gate = '${Directory.systemTemp.createTempSync('gate').path}/open';
+      final backend = _DescribingBackend(failLoadGate: gate);
+      EmbeddingRegistry.instance.registerAll([backend]);
+      final plugin = FlutterEdgeAiMobile();
+      await fixture.activate(plugin, model: 'eg2.litertlm');
+      addTearDown(() {
+        if (!File(gate).existsSync()) File(gate).writeAsStringSync('');
+      });
+
+      await expectLater(
+        plugin.createEmbeddingModel(),
+        throwsA(isA<EmbeddingLoadException>()),
+      );
+      while (!File('$gate.closing').existsSync()) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+
+      final retry = plugin.createEmbeddingModel();
+      retry.ignore();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(
+        backend.configs,
+        hasLength(1),
+        reason: 'the retry must wait for the failed pass to close',
+      );
+
+      File(gate).writeAsStringSync('');
+      await expectLater(retry, throwsA(isA<EmbeddingLoadException>()));
+      expect(backend.configs, hasLength(2));
+    });
+
     test('a backend that refuses in describe() fails the load, typed, and '
         'leaves nothing cached', () async {
       final backend = _DescribingBackend(refuse: true);
@@ -339,7 +373,12 @@ final class _DescribingBackend extends EmbeddingBackendProvider {
     this.audioCapable = false,
     this.refuse = false,
     this.handles = true,
+    this.failLoadGate,
   });
+
+  /// When set, the pass fails its load and its close waits until this file
+  /// exists (the pass runs in the worker isolate, so a file is the gate).
+  final String? failLoadGate;
 
   final bool imageCapable;
   final bool audioCapable;
@@ -371,6 +410,7 @@ final class _DescribingBackend extends EmbeddingBackendProvider {
       config: _PassConfig(
         imageCapable: imageCapable,
         audioCapable: audioCapable,
+        failLoadGate: failLoadGate,
       ),
       activeBackend: PreferredBackend.cpu,
     );
@@ -378,9 +418,14 @@ final class _DescribingBackend extends EmbeddingBackendProvider {
 }
 
 final class _PassConfig {
-  const _PassConfig({required this.imageCapable, required this.audioCapable});
+  const _PassConfig({
+    required this.imageCapable,
+    required this.audioCapable,
+    this.failLoadGate,
+  });
   final bool imageCapable;
   final bool audioCapable;
+  final String? failLoadGate;
 }
 
 EmbeddingPass _buildPass(_PassConfig config) => _Pass(config);
@@ -391,7 +436,12 @@ final class _Pass extends EmbeddingPass {
   final _PassConfig _config;
 
   @override
-  Future<EmbeddingPassInfo> load() async => EmbeddingPassInfo(
+  Future<EmbeddingPassInfo> load() async {
+    if (_config.failLoadGate != null) throw StateError('load refused');
+    return _info();
+  }
+
+  EmbeddingPassInfo _info() => EmbeddingPassInfo(
     dimension: 3,
     maxInputTokens: 64,
     modalities: {
@@ -411,7 +461,14 @@ final class _Pass extends EmbeddingPass {
   ];
 
   @override
-  Future<void> close() async {}
+  Future<void> close() async {
+    final gate = _config.failLoadGate;
+    if (gate == null) return;
+    File('$gate.closing').writeAsStringSync('');
+    while (!File(gate).existsSync()) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+  }
 }
 
 /// A backend that still builds its own model (the pre-2.2 seam).

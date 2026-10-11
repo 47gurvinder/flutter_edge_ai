@@ -33,6 +33,8 @@ enum _Mode {
   gatedAsync,
   gatedSync,
   failLoad,
+  failLoadGatedClose,
+  failLoadThenCloseDies,
   failLoadTyped,
   dieDuringLoad,
   tooLong,
@@ -69,6 +71,8 @@ final class _FakePass extends EmbeddingPass {
     _log('load');
     switch (_config.mode) {
       case _Mode.failLoad:
+      case _Mode.failLoadGatedClose:
+      case _Mode.failLoadThenCloseDies:
         _refuseToLoadInThePass();
       case _Mode.failLoadTyped:
         throw const EmbeddingLoadException(
@@ -145,6 +149,19 @@ final class _FakePass extends EmbeddingPass {
 
   @override
   Future<void> close() async {
+    if (_config.mode == _Mode.failLoadGatedClose) {
+      _log('close-start');
+      final deadline = DateTime.now().add(_gateDeadline);
+      while (!_release.existsSync()) {
+        if (DateTime.now().isAfter(deadline)) break;
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+    }
+    if (_config.mode == _Mode.failLoadThenCloseDies) {
+      // The worker dies inside the close, before it can report it.
+      scheduleMicrotask(() => throw StateError('fake died while closing'));
+      await Completer<void>().future;
+    }
     _log('close');
     if (_config.mode == _Mode.closeThrows) throw StateError('close refused');
   }
@@ -479,6 +496,113 @@ void main() {
       });
     });
   });
+
+  group(
+    'a failed load is closed behind its error, and the caller can wait',
+    () {
+      final starters = <String, Function>{
+        'isolate host': io.startEmbeddingHost,
+        'inline host': inline.startEmbeddingHost,
+      };
+      starters.forEach((name, start) {
+        test('$name: the error comes first; the cleanup future ends when the '
+            'pass has closed, and a slow close says so', () async {
+          final log = _newLog();
+          Future<void>? cleanup;
+          final printed = <String>[];
+          await runZoned(
+            () async {
+              await expectLater(
+                Function.apply(
+                      start,
+                      [_descriptor(_Mode.failLoadGatedClose, log)],
+                      {
+                        #declaredMedia: const <EmbeddingModality>{},
+                        #label: '/models/fake.bin',
+                        #slowCloseNotice: const Duration(milliseconds: 100),
+                        #onFailedLoadCleanup: (Future<void> c) => cleanup = c,
+                      },
+                    )
+                    as Future<EmbeddingHost>,
+                throwsA(isA<EmbeddingLoadException>()),
+              );
+              expect(
+                cleanup,
+                isNotNull,
+                reason: 'handed over before the error',
+              );
+              await _waitForLog(log, (l) => l.contains('close-start'));
+              var done = false;
+              unawaited(cleanup!.then((_) => done = true));
+              await Future<void>.delayed(const Duration(milliseconds: 300));
+              expect(done, isFalse, reason: 'the pass is still closing');
+              expect(
+                printed.join('\n'),
+                contains('after its load failed'),
+                reason: 'a slow cleanup is reported, not silent',
+              );
+              _release(log);
+              await cleanup!.timeout(const Duration(seconds: 10));
+            },
+            zoneSpecification: ZoneSpecification(
+              print: (self, parent, zone, line) => printed.add(line),
+            ),
+          );
+          expect(_readLog(log), ['load', 'close-start', 'close']);
+        });
+      });
+
+      test('isolate host: a worker that dies while closing after a failed load '
+          'is reported, and the cleanup still ends', () async {
+        Future<void>? cleanup;
+        final printed = <String>[];
+        await runZoned(
+          () async {
+            await expectLater(
+              io.startEmbeddingHost(
+                _descriptor(_Mode.failLoadThenCloseDies, _newLog()),
+                declaredMedia: const {},
+                label: '/models/fake.bin',
+                onFailedLoadCleanup: (c) => cleanup = c,
+              ),
+              throwsA(isA<EmbeddingLoadException>()),
+            );
+            await cleanup!.timeout(const Duration(seconds: 10));
+          },
+          zoneSpecification: ZoneSpecification(
+            print: (self, parent, zone, line) => printed.add(line),
+          ),
+        );
+        final out = printed.join('\n');
+        expect(out, contains('fake died while closing'));
+        expect(out, contains('without reporting'));
+        expect(out, contains('may still be resident'));
+      });
+
+      test('isolate host: a worker that dies during load says the native model '
+          'may still be resident', () async {
+        final printed = <String>[];
+        await runZoned(
+          () async {
+            await expectLater(
+              _start(io.startEmbeddingHost, _Mode.dieDuringLoad, _newLog()),
+              throwsA(isA<EmbeddingLoadException>()),
+            );
+          },
+          zoneSpecification: ZoneSpecification(
+            print: (self, parent, zone, line) => printed.add(line),
+          ),
+        );
+        expect(
+          printed.join('\n'),
+          allOf(
+            contains('died during load'),
+            contains('may still be resident'),
+          ),
+        );
+      });
+    },
+  );
 
   group('isolate host only', () {
     test(
