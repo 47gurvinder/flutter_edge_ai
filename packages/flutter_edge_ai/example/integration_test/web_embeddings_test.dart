@@ -16,9 +16,10 @@
 /// the token, `--dart-define=EG1_MODEL_URL=…` serves the same file from
 /// elsewhere (see web_embeddings_support.dart). MiniLM is ungated.
 ///
-/// The driver writes `build/web_embeddings_response.json` even when a test
-/// fails: the W1 comparison (`w1`), bundle API v1's ids for the two legacy
-/// prefixes (`w1_v1`, the MIGRATION re-index question) and the accelerator.
+/// The driver writes this suite's data to `build/web_embeddings_response.json`
+/// even when a test fails — the W1 comparison (`w1`), the ids bundle API v1
+/// ran for its two prefixes (`w1_v1`, for the record) and the accelerator.
+/// The streaming suite writes its own file, so running both keeps both.
 ///
 /// Rule 6b: no setUp/setUpAll — every fallible step is a guarded helper
 /// called inside the test body, and the last test checks that every test
@@ -68,6 +69,7 @@ void _start(String name) {
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  reportTo('web_embeddings_response');
 
   group('EmbeddingGemma 1 on LiteRT.js', () {
     testWidgets(

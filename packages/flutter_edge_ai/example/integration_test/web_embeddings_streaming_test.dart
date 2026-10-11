@@ -22,6 +22,11 @@
 /// asset never becomes an `opfs://` path), so the token — or
 /// `EG1_MODEL_URL` + `EG1_TOKENIZER_URL` — is needed for both.
 ///
+/// The driver writes this suite's data (the object URLs each pass created and
+/// revoked) to `build/web_embeddings_streaming_response.json`, even when a
+/// test fails; web_embeddings_test.dart's goes to its own file, so running
+/// both keeps both.
+///
 /// Rule 6b: no setUp/setUpAll; the last test checks that every test before
 /// it started.
 @TestOn('chrome')
@@ -80,6 +85,7 @@ void _start(String name) {
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  reportTo('web_embeddings_streaming_response');
 
   testWidgets(
     'LiteRT.js (EmbeddingGemma 1): loads from opfs:// paths, revokes both '

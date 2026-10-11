@@ -280,12 +280,22 @@ List<List<int>> w1NativeIds(TaskType type) => [
 // ── Report ──────────────────────────────────────────────────────────────────
 
 /// Adds [value] under [key] to the run's response data. The suites' driver
-/// (test_driver/web_embeddings_driver.dart) writes it to
-/// `build/web_embeddings_response.json`, even when a test failed.
+/// (test_driver/web_embeddings_driver.dart) writes it to the file the suite
+/// named with [reportTo], even when a test failed.
 void report(String key, Object? value) {
   final binding = IntegrationTestWidgetsFlutterBinding.instance;
   (binding.reportData ??= <String, dynamic>{})[key] = value;
 }
+
+/// The response-data key a suite names its response file under. The driver
+/// keeps its own copy of it (it runs outside the app and cannot import this
+/// file); the two must stay equal.
+const responseFileKey = 'responseFile';
+
+/// Names the file the driver writes this suite's response data to:
+/// `build/<responseFile>.json`. Each suite has its own, so running both keeps
+/// both records. Call it first thing in `main()`.
+void reportTo(String responseFile) => report(responseFileKey, responseFile);
 
 /// Names of the tests that started, for each suite's last test to check that
 /// none is missing from the run (Rule 6b: an absent test reads as a pass).
