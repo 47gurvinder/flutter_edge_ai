@@ -356,6 +356,79 @@ void main() {
   });
 
   group('embedAll', () {
+    test('a media request still waiting for a permit is never sent once '
+        'its embedAll was cancelled', () async {
+      final fake = _imageHost(autoReply: false);
+      final model = CommonEmbeddingModel.withHost(fake);
+      // Two single requests hold both media permits.
+      final held = [
+        for (var i = 0; i < 2; i++)
+          model.embed(EmbeddingInput.image(_jpeg), taskType: TaskType.none),
+      ];
+      final token = CancelToken();
+      final all = model.embedAll(
+        [EmbeddingInput.image(_jpeg), EmbeddingInput.image(_jpeg)],
+        taskType: TaskType.none,
+        cancelToken: token,
+      );
+      await _settle();
+      expect(fake.calls, hasLength(2), reason: 'the batch waits for permits');
+
+      token.cancel('test');
+      await expectLater(all, throwsA(isA<EmbeddingCancelledException>()));
+      for (final call in fake.calls) {
+        call.reply.complete([0, 0]);
+      }
+      await Future.wait(held);
+      await _settle();
+
+      expect(
+        fake.calls,
+        hasLength(2),
+        reason: 'the freed permits must not carry the cancelled batch out',
+      );
+      // And the permits came back: a new media request is admitted.
+      model
+          .embed(EmbeddingInput.image(_jpeg), taskType: TaskType.none)
+          .ignore();
+      await _settle();
+      expect(fake.calls, hasLength(3));
+    });
+
+    test('a media request still waiting for a permit is never sent once '
+        'its embedAll failed', () async {
+      final fake = _imageHost(autoReply: false);
+      final model = CommonEmbeddingModel.withHost(fake);
+      // Two single requests hold both media permits, so the batch's image
+      // waits while its text request runs — and fails.
+      final held = [
+        for (var i = 0; i < 2; i++)
+          model.embed(EmbeddingInput.image(_jpeg), taskType: TaskType.none),
+      ];
+      final all = model.embedAll([
+        EmbeddingInput.text('fails'),
+        EmbeddingInput.image(_jpeg),
+      ], taskType: TaskType.none);
+      await _settle();
+      expect(fake.calls, hasLength(3), reason: 'two held images + the text');
+      final textCall = fake.calls.firstWhere((c) => c.input.text == 'fails');
+
+      textCall.reply.completeError(
+        const EmbeddingEngineException('boom', engine: 'E'),
+      );
+      await expectLater(all, throwsA(isA<EmbeddingEngineException>()));
+      for (final call in fake.calls) {
+        if (!call.reply.isCompleted) call.reply.complete([0, 0]);
+      }
+      await Future.wait(held);
+      await _settle();
+      expect(
+        fake.calls.where((c) => c.input.images.isNotEmpty),
+        hasLength(2),
+        reason: 'the failed batch\'s image never reached the host',
+      );
+    });
+
     List<EmbeddingInput> texts(int n) => [
       for (var i = 0; i < n; i++) EmbeddingInput.text('t$i'),
     ];

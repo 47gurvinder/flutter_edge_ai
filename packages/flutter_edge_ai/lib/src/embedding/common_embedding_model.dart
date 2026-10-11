@@ -243,11 +243,20 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
 
   /// Admission, the request, and the per-reply dimension check. [input] is
   /// already validated.
-  Future<List<double>> _send(EmbeddingInput input, TaskType taskType) async {
+  ///
+  /// [settled] is set for a request of an `embedAll` call: a media request may
+  /// wait a while for a permit, and if its call was cancelled or failed
+  /// meanwhile it gives the permit straight back and never reaches the host.
+  Future<List<double>> _send(
+    EmbeddingInput input,
+    TaskType taskType, {
+    bool Function()? settled,
+  }) async {
     final media = isMediaRequest(input);
     if (media) await _acquirePermit();
     try {
       if (_isClosed) throw _closedError();
+      if (settled != null && settled()) throw const _CallSettled();
       final vector = await _host.embed(input, taskType);
       if (vector.length != dimension) {
         throw EmbeddingEngineException(
@@ -289,7 +298,7 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
         outstanding++;
         // Once the call has failed or been cancelled, what is still
         // outstanding finishes in the host and is dropped here.
-        _send(inputs[index], taskType).then(
+        _send(inputs[index], taskType, settled: () => result.isCompleted).then(
           (vector) {
             outstanding--;
             if (result.isCompleted) return;
@@ -404,6 +413,13 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
       );
     }
   }
+}
+
+/// Thrown by [CommonEmbeddingModel._send] for a request whose `embedAll` call
+/// settled while the request waited for a permit. Nobody observes it: the
+/// call has already completed.
+final class _CallSettled implements Exception {
+  const _CallSettled();
 }
 
 String _names(Set<EmbeddingModality> modalities) => [
