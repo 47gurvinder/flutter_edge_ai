@@ -6,8 +6,6 @@
 
 import 'dart:async';
 
-import 'package:flutter_edge_ai/src/utils/edge_ai_log.dart';
-
 import 'embedding_exceptions.dart';
 import 'embedding_input.dart';
 import 'embedding_modality.dart';
@@ -58,16 +56,18 @@ String describeHostDuration(Duration d) => d.inMilliseconds % 1000 == 0
     ? '${d.inSeconds} s'
     : '${d.inMilliseconds} ms';
 
-/// Closes [pass], reporting a failure as text — error and stack, since across
+/// Closes [pass], returning a failure as text — error and stack, since across
 /// an isolate the stack is all the main side will ever see of it — instead of
 /// throwing, so the caller still finishes its own teardown. Null means it
 /// closed cleanly.
+///
+/// Reports nothing itself: every caller prints the text once, with what it
+/// knows (engine, model, which close), where a release build shows it.
 Future<String?> closePassReportingFailure(EmbeddingPass pass) async {
   try {
     await pass.close();
     return null;
   } catch (e, st) {
-    edgeAiLog('[EmbeddingHost] pass close failed: $e\n$st');
     return '$e\n$st';
   }
 }

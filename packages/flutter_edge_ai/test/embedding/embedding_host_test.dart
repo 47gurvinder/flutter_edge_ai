@@ -14,6 +14,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_edge_ai/src/domain/platform_types.dart';
 import 'package:flutter_edge_ai/src/embedding/embedding_exceptions.dart';
 import 'package:flutter_edge_ai/src/embedding/embedding_host.dart';
@@ -43,6 +44,7 @@ enum _Mode {
   otherError,
   dieOnEmbed,
   closeThrows,
+  failLoadCloseThrows,
 }
 
 final class _Config {
@@ -73,6 +75,7 @@ final class _FakePass extends EmbeddingPass {
       case _Mode.failLoad:
       case _Mode.failLoadGatedClose:
       case _Mode.failLoadThenCloseDies:
+      case _Mode.failLoadCloseThrows:
         _refuseToLoadInThePass();
       case _Mode.failLoadTyped:
         throw const EmbeddingLoadException(
@@ -163,7 +166,10 @@ final class _FakePass extends EmbeddingPass {
       await Completer<void>().future;
     }
     _log('close');
-    if (_config.mode == _Mode.closeThrows) throw StateError('close refused');
+    if (_config.mode == _Mode.closeThrows ||
+        _config.mode == _Mode.failLoadCloseThrows) {
+      throw StateError('close refused');
+    }
   }
 }
 
@@ -494,6 +500,69 @@ void main() {
         await host.close();
         expect(_readLog(log), ['load', 'close']);
       });
+    });
+  });
+
+  group('a pass close that throws is reported once (inline host)', () {
+    /// Every diagnostic line the host emits — `print` (release-visible) and
+    /// `debugPrint` (what `edgeAiLog` uses) alike — while [body] runs.
+    Future<List<String>> reports(Future<void> Function() body) async {
+      final lines = <String>[];
+      final savedDebugPrint = debugPrint;
+      debugPrint = (message, {wrapWidth}) => lines.add(message ?? '');
+      try {
+        await runZoned(
+          body,
+          zoneSpecification: ZoneSpecification(
+            print: (self, parent, zone, line) => lines.add(line),
+          ),
+        );
+      } finally {
+        debugPrint = savedDebugPrint;
+      }
+      return lines;
+    }
+
+    void expectOneWarning(List<String> lines) {
+      final aboutIt = lines.where((l) => l.contains('close refused')).toList();
+      expect(aboutIt, hasLength(1), reason: 'one failure, one report');
+      expect(
+        aboutIt.single,
+        startsWith('[flutter_edge_ai] WARNING:'),
+        reason: 'the report kept is the one a release build prints',
+      );
+    }
+
+    test('when the host closes it', () async {
+      final log = _newLog();
+      final lines = await reports(() async {
+        final host = await inline.startEmbeddingHost(
+          _descriptor(_Mode.closeThrows, log),
+          declaredMedia: const {},
+          label: '/models/fake.bin',
+        );
+        await host.close();
+      });
+      expectOneWarning(lines);
+    });
+
+    test('when it is closed after a failed load', () async {
+      final log = _newLog();
+      final lines = await reports(() async {
+        Future<void>? cleanup;
+        await expectLater(
+          inline.startEmbeddingHost(
+            _descriptor(_Mode.failLoadCloseThrows, log),
+            declaredMedia: const {},
+            label: '/models/fake.bin',
+            onFailedLoadCleanup: (c) => cleanup = c,
+          ),
+          throwsA(isA<EmbeddingLoadException>()),
+        );
+        await cleanup;
+      });
+      expect(_readLog(log), ['load', 'close']);
+      expectOneWarning(lines);
     });
   });
 
