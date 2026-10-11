@@ -24,7 +24,9 @@
 //   without one it runs with no weight cache (+290 MB) or writes
 //   `.xnnpack_cache` files next to the model. The directory is named by
 //   a short hash of the file name (see `liteRtLmCacheDirName`: Windows
-//   MAX_PATH), and a load that leaves it empty is reported.
+//   MAX_PATH), and a load that leaves it empty is reported. Caches of earlier
+//   copies of the same file name are deleted only after the engine exists,
+//   and not while they were touched in the last 10 minutes.
 // - Overflow (§4.8): options use kError; a NULL response with status 3
 //   (InvalidArgument) on the single, well-formed text part this pass built is
 //   an overflow — the only InvalidArgument reachable for such a request at
@@ -171,14 +173,19 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
     this._config, {
     @visibleForTesting LiteRtLmEmbeddingBindings Function()? openBindings,
     @visibleForTesting Allocator allocator = calloc,
+    @visibleForTesting DateTime Function()? clock,
   }) : _open = openBindings ?? _openBindings,
-       _alloc = allocator;
+       _alloc = allocator,
+       _now = clock ?? DateTime.now;
 
   final LiteRtLmEmbeddingConfig _config;
   final LiteRtLmEmbeddingBindings Function() _open;
 
   /// Every pointer the pass allocates, and frees.
   final Allocator _alloc;
+
+  /// What "now" is when judging whether a sibling cache is still in use.
+  final DateTime Function() _now;
 
   LiteRtLmEmbeddingBindings? _bindings;
   Pointer<LiteRtLmEmbeddingEngine> _engine = nullptr;
@@ -217,7 +224,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
     final info = _readModelInfo(b);
     final textSignatures = _checkModelInfo(info);
     final (:setting, :maxInputTokens) = liteRtLmInputLimit(textSignatures);
-    final cacheDir = _prepareCacheDir();
+    final cacheDir = _createCacheDir();
 
     try {
       _engine = _createEngine(b, maxInputLength: setting, cacheDir: cacheDir);
@@ -227,6 +234,8 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
       rethrow;
     }
     _warnIfNoWeightCache(cacheDir);
+    // Only now: a load that failed must not have cost another copy its cache.
+    _deleteStaleSiblings(cacheDir);
 
     _dimension = info.dimension;
     _maxInputTokens = maxInputTokens;
@@ -463,11 +472,10 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
 
   // ── Cache directory (D22) ──────────────────────────────────────────────
 
-  /// Creates `<cacheBase>/<file>-<size>-<mtime>/` and deletes the directories
-  /// an earlier copy of the same file left (a re-download changes size or
-  /// mtime). Returns its path.
-  String _prepareCacheDir() {
-    final Directory dir;
+  /// Creates `<cacheBase>/<liteRtLmCacheDirName>/` for this copy of the
+  /// bundle and returns its path. Nothing else is touched until the engine
+  /// exists ([_deleteStaleSiblings]).
+  String _createCacheDir() {
     try {
       final stat = File(_config.modelPath).statSync();
       if (stat.type == FileSystemEntityType.notFound) {
@@ -478,8 +486,10 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
         size: stat.size,
         modified: stat.modified,
       );
-      dir = Directory('${_config.cacheBase}${Platform.pathSeparator}$name');
-      dir.createSync(recursive: true);
+      final dir = Directory(
+        '${_config.cacheBase}${Platform.pathSeparator}$name',
+      )..createSync(recursive: true);
+      return dir.path;
     } on FileSystemException catch (e) {
       throw EmbeddingLoadException(
         'could not create the embedding cache directory for $_file under '
@@ -488,26 +498,60 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
         cause: e,
       );
     }
-    final name = _fileName(dir.path);
-    final ours = RegExp('^${liteRtLmCacheDirPrefix(_file)}-\\d+-\\d+\$');
-    try {
-      for (final entry in Directory(_config.cacheBase).listSync()) {
-        final entryName = _fileName(entry.path);
-        if (entry is Directory &&
-            entryName != name &&
-            ours.hasMatch(entryName)) {
-          entry.deleteSync(recursive: true);
-        }
-      }
-    } on FileSystemException catch (e) {
-      // Costs disk, not correctness: the engine uses its own directory.
-      edgeAiLog(
-        '[LiteRtLmEmbeddingPass] could not delete a stale cache for $_file '
-        'under ${_config.cacheBase}: $e',
-      );
-    }
-    return dir.path;
   }
+
+  /// Deletes the caches earlier copies of this file name left (a re-download
+  /// or a new revision under the same name changes size or mtime). Runs only
+  /// after this pass's engine exists, and spares any sibling touched within
+  /// [_siblingGrace] — directory or newest entry — because another process
+  /// (an app extension sharing the container, the app mid-replacement) may be
+  /// creating its engine from it right now; it is collected by a later load.
+  /// Costs disk, never correctness: a sibling that will not go is logged and
+  /// the rest are still tried.
+  void _deleteStaleSiblings(String cacheDir) {
+    final keep = _fileName(cacheDir);
+    final ours = RegExp('^${liteRtLmCacheDirPrefix(_file)}-\\d+-\\d+\$');
+    final List<FileSystemEntity> entries;
+    try {
+      // Sorted, so the order is the same everywhere (listing order is not).
+      entries = Directory(_config.cacheBase).listSync()
+        ..sort((a, b) => a.path.compareTo(b.path));
+    } on FileSystemException catch (e) {
+      edgeAiLog(
+        '[LiteRtLmEmbeddingPass] could not list ${_config.cacheBase}: $e',
+      );
+      return;
+    }
+    final now = _now();
+    for (final entry in entries) {
+      final name = _fileName(entry.path);
+      if (entry is! Directory || name == keep || !ours.hasMatch(name)) {
+        continue;
+      }
+      try {
+        if (now.difference(_lastTouched(entry)) < _siblingGrace) continue;
+        entry.deleteSync(recursive: true);
+      } on FileSystemException catch (e) {
+        edgeAiLog(
+          '[LiteRtLmEmbeddingPass] could not delete the stale cache '
+          '${entry.path}: $e',
+        );
+      }
+    }
+  }
+
+  /// The latest modification of [dir] itself or of anything directly in it.
+  static DateTime _lastTouched(Directory dir) {
+    var latest = dir.statSync().modified;
+    for (final entry in dir.listSync()) {
+      final modified = entry.statSync().modified;
+      if (modified.isAfter(latest)) latest = modified;
+    }
+    return latest;
+  }
+
+  /// How recently a sibling cache may have been touched and still be spared.
+  static const _siblingGrace = Duration(minutes: 10);
 
   /// The engine writes its weight cache at create. When it could not (a
   /// path too long for the platform, a full disk) it runs anyway — slower to

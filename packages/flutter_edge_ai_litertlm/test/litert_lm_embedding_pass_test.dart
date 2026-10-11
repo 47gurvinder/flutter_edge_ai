@@ -53,6 +53,7 @@ void main() {
     Set<EmbeddingModality> declaredMedia = const {},
     int? numThreads,
     LiteRtLmEmbeddingBindings Function()? openBindings,
+    DateTime Function()? clock,
   }) => LiteRtLmEmbeddingPass(
     LiteRtLmEmbeddingConfig(
       modelPath: modelPath,
@@ -62,7 +63,12 @@ void main() {
     ),
     openBindings: openBindings ?? () => native,
     allocator: allocator,
+    clock: clock,
   );
+
+  /// A clock an hour ahead: every directory made so far is older than the
+  /// 10-minute grace.
+  DateTime anHourLater() => DateTime.now().add(const Duration(hours: 1));
 
   String expectedCacheDir() {
     final stat = File(modelPath).statSync();
@@ -451,7 +457,7 @@ void main() {
             dir.createSync(recursive: true);
           }
 
-          await pass().load();
+          await pass(clock: anHourLater).load();
 
           expect(Directory(expectedCacheDir()).existsSync(), isTrue);
           for (final stale in staleDirs) {
@@ -462,6 +468,62 @@ void main() {
           }
         },
       );
+
+      test('stale siblings go only after this pass\'s engine was created: a '
+          'failed create deletes nothing', () async {
+        final stale = Directory(
+          '$cacheBase/${liteRtLmCacheDirPrefix(_file)}-1-2',
+        )..createSync(recursive: true);
+        native.failEngine = (code: 13, message: 'no engine');
+        final p = pass(clock: anHourLater);
+        await expectLater(p.load(), throwsA(isA<EmbeddingLoadException>()));
+        await p.close();
+        expect(stale.existsSync(), isTrue);
+
+        native.dispose();
+        native = _FakeLiteRtLm();
+        await pass(clock: anHourLater).load();
+        expect(stale.existsSync(), isFalse);
+      });
+
+      test('a sibling touched within the last 10 minutes is kept — another '
+          'process may be loading that copy', () async {
+        final ours = liteRtLmCacheDirPrefix(_file);
+        // Just made: its directory is fresh.
+        final fresh = Directory('$cacheBase/$ours-1-2')
+          ..createSync(recursive: true);
+        // Old directory, but an entry inside was written 5 minutes "ago".
+        final busy = Directory('$cacheBase/$ours-3-4')
+          ..createSync(recursive: true);
+        final clock = anHourLater();
+        File('${busy.path}/model.text_encoder.xnnpack_cache')
+          ..writeAsStringSync('being written')
+          ..setLastModifiedSync(clock.subtract(const Duration(minutes: 5)));
+
+        await pass().load(); // the real clock: `fresh` is seconds old
+        expect(fresh.existsSync(), isTrue);
+
+        await pass(clock: () => clock).load();
+        expect(fresh.existsSync(), isFalse, reason: 'an hour old by now');
+        expect(busy.existsSync(), isTrue, reason: 'its newest entry is fresh');
+      });
+
+      test('a sibling that will not delete is logged, not fatal, and does not '
+          'stop the others', () async {
+        final ours = liteRtLmCacheDirPrefix(_file);
+        final stuck = Directory('$cacheBase/$ours-1-2/locked')
+          ..createSync(recursive: true);
+        File('${stuck.path}/x').writeAsStringSync('x');
+        // Sorts after the stuck one, so it is tried after the failure.
+        final other = Directory('$cacheBase/$ours-5-6')
+          ..createSync(recursive: true);
+        Process.runSync('chmod', ['555', stuck.path]);
+        addTearDown(() => Process.runSync('chmod', ['755', stuck.path]));
+
+        final info = await pass(clock: anHourLater).load();
+        expect(info.dimension, 4);
+        expect(other.existsSync(), isFalse);
+      }, skip: Platform.isWindows ? 'chmod' : null);
 
       test('is named <12-hex hash of the file name>-<size>-<mtime ms>', () {
         final name = liteRtLmCacheDirName(
