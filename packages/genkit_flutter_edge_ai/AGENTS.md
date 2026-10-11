@@ -36,7 +36,7 @@ This is a **Genkit Dart plugin** that bridges [flutter_edge_ai](https://pub.dev/
 
 - **`FlutterEdgeAiRuntime`** — abstracts flutter_edge_ai's static API (`FlutterEdgeAi.getActiveModel`, `FlutterEdgeAi.getActiveEmbedder`). Production uses `DefaultFlutterEdgeAiRuntime`; tests use `FakeRuntime` from `test/src/fake_runtime.dart`.
 - **Model action** (`flutter_edge_ai_model.dart`) — implements a serialized queue via future-chain lock, caches `InferenceModel` across calls, and delegates to blocking/streaming generation paths.
-- **Embedder action** (`flutter_edge_ai_embedder.dart`) — caches `EmbeddingModel` with backend invalidation.
+- **Embedder action** (`flutter_edge_ai_embedder.dart`) — keeps no `EmbeddingModel`: every request resolves it through `runtime.getActiveEmbedder` (a cache hit in core) and calls `embedAll(..., taskType: retrievalQuery)`; on `EmbedderClosedException` (the request never ran) it resolves again and retries once.
 
 ### Converter layer (`lib/src/converters/`)
 

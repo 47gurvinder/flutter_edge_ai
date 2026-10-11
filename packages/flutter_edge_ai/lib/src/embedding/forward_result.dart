@@ -1,10 +1,9 @@
 // What a token-level embedding graph hands back, and the one function that
 // turns it into the final vector. Pure Dart, web-safe.
 //
-// Split out of `forward_pass.dart` (R5 §2.2.1): these types outlive the old
-// `EmbeddingForwardPass` seam. `TokenEmbeddingPass` (token_embedding_pass.dart)
-// runs `finalizeEmbedding` over its graph's `ForwardResult`, which is what the
-// embedding worker used to do privately (`_finalize` / `_copyPooledFinal`).
+// `TokenEmbeddingPass` (token_embedding_pass.dart) runs `finalizeEmbedding`
+// over the `ForwardResult` its graph's `runTokens` returns; an engine with a
+// pass of its own may call it too.
 
 import 'pooling.dart';
 
@@ -29,9 +28,10 @@ enum EmbeddingOutputContract {
   tokenLevel,
 }
 
-/// Raw forward-pass output: a flat, row-major buffer plus its tensor shape.
+/// A graph's raw output for one input: a flat, row-major buffer plus its
+/// tensor shape.
 ///
-/// [shape] is one of two layouts a forward pass can hand back — see
+/// [shape] is one of two layouts a graph can hand back — see
 /// `pooling.dart`'s `meanPoolAndNormalize` for how each is turned into a
 /// single embedding vector:
 ///  - `[1, dim]` — already pooled by the engine (e.g. a LiteRT compiled
@@ -53,13 +53,13 @@ class ForwardResult {
   final List<int> shape;
 
   /// The *effective* attention mask over this result's `seq` axis, when the
-  /// pass knows one (design D-T3's silent-regression fix). A pass that pads
-  /// a fixed-shape graph MUST pad ids/mask/type-ids together and echo the
-  /// padded mask here, so the masked mean-pool excludes exactly the padding it
-  /// added — never the tokenizer's mask, which describes the UNPADDED input. A
-  /// pass over a dynamic-shape graph (no padding) may pass the input mask
-  /// through unchanged or omit it — [finalizeEmbedding]'s caller then falls
-  /// back to the tokenizer's mask.
+  /// graph knows one (design D-T3's silent-regression fix). A `runTokens`
+  /// that pads a fixed-shape graph MUST pad ids/mask/type-ids together and
+  /// echo the padded mask here, so the masked mean-pool excludes exactly the
+  /// padding it added — never the tokenizer's mask, which describes the
+  /// UNPADDED input. One over a dynamic-shape graph (no padding) may pass the
+  /// input mask through unchanged or omit it — [finalizeEmbedding]'s caller
+  /// then falls back to the tokenizer's mask.
   final List<int>? attentionMask;
 }
 

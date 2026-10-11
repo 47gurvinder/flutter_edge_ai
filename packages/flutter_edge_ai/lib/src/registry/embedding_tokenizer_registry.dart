@@ -41,7 +41,8 @@ class EmbeddingTokenizerRegistry {
     return indexed.first.$2;
   }
 
-  /// The factory an embedding backend passes into its `ForwardPassDescriptor`.
+  /// The tokenizer factory an embedding backend's `describe()` puts in its
+  /// pass config — what a `TokenEmbeddingPass` builds its tokenizer with.
   ///
   /// Throws rather than returning null, and names the fix: a backend that
   /// silently fell back to one tokenizer family would not fail — it would

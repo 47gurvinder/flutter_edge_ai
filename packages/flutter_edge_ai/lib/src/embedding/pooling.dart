@@ -2,7 +2,7 @@
 //
 // Pure function, no engine/isolate/native dependency — the runtime-agnostic
 // half of the embedding pipeline (design doc §2). Exercised entirely with
-// fake `ForwardResult`s in `test/pooling_test.dart`.
+// fixed `ForwardResult`s in `test/embedding/pooling_test.dart`.
 
 import 'dart:math' as math;
 
