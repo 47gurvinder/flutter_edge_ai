@@ -4,6 +4,7 @@ import 'package:flutter_edge_ai/src/embedding/embedder_backend_notice.dart';
 import 'package:flutter_edge_ai/src/utils/edge_ai_log.dart';
 import 'package:flutter_edge_ai/src/embedding/common_embedding_model.dart';
 import 'package:flutter_edge_ai/src/embedding/forward_pass.dart';
+import 'package:flutter_edge_ai/src/embedding/forward_result.dart';
 import 'package:flutter_edge_ai/src/embedding/tokenizer_adapter.dart';
 import 'package:flutter_edge_ai/src/registry/runtime_config.dart';
 import 'package:flutter_edge_ai/src/interface.dart';

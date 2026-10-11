@@ -6,7 +6,7 @@
 
 import 'dart:math' as math;
 
-import 'forward_pass.dart';
+import 'forward_result.dart';
 
 /// Mean-pools a **token-level** [ForwardResult] over the sequence axis and
 /// L2-normalizes it into a single embedding vector of length `dim`.

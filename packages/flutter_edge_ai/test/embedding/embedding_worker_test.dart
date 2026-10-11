@@ -26,6 +26,7 @@ import 'package:flutter_edge_ai/src/embedding/embedding_worker.dart';
 import 'package:flutter_edge_ai/src/registry/runtime_config.dart'
     show ActiveEmbedderParams;
 import 'package:flutter_edge_ai/src/embedding/forward_pass.dart';
+import 'package:flutter_edge_ai/src/embedding/forward_result.dart';
 import 'package:flutter_edge_ai/src/embedding/tokenizer_adapter.dart';
 import 'package:flutter_edge_ai/src/domain/platform_types.dart';
 import 'package:flutter_test/flutter_test.dart';

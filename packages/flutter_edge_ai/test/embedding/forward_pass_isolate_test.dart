@@ -14,6 +14,7 @@
 import 'dart:isolate';
 
 import 'package:flutter_edge_ai/src/embedding/forward_pass.dart';
+import 'package:flutter_edge_ai/src/embedding/forward_result.dart';
 import 'package:flutter_edge_ai/src/embedding/tokenizer_adapter.dart';
 import 'package:flutter_edge_ai/src/domain/platform_types.dart';
 import 'package:flutter_test/flutter_test.dart';

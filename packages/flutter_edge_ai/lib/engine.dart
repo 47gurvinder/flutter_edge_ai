@@ -37,15 +37,16 @@ export 'src/parsing/sdk_response_parser.dart' show SdkResponseParser;
 export 'src/parsing/sdk_text_extractor.dart' show SdkTextExtractor;
 export 'src/model_management/model_specs.dart' show TtsModelTypeManifest;
 
-// Embedding seam: the contracts an embedding engine implements, the pooling
-// helper, and the worker-isolate facade core hosts them in.
+// Embedding SPI.
+export 'src/embedding/forward_result.dart'
+    show EmbeddingOutputContract, ForwardResult, finalizeEmbedding;
+// TRANSITIONAL(C stage 3): remove — the pre-2.2 seam, still implemented by
+// flutter_edge_ai_litertlm and flutter_edge_ai_onnx until C stage 2.
 export 'src/embedding/forward_pass.dart'
     show
         EmbeddingForwardPass,
         EmbeddingForwardPassFactory,
-        EmbeddingOutputContract,
-        ForwardPassDescriptor,
-        ForwardResult;
+        ForwardPassDescriptor;
 export 'src/embedding/pooling.dart' show meanPoolAndNormalize;
 export 'src/embedding/tokenizer_adapter.dart'
     show EmbeddingTokenizer, EmbeddingTokenizerFactory, TokenizedInput;

@@ -1,3 +1,9 @@
+// TRANSITIONAL(C stage 3): remove — this whole file is the pre-2.2 seam that
+// flutter_edge_ai_litertlm and flutter_edge_ai_onnx still implement until C
+// stage 2 ports them to `EmbeddingPass`. `ForwardResult` and
+// `EmbeddingOutputContract` already moved to `forward_result.dart`, which
+// outlives this file.
+//
 // The engine-specific forward-pass seam for the runtime-agnostic embedder
 // (design: docs/superpowers/specs/2026-08-17-flutter-gemma-onnx-engine-design.md
 // §2, §11 D3/D4).
@@ -15,9 +21,11 @@
 // the constructor; async lets an off-main-isolate host (see
 // `litert_embedding_worker.dart`'s pattern) `await` it inside the worker.
 
-import 'tokenizer_adapter.dart';
 import 'package:flutter_edge_ai/src/domain/platform_types.dart'
     show PreferredBackend;
+
+import 'forward_result.dart';
+import 'tokenizer_adapter.dart';
 
 /// One engine's forward-pass implementation.
 ///
@@ -69,64 +77,6 @@ abstract class EmbeddingForwardPass {
   /// LiteRT never overrides; its descriptor always declares `pooledFinal`
   /// and this getter stays `null`.
   EmbeddingOutputContract? get outputContract => null;
-}
-
-/// How to turn a [ForwardResult] into the final embedding vector.
-///
-/// The dispatch MUST be on this enum, never on [ForwardResult.shape] — a
-/// rank-2 `[1, dim]` result from an engine that already pools+normalizes
-/// internally (LiteRT) must NOT be routed through `meanPoolAndNormalize` a
-/// second time (that would silently add an L2-normalize the LiteRT path
-/// never had — see this file's module doc / the embedder decoupling plan's
-/// Invariant I0). `meanPoolAndNormalize` lives in `pooling.dart` and is
-/// applied by the generalized worker (`embedding_worker.dart`) based on this
-/// contract.
-enum EmbeddingOutputContract {
-  /// [ForwardResult] IS the final embedding already — copy `values` verbatim
-  /// (`List<double>.of(result.values)`). No pooling, no normalization.
-  /// Used by LiteRT: whatever pooling/normalization exists is baked into the
-  /// compiled `.tflite` graph and is opaque to Dart.
-  pooledFinal,
-
-  /// [ForwardResult] is `[1, seq, dim]` per-token hidden states. Apply
-  /// `meanPoolAndNormalize` (mean-pool over `seq`, then L2-normalize) to get
-  /// the final embedding. Used by engines (e.g. ONNX) that expose raw
-  /// hidden states rather than a pooled output.
-  tokenLevel,
-}
-
-/// Raw forward-pass output: a flat, row-major buffer plus its tensor shape.
-///
-/// [shape] is one of two layouts a forward pass can hand back — see
-/// `pooling.dart`'s `meanPoolAndNormalize` for how each is turned into a
-/// single embedding vector:
-///  - `[1, dim]` — already pooled by the engine (e.g. a LiteRT compiled
-///    model whose graph itself produces one vector per input). Treated as a
-///    pass-through.
-///  - `[1, seq, dim]` — per-token hidden states. Mean-pooled over the `seq`
-///    axis (optionally respecting an attention mask) before normalizing.
-class ForwardResult {
-  const ForwardResult({
-    required this.values,
-    required this.shape,
-    this.attentionMask,
-  });
-
-  /// Flat, row-major buffer. `values.length == shape.reduce((a, b) => a * b)`.
-  final List<double> values;
-
-  /// Tensor shape, e.g. `[1, dim]` or `[1, seq, dim]`.
-  final List<int> shape;
-
-  /// The *effective* attention mask over this result's `seq` axis, when the
-  /// pass knows one (design D-T3's silent-regression fix). A pass that pads
-  /// a fixed-shape graph MUST pad `tokenIds`/mask/`tokenTypeIds` together and
-  /// echo the padded mask here, so the worker's masked mean-pool excludes
-  /// exactly the padding it added — never the caller-supplied
-  /// `run(attentionMask:)`, which describes the UNPADDED input. A pass over
-  /// a dynamic-shape graph (no padding) may pass the input mask through
-  /// unchanged or omit it — the worker falls back to the request's mask.
-  final List<int>? attentionMask;
 }
 
 /// Factory that builds an [EmbeddingForwardPass] for a given on-disk model

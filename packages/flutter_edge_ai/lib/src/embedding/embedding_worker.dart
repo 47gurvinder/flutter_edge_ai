@@ -39,7 +39,7 @@ import 'package:meta/meta.dart';
 import 'dart:isolate';
 
 import 'forward_pass.dart';
-import 'pooling.dart';
+import 'forward_result.dart';
 import 'tokenizer_adapter.dart';
 
 /// Handshake payload the worker sends back once the forward pass is loaded.
@@ -486,51 +486,6 @@ class EmbeddingWorker {
   }
 }
 
-/// Turns a raw [ForwardResult] into the final embedding vector per
-/// [contract] (design D-T2: `pass.outputContract ?? descriptor.outputContract`
-/// — resolved by the caller). `pooledFinal` copies verbatim — see
-/// [EmbeddingOutputContract.pooledFinal]'s doc for why this must never fall
-/// through to [meanPoolAndNormalize]. `tokenLevel` uses [attentionMask] —
-/// the *effective* mask (design D-T3: [ForwardResult.attentionMask] if the
-/// pass echoed one, else the request's mask) — so padding a pass added never
-/// leaks into the mean.
-List<double> _finalize(
-  EmbeddingOutputContract contract,
-  ForwardResult result,
-  List<int>? attentionMask,
-) {
-  switch (contract) {
-    case EmbeddingOutputContract.pooledFinal:
-      return _copyPooledFinal(result);
-    case EmbeddingOutputContract.tokenLevel:
-      return meanPoolAndNormalize(result, attentionMask: attentionMask);
-  }
-}
-
-/// Copies a `pooledFinal` [ForwardResult] verbatim — but only after
-/// confirming it actually IS an already-pooled `[1, dim]` vector. Symmetric
-/// to [meanPoolAndNormalize]'s rank guard in `pooling.dart`: without this,
-/// a token-level `[1, seq, dim]` result misrouted here (e.g. an ONNX output
-/// name the engine's dispatch didn't recognize, silently falling back to
-/// "assume pooled") would be flattened and returned as a corrupt vector —
-/// unpooled, unnormalized, and the wrong length — with no error anywhere.
-List<double> _copyPooledFinal(ForwardResult result) {
-  final shape = result.shape;
-  final isPooledShape =
-      shape.length == 2 && shape[0] == 1 && result.values.length == shape[1];
-  if (!isPooledShape) {
-    throw StateError(
-      'EmbeddingOutputContract.pooledFinal requires a rank-2 `[1, dim]` '
-      'already-pooled result; got shape $shape with ${result.values.length} '
-      'values. This usually means a token-level output was misclassified as '
-      'pooled (e.g. an unrecognized ONNX output name falling back to '
-      '"assume pooled") — copying it verbatim would silently return a '
-      'corrupt, unpooled embedding.',
-    );
-  }
-  return List<double>.of(result.values);
-}
-
 /// Closes [pass], reporting a failure as text — error and stack, since the
 /// stack is all the main isolate will ever see of it — instead of throwing,
 /// so the caller still sends its last message. Null means it closed cleanly.
@@ -667,7 +622,11 @@ Future<void> _serve(
     );
     final contract = pass.outputContract ?? init.descriptor.outputContract;
     final effectiveMask = result.attentionMask ?? tokenized.attentionMask;
-    final vector = _finalize(contract, result, effectiveMask);
+    final vector = finalizeEmbedding(
+      contract,
+      result,
+      attentionMask: effectiveMask,
+    );
     init.replyTo.send(_EmbedReply(msg.id, vector, null));
   } catch (e) {
     init.replyTo.send(_EmbedReply(msg.id, null, e.toString()));
