@@ -621,6 +621,22 @@ void main() {
     });
   });
 
+  test('the release gate checks exactly the symbols the pass needs', () {
+    // native/litert_lm/check_embedding_exports.py refuses to publish a
+    // tarball whose libLiteRtLm lacks one; it must ask for the same list.
+    final script = File(
+      'native/litert_lm/check_embedding_exports.py',
+    ).readAsStringSync();
+    final list = RegExp(
+      r'REQUIRED = \[(.*?)\]',
+      dotAll: true,
+    ).firstMatch(script)!.group(1)!;
+    final required = [
+      for (final m in RegExp(r'"([a-z_]+)"').allMatches(list)) m.group(1)!,
+    ];
+    expect(required, liteRtLmEmbeddingSymbols);
+  });
+
   test('the bindings do not bind what D23 rules out', () {
     final source = File(
       'lib/src/ffi/litert_lm_embedding_bindings.dart',
