@@ -61,7 +61,7 @@ void main() {
 
   late Directory cacheBase;
   LiteRtLmEmbeddingBindings bindings() =>
-      bindLiteRtLmEmbeddings(DynamicLibrary.open(dylib!), label: dylib!);
+      bindLiteRtLmEmbeddings(DynamicLibrary.open(dylib!), label: dylib);
 
   LiteRtLmEmbeddingPass pass(
     String modelPath, {
@@ -83,7 +83,7 @@ void main() {
   test('the shipped library exports everything the pass calls', () {
     checkLiteRtLmEmbeddingSymbols(
       DynamicLibrary.open(dylib!).providesSymbol,
-      library: dylib!,
+      library: dylib,
     );
   }, skip: dylib == null ? 'no host libLiteRtLm in the download cache' : null);
 
