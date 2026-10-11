@@ -12,8 +12,13 @@
 // for every type but a document) and `generateDocumentEmbedding`. So this pass
 // serves `TaskType.retrievalQuery` and `.retrievalDocument` only and refuses
 // the other seven by name rather than embed them with the wrong prefix, and it
-// reports `maxInputTokens: null` because v1 cannot tell. Bundle API v2 (Dart
-// builds the prefix; overflow reported, never truncated) replaces both.
+// reports `maxInputTokens: null` because v1 cannot tell.
+//
+// Until then, an over-long input is TRUNCATED SILENTLY on web: v1 cuts the
+// ids (prefix, BOS, text, EOS) to the model's sequence length, which also
+// drops the EOS, and returns a vector of the cut text with no error — where
+// native throws `EmbeddingInputTooLongException`. Bundle API v2 (Dart builds
+// the prefix; overflow reported, never truncated) replaces all three.
 
 import 'dart:async';
 
@@ -157,7 +162,8 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
     }
     _loadedWasmPath ??= wasmPath;
     if (kDebugMode) edgeAiLog('LiteRT.js embeddings loaded');
-    // v1 cannot report the model's input length.
+    // v1 cannot report the model's input length — and truncates an input
+    // over it silently, EOS included (see the header). Bundle v2 fixes both.
     return EmbeddingPassInfo(dimension: _bundle.dimension);
   });
 
