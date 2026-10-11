@@ -22,6 +22,14 @@ final class _FakePage implements LiteRtJsBundle {
   /// does when the model fails to compile.
   bool failNextLoad = false;
 
+  /// When true, `web/litert_embeddings.js` is not on the page: none of its
+  /// window functions exist, so every call into them throws, as the real
+  /// interop does (`loadLiteRtEmbeddings is not a function`).
+  bool missing = false;
+
+  @override
+  bool get isPresent => !missing;
+
   /// Called as a load starts, while the bundle is reading its URLs.
   void Function()? onLoad;
 
@@ -37,6 +45,7 @@ final class _FakePage implements LiteRtJsBundle {
     String tokenizerUrl,
     String wasmPath,
   ) async {
+    if (missing) throw StateError('loadLiteRtEmbeddings is not a function');
     loads.add((model: modelUrl, tokenizer: tokenizerUrl));
     onLoad?.call();
     await Future<void>.delayed(
@@ -67,6 +76,7 @@ final class _FakePage implements LiteRtJsBundle {
 
   @override
   Future<void> dispose() async {
+    if (missing) throw StateError('cleanupLiteRtEmbeddings is not a function');
     disposes++;
     modelLoaded = false;
     tokenizerLoaded = false;
@@ -293,6 +303,47 @@ void main() {
       await unresolvable.close();
       expect(page.disposes, 0);
     });
+
+    test(
+      'a page without web/litert_embeddings.js: the load names the '
+      'missing file, nothing is resolved, and close has nothing to dispose',
+      () async {
+        // The pass used to mark the page touched before it knew the bundle was
+        // there, so the close behind the failed load called the missing
+        // cleanupLiteRtEmbeddings — and core then printed a second, false
+        // warning that a native model "may still be resident".
+        final page = _FakePage()..missing = true;
+        final resolved = <String>[];
+        final pass = LiteRtJsEmbeddingPass(
+          LiteRtJsEmbeddingConfig(
+            modelPath: 'opfs://m.tflite',
+            tokenizerPath: 'opfs://t.model',
+            bundle: page,
+            resolveUrl: (path) async {
+              resolved.add(path);
+              return 'blob:$path';
+            },
+            revokeUrl: (_) {},
+          ),
+        );
+
+        await expectLater(
+          pass.load(),
+          throwsA(
+            isA<EmbeddingLoadException>()
+                .having((e) => e.engine, 'engine', 'LiteRT.js')
+                .having(
+                  (e) => e.message,
+                  'message',
+                  contains('litert_embeddings.js'),
+                ),
+          ),
+        );
+        expect(resolved, isEmpty, reason: 'no blob: URL made for nothing');
+        await pass.close();
+        expect(page.disposes, 0);
+      },
+    );
 
     test(
       'a failed load does not block the lane: the next pass loads',

@@ -31,6 +31,11 @@ external JSNumber _getLiteRtEmbeddingDimensionJS();
 @JS('cleanupLiteRtEmbeddings')
 external JSPromise _cleanupLiteRtEmbeddingsJS();
 
+/// The bundle's load function as a plain value: undefined (null here) when
+/// `litert_embeddings.js` is not on the page.
+@JS('loadLiteRtEmbeddings')
+external JSAny? get _loadLiteRtEmbeddingsValue;
+
 @JS('isLiteRtEmbeddingsInitialized')
 external JSBoolean _isLiteRtEmbeddingsInitializedJS();
 
@@ -241,6 +246,9 @@ class LiteRTWebEmbeddings {
 /// `web/litert_embeddings.js`, through [LiteRTWebEmbeddings].
 final class WindowLiteRtJsBundle implements LiteRtJsBundle {
   const WindowLiteRtJsBundle();
+
+  @override
+  bool get isPresent => _loadLiteRtEmbeddingsValue.typeofEquals('function');
 
   @override
   Future<void> load(String modelUrl, String tokenizerUrl, String wasmPath) =>

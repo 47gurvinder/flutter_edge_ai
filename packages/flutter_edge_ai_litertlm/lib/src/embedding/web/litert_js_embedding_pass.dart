@@ -29,6 +29,10 @@ import 'web_runtime.dart';
 
 /// The `web/litert_embeddings.js` window API (bundle v1), as the pass uses it.
 abstract interface class LiteRtJsBundle {
+  /// Whether `web/litert_embeddings.js` is on the page at all — its window
+  /// API exists. When it is not, no call below can do anything but throw.
+  bool get isPresent;
+
   /// `loadLiteRtEmbeddings`: fetches the tokenizer, then fetches and compiles
   /// the model. Page-global state.
   Future<void> load(String modelUrl, String tokenizerUrl, String wasmPath);
@@ -130,6 +134,20 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
   Future<EmbeddingPassInfo> load() => _onPage(() async {
     if (_closed) {
       throw StateError('LiteRtJsEmbeddingPass was closed before it loaded');
+    }
+    // Before anything is resolved or the page counts as touched: without the
+    // bundle there is no page state, so the close behind this failure has
+    // nothing to dispose — and must not call the missing cleanup, which core
+    // would report as a native model that "may still be resident".
+    if (!_bundle.isPresent) {
+      throw const EmbeddingLoadException(
+        'web/litert_embeddings.js is not loaded on this page. Copy '
+        'packages/flutter_edge_ai_litertlm/web/litert_embeddings.js (and the '
+        "three files it imports) into your app's web/ and add "
+        '<script type="module" src="litert_embeddings.js"></script> to '
+        'web/index.html.',
+        engine: liteRtJsEngine,
+      );
     }
     // Configurable since 2.2.0; the old hardcoded '/wasm/' was served by
     // nothing, so this call always failed. See [LiteRtWebRuntime].

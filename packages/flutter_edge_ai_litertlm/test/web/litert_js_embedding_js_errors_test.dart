@@ -3,14 +3,17 @@
 // backend's describe(), the LiteRT.js pass over the window bundle, and core's
 // inline host. A load failure must reach the caller as an
 // `EmbeddingLoadException`, an embed failure as an `EmbeddingEngineException`,
-// both tagged 'LiteRT.js' and carrying the JS message. The stubs are defined
-// with `eval`, so they are plain JS functions, not Dart closures.
+// both tagged 'LiteRT.js' and carrying the JS message. A page without the
+// bundle at all fails the load by naming the missing file, and the close
+// behind that failure has nothing to dispose. The stubs are defined with
+// `eval`, so they are plain JS functions, not Dart closures.
 //
 // Not run by tool/test_all.sh or CI, which run on the VM. Run:
 //   flutter test --platform chrome test/web/litert_js_embedding_js_errors_test.dart
 @TestOn('browser')
 library;
 
+import 'dart:async';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 
@@ -37,7 +40,20 @@ void _installWorkingBundle() => _js('''
   window.cleanupLiteRtEmbeddings = async function () {};
 ''');
 
-Future<EmbeddingHost> _start() async {
+/// What a page without `<script src="litert_embeddings.js">` has: none of
+/// the bundle's window functions.
+void _removeBundle() => _js('''
+  delete window.loadLiteRtEmbeddings;
+  delete window.getLiteRtEmbeddingDimension;
+  delete window.isLiteRtEmbeddingsInitialized;
+  delete window.generateEmbedding;
+  delete window.generateDocumentEmbedding;
+  delete window.cleanupLiteRtEmbeddings;
+''');
+
+Future<EmbeddingHost> _start({
+  void Function(Future<void> cleanup)? onFailedLoadCleanup,
+}) async {
   final descriptor = await const LiteRtEmbeddingBackend().describe(
     EmbeddingModelSpec(
       name: 'embeddinggemma',
@@ -54,6 +70,7 @@ Future<EmbeddingHost> _start() async {
     descriptor,
     declaredMedia: const {},
     label: 'gemma.tflite',
+    onFailedLoadCleanup: onFailedLoadCleanup,
   );
 }
 
@@ -82,6 +99,36 @@ void main() {
         );
       });
     }
+  });
+
+  test('a page without litert_embeddings.js: the load names the file, and '
+      'the close behind it warns about nothing', () async {
+    _removeBundle();
+    final printed = <String>[];
+    Future<void>? cleanup;
+    await runZoned(
+      () => expectLater(
+        _start(onFailedLoadCleanup: (c) => cleanup = c),
+        throwsA(
+          isA<EmbeddingLoadException>()
+              .having((e) => e.engine, 'engine', 'LiteRT.js')
+              .having(
+                (e) => e.message,
+                'message',
+                contains('litert_embeddings.js'),
+              ),
+        ),
+      ),
+      zoneSpecification: ZoneSpecification(
+        print: (self, parent, zone, line) => printed.add(line),
+      ),
+    );
+    await cleanup;
+    expect(
+      printed.where((l) => l.contains('failed to close')),
+      isEmpty,
+      reason: 'there was no page state, so nothing failed to close',
+    );
   });
 
   group('an embed that fails in JS is an EmbeddingEngineException', () {
