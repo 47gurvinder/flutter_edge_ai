@@ -39,7 +39,7 @@ void main() {
     File(modelPath)
       ..createSync(recursive: true)
       ..writeAsBytesSync(List.filled(37, 7));
-    cacheBase = '${root.path}/support/flutter_edge_ai/embedding_cache';
+    cacheBase = '${root.path}/cache/flutter_edge_ai/embedding_cache';
     native = _FakeLiteRtLm();
     allocator = _CountingAllocator();
   });
@@ -425,12 +425,19 @@ void main() {
 
     group('the engine-owned cache directory (D22)', () {
       test(
-        'is created, and stale siblings for the same file are deleted',
+        'is created, and the caches of earlier copies of the same file name '
+        '(a re-download, a new revision under the same name) are deleted',
         () async {
           final ours = liteRtLmCacheDirPrefix(_file);
-          final stale = Directory('$cacheBase/$ours-1-2')
-            ..createSync(recursive: true);
-          File('${stale.path}/old.xnnpack_cache').writeAsStringSync('x');
+          final size = File(modelPath).lengthSync();
+          final staleDirs = [
+            Directory('$cacheBase/$ours-1-2'), // other size and time
+            Directory('$cacheBase/$ours-$size-2'), // same size, older time
+          ];
+          for (final stale in staleDirs) {
+            stale.createSync(recursive: true);
+            File('${stale.path}/old.xnnpack_cache').writeAsStringSync('x');
+          }
           final kept = [
             Directory(
               '$cacheBase/${liteRtLmCacheDirPrefix('other.litertlm')}-1-2',
@@ -447,7 +454,9 @@ void main() {
           await pass().load();
 
           expect(Directory(expectedCacheDir()).existsSync(), isTrue);
-          expect(stale.existsSync(), isFalse);
+          for (final stale in staleDirs) {
+            expect(stale.existsSync(), isFalse, reason: stale.path);
+          }
           for (final dir in kept) {
             expect(dir.existsSync(), isTrue, reason: '${dir.path} is not ours');
           }
@@ -477,8 +486,10 @@ void main() {
         // inside the directory; spelling the model's name in the directory
         // too put this path at about 284 characters.
         const model = 'embeddinggemma-2-text-270m__rev-9be6e8b90982.litertlm';
+        // getApplicationCacheDirectory() on Windows: %LOCALAPPDATA%\<company>
+        // \<product>.
         const base =
-            r'C:\Users\a-twenty-char-user-x\AppData\Roaming\dev.flutterberlin'
+            r'C:\Users\a-twenty-char-user-x\AppData\Local\dev.flutterberlin'
             r'\flutter_edge_ai_example\flutter_edge_ai\embedding_cache';
         final dir = liteRtLmCacheDirName(
           model,

@@ -72,16 +72,19 @@ Future<EmbeddingPassDescriptor<LiteRtLmEmbeddingConfig>> _describeBundle(
       engine: _liteRtLm,
     );
   }
-  // Resolved here: the pass runs in core's worker isolate, which has no
-  // platform channels. The LLM engine keeps its cache under the same root.
-  final support = (await getApplicationSupportDirectory()).path;
+  // The platform CACHE directory, not application support: iOS backs that up
+  // to iCloud and Android Auto Backup includes it under a 25 MB per-app quota,
+  // which a 71-385 MB weight cache would break. If the OS purges the cache,
+  // the next engine create rebuilds it. Resolved here: the pass runs in core's
+  // worker isolate, which has no platform channels.
+  final cache = (await getApplicationCacheDirectory()).path;
   final sep = Platform.pathSeparator;
   return EmbeddingPassDescriptor<LiteRtLmEmbeddingConfig>(
     engineTag: _liteRtLm,
     factory: buildLiteRtLmEmbeddingPass,
     config: LiteRtLmEmbeddingConfig(
       modelPath: config.modelPath,
-      cacheBase: '$support${sep}flutter_edge_ai${sep}embedding_cache',
+      cacheBase: '$cache${sep}flutter_edge_ai${sep}embedding_cache',
       declaredMedia: {
         if (config.supportImage) EmbeddingModality.image,
         if (config.supportAudio) EmbeddingModality.audio,

@@ -20,8 +20,9 @@
 //   +10.25 GB. `maxInputTokens` is the smallest text signature at or above the
 //   setting — the limit the engine enforces.
 // - The engine always gets an existing, writable cache directory that this
-//   pass owns (D22): without one it runs with no weight cache (+290 MB) or
-//   writes `.xnnpack_cache` files next to the model. The directory is named by
+//   pass owns (D22), under the platform cache directory (never backed up):
+//   without one it runs with no weight cache (+290 MB) or writes
+//   `.xnnpack_cache` files next to the model. The directory is named by
 //   a short hash of the file name (see `liteRtLmCacheDirName`: Windows
 //   MAX_PATH), and a load that leaves it empty is reported.
 // - Overflow (§4.8): options use kError; a NULL response with status 3
@@ -75,9 +76,12 @@ final class LiteRtLmEmbeddingConfig {
   /// The `.litertlm` bundle core resolved for the active spec.
   final String modelPath;
 
-  /// `<applicationSupport>/flutter_edge_ai/embedding_cache`, resolved in
-  /// `describe()` (the worker isolate has no platform channels). The pass
-  /// keeps one directory per bundle file under it.
+  /// `<applicationCache>/flutter_edge_ai/embedding_cache` (path_provider's
+  /// `getApplicationCacheDirectory()`), resolved in `describe()` — the worker
+  /// isolate has no platform channels. The pass keeps one directory per bundle
+  /// copy under it. A cache directory, so it is never backed up (iOS iCloud,
+  /// Android Auto Backup's 25 MB quota); when the OS purges it, the next engine
+  /// create rebuilds the weight cache.
   final String cacheBase;
 
   /// The media the caller declared. The pass refuses any of them in 1.13.0,

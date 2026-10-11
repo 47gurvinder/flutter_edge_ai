@@ -57,9 +57,11 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           _pathProvider,
-          (call) async => call.method == 'getApplicationSupportDirectory'
-              ? '/support'
-              : null,
+          (call) async => switch (call.method) {
+            'getApplicationCacheDirectory' => '/cache',
+            'getApplicationSupportDirectory' => '/support',
+            _ => null,
+          },
         );
   });
   tearDown(() {
@@ -130,21 +132,27 @@ void main() {
   });
 
   group('describe() on a .litertlm bundle', () {
-    test('hands core the EmbeddingGemma 2 pass: the opened file, the '
-        'engine-owned cache base, CPU', () async {
-      final descriptor = await backend.describe(
-        _bundle(),
-        _config('/data/eg2.litertlm'),
-      );
-      expect(descriptor.engineTag, 'LiteRT-LM');
-      expect(descriptor.activeBackend, PreferredBackend.cpu);
-      final config = descriptor.config as LiteRtLmEmbeddingConfig;
-      expect(config.modelPath, '/data/eg2.litertlm');
-      expect(config.cacheBase, '/support/flutter_edge_ai/embedding_cache');
-      expect(config.declaredMedia, isEmpty);
-      expect(config.numThreads, isNull);
-      expect(descriptor.build(), isA<LiteRtLmEmbeddingPass>());
-    });
+    test(
+      'hands core the EmbeddingGemma 2 pass: the opened file, the '
+      'engine-owned cache base in the platform cache directory, CPU',
+      () async {
+        final descriptor = await backend.describe(
+          _bundle(),
+          _config('/data/eg2.litertlm'),
+        );
+        expect(descriptor.engineTag, 'LiteRT-LM');
+        expect(descriptor.activeBackend, PreferredBackend.cpu);
+        final config = descriptor.config as LiteRtLmEmbeddingConfig;
+        expect(config.modelPath, '/data/eg2.litertlm');
+        // The platform cache directory, never application support: iOS backs
+        // that up to iCloud and Android Auto Backup caps it at 25 MB per app,
+        // while a purged cache is rebuilt at the next engine create.
+        expect(config.cacheBase, '/cache/flutter_edge_ai/embedding_cache');
+        expect(config.declaredMedia, isEmpty);
+        expect(config.numThreads, isNull);
+        expect(descriptor.build(), isA<LiteRtLmEmbeddingPass>());
+      },
+    );
 
     test('never asks the tokenizer registry', () async {
       await backend.describe(_bundle(), _config('/data/eg2.litertlm'));
