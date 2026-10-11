@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_edge_ai/src/domain/platform_types.dart';
 import 'package:flutter_edge_ai/src/embedding/embedder_backend_notice.dart';
 import 'package:flutter_edge_ai/src/utils/edge_ai_log.dart';
+// TRANSITIONAL(C stage 3): the old-seam cases below (CommonEmbeddingModel.create
+// over a ForwardPassDescriptor) go with the seam.
 import 'package:flutter_edge_ai/src/embedding/legacy_common_embedding_model.dart';
 import 'package:flutter_edge_ai/src/embedding/forward_pass.dart';
 import 'package:flutter_edge_ai/src/embedding/forward_result.dart';

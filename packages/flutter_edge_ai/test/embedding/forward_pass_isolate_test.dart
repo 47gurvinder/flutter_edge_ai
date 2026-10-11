@@ -1,3 +1,6 @@
+// TRANSITIONAL(C stage 3): remove with forward_pass.dart — the boundary proof
+// for EmbeddingPassDescriptor is embedding_host_test.dart.
+//
 // REAL isolate-boundary sendability test for `ForwardPassDescriptor`.
 //
 // This is the crux test for the ForwardPass seam design (hardened plan D3/D4):

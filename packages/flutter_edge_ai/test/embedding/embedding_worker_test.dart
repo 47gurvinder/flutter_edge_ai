@@ -1,3 +1,6 @@
+// TRANSITIONAL(C stage 3): remove with embedding_worker.dart and the pre-2.2
+// facade it tests; embedding_host_test.dart covers the host that replaces it.
+//
 // Host tests for `embedding_worker.dart` — the generalized background-
 // isolate worker that drives a runtime-agnostic [EmbeddingForwardPass] +
 // [EmbeddingTokenizer] pair (embedder decoupling plan Task 5; Phase 2 D-T1/

@@ -5,6 +5,7 @@
 
 import 'dart:math' as math;
 
+// TRANSITIONAL(C stage 3): drop this import and the old-seam fake below.
 import 'package:flutter_edge_ai/src/embedding/forward_pass.dart';
 import 'package:flutter_edge_ai/src/embedding/forward_result.dart';
 import 'package:flutter_edge_ai/src/embedding/pooling.dart';
