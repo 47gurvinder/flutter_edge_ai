@@ -7,6 +7,8 @@ import 'package:flutter_edge_ai/src/di/service_registry.dart';
 import 'package:flutter_edge_ai/src/infrastructure/web_file_system_service.dart';
 import 'package:flutter_edge_ai/src/infrastructure/web_download_service.dart';
 import 'package:flutter_edge_ai/src/model_management/constants/preferences_keys.dart';
+import 'package:flutter_edge_ai/src/model_management/model_specs.dart'
+    show modelSourceFromLegacyUrl;
 import 'package:flutter_edge_ai/src/model_management/active_embedding_identity.dart';
 import 'package:flutter_edge_ai/src/model_management/active_identity_store.dart';
 import 'package:flutter_edge_ai/src/model_management/model_activation.dart';
@@ -843,11 +845,12 @@ class WebModelManager extends ModelFileManager
     String? loraUrl,
     ModelReplacePolicy replacePolicy = ModelReplacePolicy.keep,
   }) {
-    return InferenceModelSpec.fromLegacyUrl(
+    return InferenceModelSpec(
       name: name,
-      modelUrl: modelUrl,
-      loraUrl: loraUrl,
+      modelSource: modelSourceFromLegacyUrl(modelUrl),
+      loraSource: loraUrl != null ? modelSourceFromLegacyUrl(loraUrl) : null,
       replacePolicy: replacePolicy,
+      modelType: ModelType.general,
     );
   }
 
@@ -858,10 +861,10 @@ class WebModelManager extends ModelFileManager
     required String tokenizerUrl,
     ModelReplacePolicy replacePolicy = ModelReplacePolicy.keep,
   }) {
-    return EmbeddingModelSpec.fromLegacyUrl(
+    return EmbeddingModelSpec(
       name: name,
-      modelUrl: modelUrl,
-      tokenizerUrl: tokenizerUrl,
+      modelSource: modelSourceFromLegacyUrl(modelUrl),
+      tokenizerSource: modelSourceFromLegacyUrl(tokenizerUrl),
       replacePolicy: replacePolicy,
     );
   }

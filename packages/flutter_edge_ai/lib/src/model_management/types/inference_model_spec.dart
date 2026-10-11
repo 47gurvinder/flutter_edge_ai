@@ -1,5 +1,29 @@
 part of '../model_specs.dart';
 
+/// Maps a legacy URL string to a [ModelSource]: `http(s)://` is a network
+/// source, `asset://` an asset, `native://` a bundled resource, `file://` a
+/// file, and a schemeless string an asset.
+///
+/// Core's remaining legacy-URL entry points (the deprecated
+/// [InferenceModelSpec.fromLegacyUrl] and the model managers'
+/// `createInferenceSpec` / `createEmbeddingSpec`) build their sources here, so
+/// core itself never calls a deprecated member. Not exported.
+@internal
+ModelSource modelSourceFromLegacyUrl(String url) {
+  if (url.startsWith('https://') || url.startsWith('http://')) {
+    return ModelSource.network(url);
+  } else if (url.startsWith('asset://')) {
+    return ModelSource.asset(url.replaceFirst('asset://', ''));
+  } else if (url.startsWith('native://')) {
+    return ModelSource.bundled(url.replaceFirst('native://', ''));
+  } else if (url.startsWith('file://')) {
+    return ModelSource.file(url.replaceFirst('file://', ''));
+  } else {
+    // Schemeless = asset for backward compatibility
+    return ModelSource.asset(url);
+  }
+}
+
 /// Model file for inference models (.bin, .task files)
 class InferenceModelFile extends ModelFile {
   final ModelSource _source;
@@ -208,7 +232,14 @@ class InferenceModelSpec extends ModelSpec {
     }
   }
 
-  /// Legacy compatibility constructor for String URLs
+  /// Legacy compatibility constructor for String URLs.
+  ///
+  /// `http(s)://` becomes a network source, `asset://` an asset, `native://` a
+  /// bundled resource, `file://` a file, and a schemeless string an asset.
+  @Deprecated(
+    'Use InferenceModelSpec(modelSource: ModelSource.network(url), …) with an '
+    'explicit ModelSource. Removed in 2.4.0.',
+  )
   factory InferenceModelSpec.fromLegacyUrl({
     required String name,
     required String modelUrl,
@@ -219,8 +250,8 @@ class InferenceModelSpec extends ModelSpec {
   }) {
     return InferenceModelSpec(
       name: name,
-      modelSource: _urlToSource(modelUrl),
-      loraSource: loraUrl != null ? _urlToSource(loraUrl) : null,
+      modelSource: modelSourceFromLegacyUrl(modelUrl),
+      loraSource: loraUrl != null ? modelSourceFromLegacyUrl(loraUrl) : null,
       replacePolicy: replacePolicy,
       modelType: modelType,
       fileType: fileType,
@@ -263,22 +294,6 @@ class InferenceModelSpec extends ModelSpec {
   ModelSource? get loraSource => _loraSource;
   ModelType get modelType => _modelType;
   ModelFileType get fileType => _fileType;
-
-  /// Converts legacy URL string to ModelSource (for fromLegacyUrl constructor)
-  static ModelSource _urlToSource(String url) {
-    if (url.startsWith('https://') || url.startsWith('http://')) {
-      return ModelSource.network(url);
-    } else if (url.startsWith('asset://')) {
-      return ModelSource.asset(url.replaceFirst('asset://', ''));
-    } else if (url.startsWith('native://')) {
-      return ModelSource.bundled(url.replaceFirst('native://', ''));
-    } else if (url.startsWith('file://')) {
-      return ModelSource.file(url.replaceFirst('file://', ''));
-    } else {
-      // Schemeless = asset for backward compatibility
-      return ModelSource.asset(url);
-    }
-  }
 
   /// Value signature of the directory bundle (ordered member filenames), or
   /// null for a single-file model. Folded into [==]/[hashCode] so two directory

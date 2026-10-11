@@ -51,10 +51,10 @@ void main() {
 
     group('EmbeddingModelSpec', () {
       test('creates valid embedding model spec', () {
-        final spec = EmbeddingModelSpec.fromLegacyUrl(
+        final spec = EmbeddingModelSpec(
           name: 'test_embedding',
-          modelUrl: 'https://example.com/model.tflite',
-          tokenizerUrl: 'https://example.com/tokenizer.json',
+          modelSource: NetworkSource('https://example.com/model.tflite'),
+          tokenizerSource: NetworkSource('https://example.com/tokenizer.json'),
         );
 
         expect(spec.type, ModelManagementType.embedding);
@@ -69,10 +69,10 @@ void main() {
       });
 
       test('uses correct SharedPrefs keys', () {
-        final spec = EmbeddingModelSpec.fromLegacyUrl(
+        final spec = EmbeddingModelSpec(
           name: 'test_embedding',
-          modelUrl: 'https://example.com/model.tflite',
-          tokenizerUrl: 'https://example.com/tokenizer.json',
+          modelSource: NetworkSource('https://example.com/model.tflite'),
+          tokenizerSource: NetworkSource('https://example.com/tokenizer.json'),
         );
 
         expect(spec.files[0].prefsKey, 'embedding_model_file');

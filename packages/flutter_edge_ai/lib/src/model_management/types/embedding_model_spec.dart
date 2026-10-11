@@ -120,21 +120,6 @@ class EmbeddingModelSpec extends ModelSpec {
     _rejectEmbeddingFilenameCollision(this);
   }
 
-  /// Legacy compatibility constructor for String URLs
-  factory EmbeddingModelSpec.fromLegacyUrl({
-    required String name,
-    required String modelUrl,
-    required String tokenizerUrl,
-    ModelReplacePolicy replacePolicy = ModelReplacePolicy.keep,
-  }) {
-    return EmbeddingModelSpec(
-      name: name,
-      modelSource: InferenceModelSpec._urlToSource(modelUrl),
-      tokenizerSource: InferenceModelSpec._urlToSource(tokenizerUrl),
-      replacePolicy: replacePolicy,
-    );
-  }
-
   @override
   ModelManagementType get type => ModelManagementType.embedding;
 

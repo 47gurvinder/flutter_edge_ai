@@ -1237,11 +1237,12 @@ class MobileModelManager extends ModelFileManager
     String? loraUrl,
     ModelReplacePolicy replacePolicy = ModelReplacePolicy.replace,
   }) {
-    return InferenceModelSpec.fromLegacyUrl(
+    return InferenceModelSpec(
       name: name,
-      modelUrl: modelUrl,
-      loraUrl: loraUrl,
+      modelSource: modelSourceFromLegacyUrl(modelUrl),
+      loraSource: loraUrl != null ? modelSourceFromLegacyUrl(loraUrl) : null,
       replacePolicy: replacePolicy,
+      modelType: ModelType.general,
     );
   }
 
@@ -1252,10 +1253,10 @@ class MobileModelManager extends ModelFileManager
     required String tokenizerUrl,
     ModelReplacePolicy replacePolicy = ModelReplacePolicy.keep,
   }) {
-    return EmbeddingModelSpec.fromLegacyUrl(
+    return EmbeddingModelSpec(
       name: name,
-      modelUrl: modelUrl,
-      tokenizerUrl: tokenizerUrl,
+      modelSource: modelSourceFromLegacyUrl(modelUrl),
+      tokenizerSource: modelSourceFromLegacyUrl(tokenizerUrl),
       replacePolicy: replacePolicy,
     );
   }
