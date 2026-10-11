@@ -209,10 +209,12 @@ void main() {
 
         final repo = SqliteVectorStore();
         await repo.initialize(dbPath);
-        await repo.bindEmbeddingProfile(
-          rag.EmbeddingProfile(
-            id: 'dart-benchmark-embedding-768d-v1',
-            dimension: vectors.first.length,
+        await repo.bind(
+          rag.VectorStoreBinding(
+            profile: rag.EmbeddingProfile(
+              id: 'dart-benchmark-embedding-768d-v1',
+              dimension: vectors.first.length,
+            ),
           ),
         );
 

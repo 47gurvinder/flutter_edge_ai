@@ -20,8 +20,15 @@ environment:
 
 dependencies:
   flutter_edge_ai: ^2.0.0
+  # @visibleForTesting on FlutterEdgeAiActiveEmbedder's resolver seams.
+  meta: ^1.15.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # test/active_embedder_core_cache_test.dart drives core's real
+  # getActiveEmbedder (install, cache, rebuild) on the host: core reads
+  # SharedPreferences and path_provider, which the test fakes.
+  path_provider_platform_interface: ^2.1.0
+  shared_preferences: ^2.5.2
