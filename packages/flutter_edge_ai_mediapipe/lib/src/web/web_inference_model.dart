@@ -14,7 +14,11 @@ import 'package:flutter/foundation.dart';
 // WebInferenceModel.activeBackend overrides the [InferenceModel] contract, whose
 // type is core's PreferredBackend (from core's platform_types.dart).
 
+import '../mediapipe_sampling.dart';
 import 'llm_inference_web.dart';
+
+/// Whether the "topP is ignored" warning was printed in this isolate.
+bool _topPIgnoredWarned = false;
 
 /// Base class for prompt parts (text, image, audio)
 abstract class PromptPart {}
@@ -87,9 +91,9 @@ class WebInferenceModel extends InferenceModel with CloseNotifier {
 
   @override
   Future<InferenceModelSession> createSession({
-    double temperature = 0.8,
-    int randomSeed = 1,
-    int topK = 1,
+    double? temperature,
+    int? randomSeed,
+    int? topK,
     double? topP,
     String? loraPath,
     bool? enableVisionModality, // Enabling vision modality support
@@ -134,6 +138,30 @@ class WebInferenceModel extends InferenceModel with CloseNotifier {
       }
     }
 
+    // Resolved before anything loads: values it rejects must not fetch a
+    // model or open its reader. A `.task` file carries no sampler, so an unset
+    // field comes from the family defaults. MediaPipe web 0.10.29 has no topP
+    // option; it is passed and dropped.
+    final sampling = resolveMediaPipeSampling(
+      SamplingParams(
+        temperature: temperature,
+        topK: topK,
+        topP: topP,
+        randomSeed: randomSeed,
+      ),
+      modelType: modelType,
+    );
+    if (topP != null && !_topPIgnoredWarned) {
+      _topPIgnoredWarned = true;
+      // Printed, because a release build is where it gets reported and
+      // edgeAiLog is silent there.
+      // ignore: avoid_print
+      print(
+        '[flutter_edge_ai_mediapipe] WARNING: topP is ignored: MediaPipe web '
+        'has no top-p. Shown once.',
+      );
+    }
+
     if (_initCompleter case Completer<InferenceModelSession> completer) {
       return completer.future;
     }
@@ -166,10 +194,10 @@ class WebInferenceModel extends InferenceModel with CloseNotifier {
       final config = LlmInferenceOptions(
         baseOptions: baseOptions,
         maxTokens: maxTokens,
-        randomSeed: randomSeed,
-        topK: topK,
-        temperature: temperature,
-        topP: topP,
+        randomSeed: sampling.randomSeed,
+        topK: sampling.topK,
+        temperature: sampling.temperature,
+        topP: sampling.topP,
         supportedLoraRanks: !hasLoraParams
             ? null
             : Int32List.fromList(loraRanks!).toJS,
