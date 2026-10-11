@@ -1652,9 +1652,6 @@ class _SuspendingFileSystemService implements FileSystemService {
   Future<String> getWriteTargetPath(String filename) async => '/fake/$filename';
 
   @override
-  Future<String> getTargetPath(String filename) async => '/fake/$filename';
-
-  @override
   Future<void> writeFile(String path, Uint8List data) async {}
 
   @override

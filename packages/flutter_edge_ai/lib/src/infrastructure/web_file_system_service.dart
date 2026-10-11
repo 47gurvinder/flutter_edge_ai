@@ -98,14 +98,6 @@ class WebFileSystemService implements FileSystemService {
     return filename;
   }
 
-  @Deprecated(
-    'Use getReadTargetPath for reads or getWriteTargetPath for writes',
-  )
-  @override
-  Future<String> getTargetPath(String filename) async {
-    return filename;
-  }
-
   @override
   Future<String> getBundledResourcePath(String resourceName) async {
     // On web, bundled resources are served from web root

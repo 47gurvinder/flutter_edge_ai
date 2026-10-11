@@ -743,8 +743,8 @@ class WebModelManager extends ModelFileManager
         final fileSource = file.source as FileSource;
         path = fileSystem.getUrl(file.filename) ?? fileSource.path;
       } else {
-        // Fallback: use getTargetPath
-        path = await fileSystem.getTargetPath(file.filename);
+        // Fallback: the managed read path
+        path = await fileSystem.getReadTargetPath(file.filename);
       }
 
       filePaths[file.prefsKey] = path;

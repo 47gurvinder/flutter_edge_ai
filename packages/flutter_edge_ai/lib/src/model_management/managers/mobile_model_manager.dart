@@ -192,7 +192,7 @@ class MobileModelManager extends ModelFileManager
     }
 
     if (fileType == ModelFileType.builtIn) {
-      // Built-in OS models have no file at getTargetPath. Reconstruct the
+      // Built-in OS models have no file at getReadTargetPath. Reconstruct the
       // inert bundled-source carrier persisted at install time.
       _activeInferenceModel = InferenceModelSpec(
         name: filename,
@@ -217,7 +217,7 @@ class MobileModelManager extends ModelFileManager
     }
 
     final filePath = await ServiceRegistry.instance.fileSystemService
-        .getTargetPath(filename);
+        .getReadTargetPath(filename);
     if (!File(filePath).existsSync()) {
       edgeAiLog(
         '[ModelManager] active model restore: file $filePath missing — skipping',
