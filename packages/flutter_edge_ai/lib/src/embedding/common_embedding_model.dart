@@ -167,16 +167,19 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
     required TaskType taskType,
     CancelToken? cancelToken,
   }) {
+    // Read once: the caller's list may change while the call runs, and an
+    // input appended later would be neither validated nor counted.
+    final batch = List<EmbeddingInput>.unmodifiable(inputs);
     // Every input is checked before the first one is sent.
-    for (final input in inputs) {
+    for (final input in batch) {
       final refused = _validate(input);
       if (refused != null) return Future.error(refused);
     }
     if (cancelToken?.isCancelled ?? false) {
       return Future.error(const EmbeddingCancelledException());
     }
-    if (inputs.isEmpty) return Future.value(<List<double>>[]);
-    return _embedWindowed(inputs, taskType, cancelToken);
+    if (batch.isEmpty) return Future.value(<List<double>>[]);
+    return _embedWindowed(batch, taskType, cancelToken);
   }
 
   /// §4.3 steps 1-4, in that order. Null when [input] may be sent.
@@ -302,11 +305,17 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
           (vector) {
             outstanding--;
             if (result.isCompleted) return;
-            vectors[index] = vector;
-            if (++finished == inputs.length) {
-              result.complete([for (final v in vectors) v!]);
-            } else {
-              sendMore();
+            // Nothing here may throw past the call: an error escaping this
+            // callback would be unobserved and leave the call pending.
+            try {
+              vectors[index] = vector;
+              if (++finished == inputs.length) {
+                result.complete([for (final v in vectors) v!]);
+              } else {
+                sendMore();
+              }
+            } catch (e, st) {
+              fail(e, st);
             }
           },
           onError: (Object error, StackTrace stack) {

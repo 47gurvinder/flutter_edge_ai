@@ -462,6 +462,24 @@ void main() {
       expect(fake.calls.map((c) => c.taskType).toSet(), {TaskType.clustering});
     });
 
+    test(
+      'the inputs are read once: a list the caller changes afterwards '
+      'neither smuggles in an unvalidated input nor hangs the call',
+      () async {
+        final fake = _FakeHost();
+        final model = CommonEmbeddingModel.withHost(fake);
+        final inputs = [EmbeddingInput.text('a'), EmbeddingInput.text('b')];
+
+        final all = model.embedAll(inputs, taskType: TaskType.none);
+        // An image this text-only model would have refused.
+        inputs.add(EmbeddingInput.image(_jpeg));
+
+        final vectors = await all.timeout(const Duration(seconds: 5));
+        expect(vectors, hasLength(2));
+        expect(fake.calls.map((c) => c.input.text), ['a', 'b']);
+      },
+    );
+
     test('every input is validated before the first is sent', () async {
       final fake = _FakeHost();
       final model = CommonEmbeddingModel.withHost(fake);
