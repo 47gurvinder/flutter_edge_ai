@@ -14,6 +14,11 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 // the web variant is a throwing stub (FlutterEdgeAiWeb registers itself at
 // runtime). This keeps dart:io off the web/wasm import graph.
 import 'default.dart' if (dart.library.js_interop) 'default_web.dart';
+import 'embedding/task_type.dart';
+
+// Embedding types that used to be declared here; re-exported so the rest of
+// core keeps importing them from the platform interface.
+export 'embedding/task_type.dart' show TaskType;
 
 const supportedLoraRanks = [4, 8, 16];
 
@@ -514,28 +519,6 @@ abstract class InferenceModelSession {
 mixin RawSdkResponseSession on InferenceModelSession {
   /// Most recent raw SDK JSON. Null until first generation completes.
   String? get lastRawResponse;
-}
-
-/// Task type for embedding generation, following Google RAG SDK convention.
-///
-/// EmbeddingGemma models are trained with different prefixes for queries
-/// and documents to improve retrieval quality.
-enum TaskType {
-  /// For search queries. Prepends query prefix before embedding.
-  retrievalQuery,
-
-  /// For document indexing. Prepends document prefix before embedding.
-  retrievalDocument;
-
-  /// Canonical prefix prepended to user text before tokenization. Single
-  /// source of truth across all native platforms — fixes cross-platform
-  /// drift on `retrievalQuery` (issue #264) by construction. The prefix
-  /// strings are stable, so corpora indexed with earlier releases remain
-  /// valid.
-  String get prefix => switch (this) {
-    TaskType.retrievalQuery => 'task: search result | query: ',
-    TaskType.retrievalDocument => 'title: none | text: ',
-  };
 }
 
 /// Represents an embedding model instance.

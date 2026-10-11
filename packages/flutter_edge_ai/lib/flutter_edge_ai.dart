@@ -20,7 +20,6 @@ export 'src/interface.dart'
         SessionMetrics,
         SpeechRecognizer,
         SpeechSynthesizer,
-        TaskType,
         supportedLoraRanks;
 export 'src/model_file_manager_interface.dart'
     show ModelFileManager, ModelReplacePolicy;
@@ -54,8 +53,22 @@ export 'src/registry/hugging_face_resolver.dart'
 export 'src/domain/platform_types.dart'
     show ActivationDataType, PreferredBackend;
 
-// Embedding inputs.
+// Embedding inputs, task types and failures.
 export 'src/embedding/embedding_modality.dart' show EmbeddingModality;
+export 'src/embedding/embedding_input.dart' show EmbeddingInput;
+export 'src/embedding/task_type.dart' show TaskType;
+export 'src/embedding/embedding_exceptions.dart'
+    show
+        EmbedderCloseTimeoutException,
+        EmbedderClosedException,
+        EmbeddingCancelledException,
+        EmbeddingEngineException,
+        EmbeddingException,
+        EmbeddingFormatNotSupportedException,
+        EmbeddingInputTooLongException,
+        EmbeddingLoadException,
+        EmbeddingModalityNotLoadedException,
+        UnsupportedEmbeddingCombinationException;
 export 'src/media/encoded_media_format.dart'
     show EncodedMediaFormat, sniffEncodedMediaFormat;
 export 'src/message.dart' show Message, MessageType;

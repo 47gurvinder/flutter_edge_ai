@@ -15,10 +15,20 @@ DownloadErrorMessage extension
 DownloadException class
 DownloadProgress class
 EdgeAiLogLevel enum
+EmbedderCloseTimeoutException class final
+EmbedderClosedException class final
 EmbeddingBackendProvider class abstract
+EmbeddingCancelledException class final
+EmbeddingEngineException class final
+EmbeddingException class abstract base
+EmbeddingFormatNotSupportedException class final
+EmbeddingInput class final
+EmbeddingInputTooLongException class final
 EmbeddingInstallation class
 EmbeddingInstallationBuilder class
+EmbeddingLoadException class final
 EmbeddingModality enum
+EmbeddingModalityNotLoadedException class final
 EmbeddingModel class abstract
 EmbeddingModelSpec class
 EmbeddingTokenizerProvider class abstract
@@ -101,6 +111,7 @@ TtsModelSpec class
 TtsModelType enum
 UnauthorizedError class final
 UnknownError class final
+UnsupportedEmbeddingCombinationException class final
 ValidationResult class
 VisionEncoderType enum
 VisionEncoderValidationException class
