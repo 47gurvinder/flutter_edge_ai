@@ -147,12 +147,57 @@ void main() {
       expect(model.bomLed, {1: '$_bom${_bom}x'});
     });
 
+    final onePiece = piece('a');
+    final nineContinuations = List.filled(9, 0xFF);
     for (final (name, bytes) in [
       ('no pieces', <int>[]),
       ('a truncated varint', [0x08, 0x80]),
       ('a truncated length-delimited field', [0x0A, 5, 1, 2]),
       ('a group (wire type 3)', [0x0B]),
+      ('an end-group tag (wire type 4)', [...onePiece, 0x0C]),
+      ('wire type 6', [...onePiece, 0x0E]),
+      ('wire type 7', [...onePiece, 0x0F]),
       ('field number 0', [0x00]),
+      // 2^29 is one past protobuf's largest field number; a varint value
+      // follows, so only the field number is wrong.
+      ('a field number above 2^29 - 1', [...onePiece, ...varint(1 << 32), 0]),
+      // A 10-byte varint carries bit 63 in its last byte, which must be 1:
+      // anything above overflows 64 bits (and wrapped silently before).
+      (
+        'a varint whose 10th byte overflows 64 bits',
+        [...onePiece, 0x48, ...nineContinuations, 0x02],
+      ),
+      (
+        'a varint with a 10th byte of 0 (not canonical)',
+        [...onePiece, 0x48, ...nineContinuations, 0x00],
+      ),
+      (
+        'a varint longer than 10 bytes',
+        [...onePiece, 0x48, ...nineContinuations, 0x81, 0x01],
+      ),
+      (
+        'a length that does not fit in 63 bits',
+        [...onePiece, 0x52, ...nineContinuations, 0x01, 0x41],
+      ),
+      ('a piece type outside the enum (0)', piece('b', type: 0)),
+      ('a piece type outside the enum (7)', piece('b', type: 7)),
+      (
+        'a piece type that is a wrapped 64-bit value',
+        bytesField(1, [
+          ...stringField(1, 'b'),
+          0x18,
+          ...nineContinuations,
+          0x01,
+        ]),
+      ),
+      (
+        'a model type outside the enum (0)',
+        [...onePiece, ...trainerSpec(modelType: 0)],
+      ),
+      (
+        'a model type outside the enum (5)',
+        [...onePiece, ...trainerSpec(modelType: 5)],
+      ),
     ]) {
       test('refuses $name', () {
         expect(
@@ -161,6 +206,19 @@ void main() {
         );
       });
     }
+
+    test('reads a canonical 10-byte varint: a negative int32, as protobuf '
+        'writes bos_id = -1', () {
+      final model = SentencePieceModelProto.parse(
+        _model([
+          piece('a'),
+          // trainer_spec { bos_id (41): -1 } — ten bytes, the last one 0x01.
+          bytesField(2, [0xC8, 0x02, ...nineContinuations, 0x01]),
+          trainerSpec(modelType: bpeModelType),
+        ]),
+      );
+      expect(model.modelType, bpeModelType);
+    });
 
     test('refuses an empty user-defined piece and a duplicate, as '
         'SentencePiece does', () {

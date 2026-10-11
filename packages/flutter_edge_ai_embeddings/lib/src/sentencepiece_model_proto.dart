@@ -70,7 +70,7 @@ final class SentencePieceModelProto {
           while (spec.hasMore) {
             final (f, w) = spec.tag();
             if ((f, w) == (3, _varint)) {
-              model.modelType = spec.varint();
+              model.modelType = spec.enumValue('model_type', _modelTypes);
             } else {
               spec.skip(w);
             }
@@ -111,7 +111,7 @@ final class SentencePieceModelProto {
         case (1, _lengthDelimited):
           text = piece.message();
         case (3, _varint):
-          type = piece.varint();
+          type = piece.enumValue('piece type', _pieceTypes);
         default:
           piece.skip(wire);
       }
@@ -213,6 +213,14 @@ const _varint = 0;
 const _fixed64 = 1;
 const _lengthDelimited = 2;
 const _fixed32 = 5;
+const _wireTypes = {_varint, _fixed64, _lengthDelimited, _fixed32};
+
+/// `ModelProto.SentencePiece.Type`: NORMAL, UNKNOWN, CONTROL, USER_DEFINED,
+/// UNUSED, BYTE.
+const _pieceTypes = {1, 2, 3, 4, 5, 6};
+
+/// `ModelProto.TrainerSpec.ModelType`: UNIGRAM, BPE, WORD, CHAR.
+const _modelTypes = {1, 2, 3, 4};
 
 /// Reads protobuf wire format from `[position, _end)` of [_bytes].
 final class _ProtoReader {
@@ -226,31 +234,68 @@ final class _ProtoReader {
 
   int get length => _end - position;
 
-  /// The next field's number and wire type.
+  /// The next field's number and wire type. Throws [FormatException] for a
+  /// field number outside 1..2^29 - 1 (the tag must be a 32-bit value) and a
+  /// wire type this reader does not take (groups, 3 and 4, are deprecated and
+  /// absent from `ModelProto`; 6 and 7 do not exist).
   (int, int) tag() {
     final tag = varint();
     final field = tag >> 3;
-    if (field == 0) throw const FormatException('protobuf field number 0');
-    return (field, tag & 7);
+    final wire = tag & 7;
+    if (tag < 0 || tag > 0xFFFFFFFF || field == 0) {
+      throw FormatException('protobuf field number $field is out of range');
+    }
+    if (!_wireTypes.contains(wire)) {
+      throw FormatException(
+        'unsupported protobuf wire type $wire (field $field)',
+      );
+    }
+    return (field, wire);
   }
 
-  /// A base-128 varint. Values past 63 bits wrap; none read here gets there.
+  /// A base-128 varint, as protobuf's 64-bit two's complement: bit 63 makes
+  /// the result negative, as a negative int32 is written.
+  ///
+  /// Throws [FormatException] when the input ends inside it, and when it has a
+  /// 10th byte other than 0x01. That byte carries bit 63 alone: a larger
+  /// value overflows 64 bits (and used to wrap silently, which could turn a
+  /// piece type into USER_DEFINED), and 0 or a continuation is a longer
+  /// encoding than any protobuf writer produces.
   int varint() {
     var result = 0;
-    for (var shift = 0; shift < 70; shift += 7) {
+    for (var index = 0; index < 10; index++) {
       if (position >= _end) {
         throw const FormatException('truncated protobuf varint');
       }
       final byte = _bytes[position++];
-      result |= (byte & 0x7f) << shift;
+      if (index == 9) {
+        if (byte != 0x01) {
+          throw FormatException(
+            'protobuf varint with 10th byte 0x${byte.toRadixString(16)}: '
+            'it overflows 64 bits or is not canonical',
+          );
+        }
+        return result | (1 << 63);
+      }
+      result |= (byte & 0x7f) << (7 * index);
       if (byte & 0x80 == 0) return result;
     }
-    throw const FormatException('protobuf varint longer than 10 bytes');
+    throw StateError('unreachable: the loop returns by its 10th byte');
+  }
+
+  /// A varint that must be one of [values] — a proto enum this reader acts
+  /// on. Throws [FormatException] naming [what] otherwise.
+  int enumValue(String what, Set<int> values) {
+    final value = varint();
+    if (!values.contains(value)) {
+      throw FormatException('$what $value is not one $values allows');
+    }
+    return value;
   }
 
   /// A length-delimited field, as a reader over its bytes.
   _ProtoReader message() {
-    final length = varint();
+    final length = _length();
     final start = position;
     _advance(length);
     return _ProtoReader(_bytes, start, start + length);
@@ -295,12 +340,24 @@ final class _ProtoReader {
       case _fixed64:
         _advance(8);
       case _lengthDelimited:
-        _advance(varint());
+        _advance(_length());
       case _fixed32:
         _advance(4);
       default:
         throw FormatException('unsupported protobuf wire type $wire');
     }
+  }
+
+  /// A length prefix: a varint that must fit the bytes left.
+  int _length() {
+    final length = varint();
+    if (length < 0 || length > _end - position) {
+      throw FormatException(
+        'protobuf length $length does not fit the ${_end - position} bytes '
+        'left',
+      );
+    }
+    return length;
   }
 
   void _advance(int count) {
