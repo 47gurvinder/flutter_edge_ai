@@ -28,15 +28,10 @@ void main() {
 
   test('profile lookup matches both model and tokenizer sources', () {
     for (final model in catalog.EmbeddingModel.values) {
-      final spec = EmbeddingModelSpec(
-        name: model.name,
-        modelSource: _source(model.sourceType, model.url),
-        tokenizerSource: _source(model.sourceType, model.tokenizerUrl),
-        modelFilename: model.filename,
-        tokenizerFilename: model.tokenizerFilename,
+      expect(
+        embeddingProfileIdForSpec(_catalogSpec(model)),
+        model.ragProfileId,
       );
-
-      expect(embeddingProfileIdForSpec(spec), model.ragProfileId);
     }
   });
 
@@ -67,18 +62,55 @@ void main() {
       remoteModels.map((model) => model.filename).toSet(),
       hasLength(remoteModels.length),
     );
+    final withTokenizer = remoteModels.where((m) => m.tokenizerUrl != null);
     expect(
-      remoteModels.map((model) => model.tokenizerFilename).toSet(),
-      hasLength(remoteModels.length),
+      withTokenizer.map((model) => model.tokenizerFilename).toSet(),
+      hasLength(withTokenizer.length),
     );
     for (final model in remoteModels) {
       expect(model.filename, contains('__rev-'));
-      expect(model.tokenizerFilename, contains('__rev-'));
       expect(model.filename, isNot(Uri.parse(model.url).pathSegments.last));
+      final tokenizerUrl = model.tokenizerUrl;
+      if (tokenizerUrl == null) continue;
+      expect(model.tokenizerFilename, contains('__rev-'));
       expect(
         model.tokenizerFilename,
-        isNot(Uri.parse(model.tokenizerUrl).pathSegments.last),
+        isNot(Uri.parse(tokenizerUrl).pathSegments.last),
       );
+    }
+  });
+
+  test('EmbeddingGemma 2 text is one pinned .litertlm bundle with the shared '
+      'text profile', () {
+    const eg2 = catalog.EmbeddingModel.embeddingGemma2Text270m;
+    expect(eg2.isLiteRtLmBundle, isTrue);
+    expect(eg2.tokenizerUrl, isNull);
+    expect(eg2.tokenizerFilename, isNull);
+    expect(
+      eg2.url,
+      'https://huggingface.co/litert-community/'
+      'embeddinggemma-2-text-270m-litert-lm/resolve/'
+      '9be6e8b90982095dc05c2bd162e4b954ee4dbac7/'
+      'embeddinggemma-2-text-270m.litertlm',
+    );
+    expect(eg2.filename, endsWith('.litertlm'));
+    expect(
+      eg2.sha256,
+      '2d079ee2f6f066b1f368e8d7c819f55214eaef1d0513b312321901f30ab286fb',
+    );
+    expect(eg2.needsAuth, isFalse);
+    expect(eg2.dimension, 768);
+    expect(
+      eg2.ragProfileId,
+      'embeddinggemma2-litertlm-text-4410a540ce75-prefix-v1',
+    );
+    // The installer builds a self-contained spec from it: one file.
+    expect(_catalogSpec(eg2).isSelfContained, isTrue);
+    expect(_catalogSpec(eg2).files, hasLength(1));
+    // Every other entry is a two-file EG1/Gecko spec.
+    for (final model in catalog.EmbeddingModel.values) {
+      if (model == eg2) continue;
+      expect(model.isLiteRtLmBundle, isFalse, reason: model.name);
     }
   });
 
@@ -373,14 +405,20 @@ void main() {
   });
 }
 
-EmbeddingModelSpec _catalogSpec(catalog.EmbeddingModel model) =>
-    EmbeddingModelSpec(
-      name: model.name,
-      modelSource: _source(model.sourceType, model.url),
-      tokenizerSource: _source(model.sourceType, model.tokenizerUrl),
-      modelFilename: model.filename,
-      tokenizerFilename: model.tokenizerFilename,
-    );
+/// The spec installing [model] from the catalog produces: two files, or the
+/// one `.litertlm` bundle.
+EmbeddingModelSpec _catalogSpec(catalog.EmbeddingModel model) {
+  final tokenizerUrl = model.tokenizerUrl;
+  return EmbeddingModelSpec(
+    name: model.name,
+    modelSource: _source(model.sourceType, model.url),
+    tokenizerSource: tokenizerUrl == null
+        ? null
+        : _source(model.sourceType, tokenizerUrl),
+    modelFilename: model.filename,
+    tokenizerFilename: model.tokenizerFilename,
+  );
+}
 
 ModelSource _source(ModelSourceType type, String location) => switch (type) {
   ModelSourceType.network => ModelSource.network(location),
