@@ -264,23 +264,6 @@ class InferenceModelSpec extends ModelSpec {
   ModelType get modelType => _modelType;
   ModelFileType get fileType => _fileType;
 
-  /// Legacy getters for backward compatibility (WEB PLATFORM ONLY)
-  @Deprecated('Use modelSource instead. Web platform compatibility only.')
-  String get modelUrl => _sourceToUrl(_modelSource);
-
-  @Deprecated('Use loraSource instead. Web platform compatibility only.')
-  String? get loraUrl => _loraSource != null ? _sourceToUrl(_loraSource) : null;
-
-  /// Converts ModelSource to legacy URL string (for web platform compatibility)
-  static String _sourceToUrl(ModelSource source) {
-    return switch (source) {
-      NetworkSource(:final url) => url,
-      AssetSource(:final path) => 'asset://$path',
-      BundledSource(:final resourceName) => 'native://$resourceName',
-      FileSource(:final path) => 'file://$path',
-    };
-  }
-
   /// Converts legacy URL string to ModelSource (for fromLegacyUrl constructor)
   static ModelSource _urlToSource(String url) {
     if (url.startsWith('https://') || url.startsWith('http://')) {
