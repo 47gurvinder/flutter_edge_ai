@@ -2,12 +2,6 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
-// ignore: implementation_imports — example app cross-checks core's persisted embedder identity (no public API)
-import 'package:flutter_edge_ai/src/model_management/active_embedding_identity.dart'
-    show ActiveEmbeddingIdentityRecord;
-// ignore: implementation_imports — example app reads core's persisted identity keys (no public API)
-import 'package:flutter_edge_ai/src/model_management/constants/preferences_keys.dart'
-    show PreferencesKeys;
 import 'package:flutter_edge_ai_example/models/base_model.dart';
 import 'package:flutter_edge_ai_example/models/embedding_model.dart' as catalog;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -100,7 +94,13 @@ Future<void> persistVerifiedEmbeddingCatalogSelection(
 }
 
 /// Resolves the active profile across restart without trusting FileSource
-/// names or paths on their own.
+/// paths on their own.
+///
+/// Reads only the public `FlutterEdgeAi.activeEmbedderSpec`. After a native
+/// restart that spec points at the installed files (`FileSource`s), so the
+/// catalog source is no longer in it: the profile is then taken from this
+/// app's own provenance record, and only when that record names a catalog
+/// model whose revision-qualified file names are exactly the active files.
 Future<String?> resolveActiveEmbeddingCatalogProfile({
   EmbeddingModelSpec? spec,
   @visibleForTesting EmbeddingCatalogProvenanceStorage? storage,
@@ -148,35 +148,12 @@ Future<String?> resolveActiveEmbeddingCatalogProfile({
 
   final model = _catalogModelForRecord(record);
   final activeFiles = activeSpec.files;
-  final encodedCoreIdentity = target.getString(
-    PreferencesKeys.activeEmbeddingIdentityRecord,
-  );
-  final coreIdentity = ActiveEmbeddingIdentityRecord.tryDecode(
-    encodedCoreIdentity,
-  );
-  if (encodedCoreIdentity != null &&
-      (coreIdentity == null || !coreIdentity.active)) {
-    await clearEmbeddingCatalogProvenance(storage: target);
-    return null;
-  }
-  final persistedModelSource = coreIdentity?.active == true
-      ? coreIdentity!.modelSource
-      : target.getString(PreferencesKeys.activeEmbeddingSource);
-  final persistedTokenizerSource = coreIdentity?.active == true
-      ? coreIdentity!.tokenizerSource
-      : target.getString(PreferencesKeys.activeEmbeddingTokenizerSource);
   final valid =
       model != null &&
       record == _EmbeddingCatalogProvenance.fromCatalog(model) &&
       activeFiles.length == 2 &&
       activeFiles[0].filename == record.modelFilename &&
-      activeFiles[1].filename == record.tokenizerFilename &&
-      (coreIdentity == null ||
-          (coreIdentity.active &&
-              coreIdentity.modelFilename == record.modelFilename &&
-              coreIdentity.tokenizerFilename == record.tokenizerFilename)) &&
-      persistedModelSource == record.modelSource &&
-      persistedTokenizerSource == record.tokenizerSource;
+      activeFiles[1].filename == record.tokenizerFilename;
   if (!valid) {
     await clearEmbeddingCatalogProvenance(storage: target);
     return null;

@@ -20,12 +20,7 @@
 #   (c) any such `src/` import or export in code a package SHIPS, annotated or
 #       not: packages/<pkg>/{lib,hook,bin}/ and packages/<pkg>/example/lib/
 #       (example/lib is in the pub archive; .pubignore drops only test/,
-#       example/integration_test/ and example/build/).
-#       TEMPORARY carve-out, removed by the train's PR C before the release
-#       PR F: one file of core's example app still reaches core internals
-#       through an annotated import and is checked like a test (rule (b)) —
-#         packages/flutter_edge_ai/example/lib/services/embedding_catalog_provenance.dart
-#       Any other example/lib file falls under (c).
+#       example/integration_test/ and example/build/). No exceptions.
 #
 # Directive detection: a line that starts (after indentation) with `import` or
 # `export` followed by anything but an identifier character — so `import'x'`,
@@ -40,11 +35,14 @@
 # they migrate.
 #
 # Usage: tool/check_core_surface.sh
+#        CHECK_CORE_SURFACE_ROOT=<dir> tool/check_core_surface.sh   (scan <dir>
+#        instead of the repository — for the script's own self-test,
+#        packages/flutter_edge_ai/test/tool/check_core_surface_test.dart)
 # Exit:  0 clean · 1 a violation, or nothing was scanned.
 
 set -uo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "${CHECK_CORE_SURFACE_ROOT:-$(dirname "${BASH_SOURCE[0]}")/..}"
 
 # Owning package of every pubspec under packages/, deepest directory first so
 # an example app wins over the package that contains it.
@@ -93,8 +91,6 @@ BEGIN {
   public["engine_web.dart"] = 1
   public["genai.dart"] = 1
   violations = 0; annotated = 0; files = 0
-  # TEMPORARY (see the header): removed by PR C before the release PR.
-  carve_out["packages/flutter_edge_ai/example/lib/services/embedding_catalog_provenance.dart"] = 1
   # The annotation: the comment line directly above the directive.
   ann_re = "^[ \t]*// ignore: implementation_imports — [^ \t].*$"
   # A quoted package: URI, single or double quotes (\047 is the single quote).
@@ -109,7 +105,6 @@ function owner_of(path,    i) {
 }
 
 function shipped(path) {
-  if (path in carve_out) return 0
   # lib/, hook/ and bin/ of a package, and lib/ of an example app (pub archive).
   return path ~ /^packages\/[^\/]+\/(lib|hook|bin)\// ||
     path ~ /^packages\/[^\/]+\/example\/lib\//

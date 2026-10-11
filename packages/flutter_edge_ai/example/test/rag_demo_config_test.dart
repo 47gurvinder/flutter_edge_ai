@@ -2,12 +2,6 @@ import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
-// ignore: implementation_imports — fakes core's persisted embedder identity
-import 'package:flutter_edge_ai/src/model_management/active_embedding_identity.dart'
-    show ActiveEmbeddingIdentityRecord;
-// ignore: implementation_imports — writes core's persisted identity keys
-import 'package:flutter_edge_ai/src/model_management/constants/preferences_keys.dart'
-    show PreferencesKeys;
 import 'package:flutter_edge_ai_example/gemma_bootstrap.dart';
 import 'package:flutter_edge_ai_example/models/base_model.dart';
 import 'package:flutter_edge_ai_example/models/embedding_model.dart' as catalog;
@@ -107,12 +101,6 @@ void main() {
       final networkSpec = _catalogSpec(model);
       await persistVerifiedEmbeddingCatalogSelection(model, spec: networkSpec);
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        PreferencesKeys.activeEmbeddingIdentityRecord,
-        ActiveEmbeddingIdentityRecord.fromSpec(networkSpec).encode(),
-      );
-
       final restored = EmbeddingModelSpec(
         name: model.name,
         modelSource: ModelSource.file('/managed/${model.filename}'),
@@ -139,10 +127,6 @@ void main() {
         spec: _catalogSpec(model),
       );
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        PreferencesKeys.activeEmbeddingIdentityRecord,
-        ActiveEmbeddingIdentityRecord.fromSpec(_catalogSpec(model)).encode(),
-      );
 
       final oldModelFilename = Uri.parse(model.url).pathSegments.last;
       final oldTokenizerFilename =
@@ -188,26 +172,12 @@ void main() {
   });
 
   test(
-    'present malformed core identity blocks legacy provenance fallback',
+    'a restored FileSource pair without a provenance record gets no profile',
     () async {
+      // Nothing was persisted for this pair, so matching file names alone
+      // must not label it: a FileSource path or name proves nothing about
+      // the embedding space.
       const model = catalog.EmbeddingModel.embeddingGemma256;
-      await persistVerifiedEmbeddingCatalogSelection(
-        model,
-        spec: _catalogSpec(model),
-      );
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        PreferencesKeys.activeEmbeddingIdentityRecord,
-        '{"schemaVersion":999,"active":false}',
-      );
-      await prefs.setString(
-        PreferencesKeys.activeEmbeddingSource,
-        ModelSource.network(model.url).encode(),
-      );
-      await prefs.setString(
-        PreferencesKeys.activeEmbeddingTokenizerSource,
-        ModelSource.network(model.tokenizerUrl).encode(),
-      );
       final restored = EmbeddingModelSpec(
         name: model.name,
         modelSource: ModelSource.file('/managed/${model.filename}'),
@@ -217,22 +187,15 @@ void main() {
         modelFilename: model.filename,
         tokenizerFilename: model.tokenizerFilename,
       );
-
       expect(
         await resolveActiveEmbeddingCatalogProfile(spec: restored),
-        isNull,
-      );
-      expect(
-        prefs.getString(
-          EmbeddingCatalogPreferencesKeys.activeProfileProvenance,
-        ),
         isNull,
       );
     },
   );
 
   test(
-    'restored FileSource rejects mismatched persisted source pair',
+    'provenance for one catalog model never labels another model\'s files',
     () async {
       const model = catalog.EmbeddingModel.embeddingGemma256;
       const other = catalog.EmbeddingModel.gecko256;
@@ -241,29 +204,18 @@ void main() {
         spec: _catalogSpec(model),
       );
       final prefs = await SharedPreferences.getInstance();
-      final mismatchedSpec = EmbeddingModelSpec(
-        name: model.name,
-        modelSource: ModelSource.network(model.url),
-        tokenizerSource: ModelSource.network(other.tokenizerUrl),
-        modelFilename: model.filename,
-        tokenizerFilename: model.tokenizerFilename,
-      );
-      await prefs.setString(
-        PreferencesKeys.activeEmbeddingIdentityRecord,
-        ActiveEmbeddingIdentityRecord.fromSpec(mismatchedSpec).encode(),
-      );
 
-      final restored = EmbeddingModelSpec(
-        name: model.name,
-        modelSource: ModelSource.file('/managed/${model.filename}'),
+      final restoredOther = EmbeddingModelSpec(
+        name: other.name,
+        modelSource: ModelSource.file('/managed/${other.filename}'),
         tokenizerSource: ModelSource.file(
-          '/managed/${model.tokenizerFilename}',
+          '/managed/${other.tokenizerFilename}',
         ),
-        modelFilename: model.filename,
-        tokenizerFilename: model.tokenizerFilename,
+        modelFilename: other.filename,
+        tokenizerFilename: other.tokenizerFilename,
       );
       expect(
-        await resolveActiveEmbeddingCatalogProfile(spec: restored),
+        await resolveActiveEmbeddingCatalogProfile(spec: restoredOther),
         isNull,
       );
       expect(
