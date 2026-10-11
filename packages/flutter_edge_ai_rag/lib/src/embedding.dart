@@ -131,9 +131,12 @@ final class FlutterEdgeAiActiveEmbedder implements RagEmbedder {
   /// An adapter whose profile id is derived from the installed files of the
   /// active embedder: `'<namespace>@<installed file names joined by +>'`.
   ///
-  /// Installing a different model therefore changes the id, and a store
-  /// bound to the old one refuses to open — EmbeddingGemma 1 and 2 are both
-  /// 768-dimensional, so the id is the only guard against mixing them.
+  /// Installing a model under different file names therefore changes the id,
+  /// and a store bound to the old one refuses to open — EmbeddingGemma 1 and
+  /// 2 are both 768-dimensional, so the id is the only guard against mixing
+  /// them. The id follows file NAMES, not bytes: install with
+  /// revision-qualified file names (`filename:` on the install builder) so
+  /// new weights under the same download name get a new id too.
   ///
   /// The id is deliberately stricter than a shared text id: two bundles that
   /// produce identical text vectors still get different ids here. An app

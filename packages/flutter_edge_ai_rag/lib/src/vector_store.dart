@@ -145,7 +145,10 @@ final class VectorStoreBinding {
     } on ArgumentError catch (error) {
       throw VectorStoreException(
         'The vector store binding record "${printableId(id)}" '
-        '(${dimension}D) is not a valid embedding profile.',
+        '(${dimension}D) is not a valid embedding profile: ${error.message}. '
+        'flutter_edge_ai_rag 1.0 accepted control characters in profile ids; '
+        'since 1.1 an id may not contain U+0000-U+001F, so a location bound '
+        'to such an id cannot be opened by this version.',
         error,
       );
     }

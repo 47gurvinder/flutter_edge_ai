@@ -342,7 +342,7 @@ void main() {
           ),
         );
         return 'bound-4';
-      } on ArgumentError {
+      } on VectorStoreException {
         return 'rejected-4';
       } finally {
         await store.close();

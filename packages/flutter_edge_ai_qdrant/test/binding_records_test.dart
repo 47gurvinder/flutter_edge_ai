@@ -348,7 +348,13 @@ void main() {
         final store = await openStore();
         await expectLater(
           store.bind(_binding(_profileA, documents)),
-          throwsArgumentError,
+          throwsA(
+            isA<VectorStoreException>().having(
+              (error) => error.message,
+              'message',
+              contains('reserved for 8D vectors'),
+            ),
+          ),
         );
         expect(record(_profileDirectoryName), isNull);
         expect(record(_bindingDirectoryName), isNull);

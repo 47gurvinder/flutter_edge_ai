@@ -54,9 +54,12 @@ the model. Pin model downloads to an immutable revision.
 
 `FlutterEdgeAiActiveEmbedder.forActiveModel(namespace:)` derives the profile id
 from the installed file names (`'<namespace>@<files joined by +>'`), so
-installing a different model changes the id and the old location refuses to
-open instead of mixing two embedding spaces. EmbeddingGemma 1 and 2 are both
-768-dimensional: the id is the only thing that tells them apart.
+installing a model under different file names changes the id and the old
+location refuses to open instead of mixing two embedding spaces. EmbeddingGemma
+1 and 2 are both 768-dimensional: the id is the only thing that tells them
+apart. The id follows file NAMES, not bytes: install with revision-qualified
+`filename:`s, as below, so new weights under the same download name get a new
+id too.
 
 ```dart
 import 'package:flutter/foundation.dart';
@@ -82,8 +85,12 @@ await FlutterEdgeAi.initialize(
 await FlutterEdgeAi.installEmbedder()
     .modelFromNetwork(
       '$modelBase/embeddinggemma-300M_seq256_mixed-precision.tflite',
+      filename: 'embeddinggemma-300m-seq256-mp__rev-29888fcee321.tflite',
     )
-    .tokenizerFromNetwork('$modelBase/sentencepiece.model')
+    .tokenizerFromNetwork(
+      '$modelBase/sentencepiece.model',
+      filename: 'embeddinggemma-300m__sentencepiece__rev-29888fcee321.model',
+    )
     .install();
 
 final rag = FlutterEdgeAiRag(
@@ -241,9 +248,10 @@ one installed model: each adapter declares what it needs, and core reloads
 the embedder once with both.
 
 Cross-modal scores are not on one scale, so mixed corpora use one index per
-modality and the app merges results. Older releases of the stores
-(flutter_edge_ai_sqlite and flutter_edge_ai_qdrant 2.0.x) refuse to open an
-image or audio location; text locations open in both directions.
+modality and the app merges results. Text locations open in both directions
+between this release and flutter_edge_ai_rag 1.0 with the 2.0.x stores. On an
+image or audio location those older releases refuse every open that names a
+profile, legacy adoption, every text operation and a rebind.
 
 ## Vector-only and custom embedders
 
@@ -521,6 +529,9 @@ location.
 - `EmbeddingLoadException` from `open()` of an image or audio index: the
   installed model, or every embedder bundled with this release, embeds text
   only.
+- `VectorStoreException` "… is not a valid embedding profile" on open: the
+  location was bound by flutter_edge_ai_rag 1.0 to an id with a control
+  character, which 1.1 refuses; this version cannot open it.
 - `StateError` mentioning that the active embedding model changed: an adapter
   is pinned to the model active when it was created. After switching
   embedders, create a new embedder and open a new index at a new location.

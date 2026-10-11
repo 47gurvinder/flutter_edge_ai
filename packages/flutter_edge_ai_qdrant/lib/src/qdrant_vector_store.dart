@@ -629,7 +629,15 @@ final class QdrantVectorStore extends VectorStoreRepository {
     // The dimension record is the cross-isolate/process transaction point
     // shared with first shard creation. Whichever operation publishes it
     // first fixes the only vector size this location may use.
-    await _claimDimension(databasePath, dimension);
+    try {
+      await _claimDimension(databasePath, dimension);
+    } on ArgumentError catch (error) {
+      // A refused bind, not a bad vector: the contract's exception for it.
+      throw VectorStoreException(
+        'Cannot bind $binding: ${error.message}',
+        error,
+      );
+    }
 
     // The profile record is the compare-and-set point for every version,
     // 2.0 included: publish it if absent, then it must be ours.

@@ -87,6 +87,8 @@ void main() {
 
     // Hold the text model's first request in the worker so the next two
     // queue behind it, then let the image index widen the embedder.
+    final textModel = FlutterEdgeAiPlugin.instance.initializedEmbeddingModel!;
+    expect(textResolutions, 1, reason: 'open() resolved the profile once');
     backend.hold();
     final pending = [
       texts.add(id: 't1', document: EmbeddingInput.text('first')),
@@ -102,17 +104,21 @@ void main() {
       ),
       embedder: imageEmbedder,
     );
-    // The widening close fails the queued requests at once and waits for
-    // the held one; give the cache lane time to get there, then release.
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+    // The widening close marks the text model closed and posts the close to
+    // its worker in one synchronous step; the worker files it before it takes
+    // the next request, so t2 and the search fail as "never ran". Release
+    // the held t1 only once that close has begun.
+    await _until(() => textModel.isClosed, 'the widening close never began');
     backend.release();
 
     final images = await openingImages;
     await Future.wait(pending);
     expect(
       textResolutions,
-      greaterThan(3),
-      reason: 'the queued text requests were retried on the replacement',
+      6,
+      reason:
+          'open, the three operations, and exactly one retry each for the two '
+          'requests the close failed (t1 was in flight and finished)',
     );
 
     // Alternate: neither index causes another build.
@@ -204,6 +210,14 @@ void main() {
   });
 }
 
+Future<void> _until(bool Function() condition, String failure) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 20));
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) throw TimeoutException(failure);
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
 String _file(Directory root, String name, int bytes) {
   final file = File('${root.path}/src/$name')..createSync(recursive: true);
   file.writeAsBytesSync(Uint8List(bytes));
@@ -245,15 +259,10 @@ final class _MultimodalBackend extends EmbeddingBackendProvider {
 
   void release() => File(_gate).deleteIfExists();
 
-  Future<void> firstRequestStarted() async {
-    final deadline = DateTime.now().add(const Duration(seconds: 20));
-    while (!File(_started).existsSync()) {
-      if (DateTime.now().isAfter(deadline)) {
-        throw TimeoutException('the held request never started');
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    }
-  }
+  Future<void> firstRequestStarted() => _until(
+    () => File(_started).existsSync(),
+    'the held request never started',
+  );
 
   @override
   String get name => 'Fake multimodal';

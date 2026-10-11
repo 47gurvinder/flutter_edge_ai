@@ -1286,10 +1286,27 @@ void main() {
       ]) {
         expect(
           () => VectorStoreBinding.fromV1Record(id: id, dimension: dimension),
-          throwsA(isA<VectorStoreException>()),
+          throwsA(
+            isA<VectorStoreException>().having(
+              (error) => error.message,
+              'message',
+              contains('not a valid embedding profile'),
+            ),
+          ),
           reason: 'record ($id, $dimension)',
         );
       }
+      // A rag 1.0 id with a control character: the message says why.
+      expect(
+        () => VectorStoreBinding.fromV1Record(id: 'tab\tid', dimension: 2),
+        throwsA(
+          isA<VectorStoreException>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains(r'tab\u0009id'), contains('1.0 accepted control')),
+          ),
+        ),
+      );
     });
 
     test('equality covers the profile and the documents', () {
