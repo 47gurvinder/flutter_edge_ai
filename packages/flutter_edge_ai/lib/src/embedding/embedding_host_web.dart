@@ -103,7 +103,8 @@ EmbeddingException _loadFailure(Object error, String engine) =>
       error,
       engine: engine,
       loading: true,
-    ).toException(cause: error is EmbeddingException ? error.cause : error);
+      causeInMessage: false,
+    ).toException(cause: error is EmbeddingException ? error.cause : null);
 
 Future<void> _closeAfterFailedLoad(
   EmbeddingPass pass,
@@ -192,7 +193,8 @@ final class _InlineEmbeddingHost implements EmbeddingHost {
         EmbeddingFailure.fromError(
           e,
           engine: _engine,
-        ).toException(cause: e is EmbeddingException ? e.cause : e),
+          causeInMessage: false,
+        ).toException(cause: e is EmbeddingException ? e.cause : null),
       );
     }
   }

@@ -352,6 +352,54 @@ void main() {
       );
     });
 
+    test('across the isolate the cause travels in the message', () {
+      final e = roundTrip(
+        const EmbeddingEngineException(
+          'boom',
+          engine: 'Native',
+          cause: 'status 13: tensor allocation failed',
+        ),
+      );
+      expect(e.message, 'boom (cause: status 13: tensor allocation failed)');
+      expect(e.cause, isNull);
+
+      final load = roundTrip(
+        const EmbeddingLoadException('no load', engine: 'N', cause: 'dlopen'),
+        loading: true,
+      );
+      expect(load.message, 'no load (cause: dlopen)');
+    });
+
+    test('inline, the cause stays an object and is not repeated', () {
+      const original = EmbeddingEngineException(
+        'boom',
+        engine: 'Native',
+        cause: 'detail',
+      );
+      final e = EmbeddingFailure.fromError(
+        original,
+        engine: 'Fake',
+        causeInMessage: false,
+      ).toException(cause: original.cause);
+      expect(e.message, 'boom');
+      expect(e.cause, 'detail');
+      // Both hosts print the same line.
+      expect(e.toString(), roundTrip(original).toString());
+    });
+
+    test('another EmbeddingException subtype names itself', () {
+      final e = roundTrip(
+        EmbeddingFormatNotSupportedException(
+          'not a jpeg',
+          modality: EmbeddingModality.image,
+          detected: null,
+          accepted: {EncodedMediaFormat.jpeg},
+        ),
+      );
+      expect(e, isA<EmbeddingEngineException>());
+      expect(e.message, 'EmbeddingFormatNotSupportedException: not a jpeg');
+    });
+
     test('the cause is attached only where it is at hand', () {
       final failure = EmbeddingFailure.fromError(
         StateError('x'),

@@ -54,15 +54,30 @@ final class EmbeddingFailure {
   /// `EmbeddingException` subtype, and any non-embedding error — is an
   /// `engine` failure. The `closed` kind is the host's alone
   /// ([EmbeddingFailure.closedBeforeRun]).
+  ///
+  /// An exception's `cause` may not be sendable, so with [causeInMessage]
+  /// (the isolate host) its text is appended to the message — `<message>
+  /// (cause: <cause>)`, the line `EmbeddingException.toString` prints anyway.
+  /// The inline host passes false and attaches the cause object itself
+  /// (`toException(cause:)`), so both print the same. An `EmbeddingException`
+  /// subtype that has no kind of its own is named in the message.
   factory EmbeddingFailure.fromError(
     Object error, {
     required String engine,
     bool loading = false,
+    bool causeInMessage = true,
   }) {
+    String described(EmbeddingException e) {
+      final cause = e.cause;
+      return causeInMessage && cause != null
+          ? '${e.message} (cause: $cause)'
+          : e.message;
+    }
+
     if (!loading && error is EmbeddingInputTooLongException) {
       return EmbeddingFailure(
         kind: EmbeddingFailureKind.tooLong,
-        message: error.message,
+        message: described(error),
         engine: engine,
         maxInputTokens: error.maxInputTokens,
         actualTokens: error.actualTokens,
@@ -72,31 +87,23 @@ final class EmbeddingFailure {
         ? EmbeddingFailureKind.load
         : EmbeddingFailureKind.engine;
     return switch (error) {
-      EmbeddingEngineException(
-        :final message,
-        engine: final reported,
-        :final nativeCode,
-      ) =>
+      EmbeddingEngineException(engine: final reported, :final nativeCode) =>
         EmbeddingFailure(
           kind: kind,
-          message: message,
+          message: described(error),
           engine: reported,
           nativeCode: nativeCode,
         ),
-      EmbeddingLoadException(
-        :final message,
-        engine: final reported,
-        :final nativeCode,
-      ) =>
+      EmbeddingLoadException(engine: final reported, :final nativeCode) =>
         EmbeddingFailure(
           kind: kind,
-          message: message,
+          message: described(error),
           engine: reported,
           nativeCode: nativeCode,
         ),
-      EmbeddingException(:final message) => EmbeddingFailure(
+      EmbeddingException() => EmbeddingFailure(
         kind: kind,
-        message: message,
+        message: '${error.runtimeType}: ${described(error)}',
         engine: engine,
       ),
       _ => EmbeddingFailure(kind: kind, message: '$error', engine: engine),

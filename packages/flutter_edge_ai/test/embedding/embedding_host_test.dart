@@ -37,6 +37,7 @@ enum _Mode {
   dieDuringLoad,
   tooLong,
   engineError,
+  engineErrorWithCause,
   otherError,
   dieOnEmbed,
   closeThrows,
@@ -125,6 +126,12 @@ final class _FakePass extends EmbeddingPass {
           'boom',
           engine: 'FakeNative',
           nativeCode: 3,
+        );
+      case _Mode.engineErrorWithCause:
+        throw const EmbeddingEngineException(
+          'boom',
+          engine: 'FakeNative',
+          cause: 'native detail',
         );
       case _Mode.otherError:
         throw StateError('kaput');
@@ -395,6 +402,38 @@ void main() {
           ),
         );
       });
+
+      test(
+        'a cause reaches the caller, and both hosts print the same line',
+        () async {
+          final host = await _start(
+            start,
+            _Mode.engineErrorWithCause,
+            _newLog(),
+          );
+          await expectLater(
+            host.embed(EmbeddingInput.text('x'), TaskType.none),
+            throwsA(
+              isA<EmbeddingEngineException>().having(
+                (e) => e.toString(),
+                'toString',
+                'EmbeddingEngineException: boom (cause: native detail)',
+              ),
+            ),
+          );
+          final plain = await _start(start, _Mode.otherError, _newLog());
+          await expectLater(
+            plain.embed(EmbeddingInput.text('x'), TaskType.none),
+            throwsA(
+              isA<EmbeddingEngineException>().having(
+                (e) => e.toString(),
+                'toString',
+                'EmbeddingEngineException: Bad state: kaput',
+              ),
+            ),
+          );
+        },
+      );
 
       test('any other error becomes an EmbeddingEngineException', () async {
         final host = await _start(start, _Mode.otherError, _newLog());
