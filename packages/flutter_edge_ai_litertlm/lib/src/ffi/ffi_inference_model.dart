@@ -51,11 +51,23 @@ class FfiInferenceModel extends InferenceModel with CloseNotifier {
   List<InferenceModelSession> get sessions =>
       List.unmodifiable([if (_session != null) _session!, ..._openSessions]);
 
+  /// [explicit], completed from the bundle's own sampler, then the family's
+  /// defaults, then the fallback.
+  ResolvedSampling _resolveSampling(
+    SamplingParams explicit, {
+    required bool thinking,
+  }) => SamplingParams.resolve(
+    explicit,
+    modelType: modelType,
+    thinking: thinking,
+    modelDefaults: ffiClient.bundleSampler,
+  );
+
   @override
   Future<InferenceModelSession> createSession({
-    double temperature = .8,
-    int randomSeed = 1,
-    int topK = 1,
+    double? temperature,
+    int? randomSeed,
+    int? topK,
     double? topP,
     String? loraPath,
     bool? enableVisionModality,
@@ -95,6 +107,15 @@ class FfiInferenceModel extends InferenceModel with CloseNotifier {
     final sessionSw = Stopwatch()..start();
 
     try {
+      // Resolved first: values it rejects must not cost the live session.
+      final explicit = SamplingParams(
+        temperature: temperature,
+        topK: topK,
+        topP: topP,
+        randomSeed: randomSeed,
+      );
+      final sampling = _resolveSampling(explicit, thinking: enableThinking);
+
       // Legacy singleton lane: close the previous conversation BEFORE
       // opening a fresh one. The engine holds at most one live
       // conversation (upstream litert-lm #966), so closing first never
@@ -116,10 +137,8 @@ class FfiInferenceModel extends InferenceModel with CloseNotifier {
             systemMessage: systemInstruction,
             toolsJson: toolsJson,
             messagesJson: messagesJson,
-            temperature: temperature,
-            topK: topK,
-            topP: topP,
-            seed: randomSeed,
+            sampling: sampling,
+            samplingExplicit: !explicit.isEmpty,
             maxOutputTokens: maxOutputTokens,
           );
       final handle = RecoveringConversationHandle(
@@ -176,9 +195,9 @@ class FfiInferenceModel extends InferenceModel with CloseNotifier {
 
   @override
   Future<InferenceModelSession> openSession({
-    double temperature = .8,
-    int randomSeed = 1,
-    int topK = 1,
+    double? temperature,
+    int? randomSeed,
+    int? topK,
     double? topP,
     String? loraPath,
     bool? enableVisionModality,
@@ -217,14 +236,18 @@ class FfiInferenceModel extends InferenceModel with CloseNotifier {
     // demand (serialized by the client mutex). Logically concurrent contexts,
     // serialized inference. openSession() itself makes no native call, so it
     // never fails on the one-conversation limit.
+    final explicit = SamplingParams(
+      temperature: temperature,
+      topK: topK,
+      topP: topP,
+      randomSeed: randomSeed,
+    );
     final handle = _VirtualConversationHandle(
       client: ffiClient,
       systemMessage: systemInstruction,
       toolsJson: toolsJson,
-      temperature: temperature,
-      topK: topK,
-      topP: topP,
-      seed: randomSeed,
+      sampling: _resolveSampling(explicit, thinking: enableThinking),
+      samplingExplicit: !explicit.isEmpty,
       maxOutputTokens: maxOutputTokens,
     );
 
@@ -244,9 +267,9 @@ class FfiInferenceModel extends InferenceModel with CloseNotifier {
 
   @override
   Future<InferenceChat> createChat({
-    double temperature = .8,
-    int randomSeed = 1,
-    int topK = 1,
+    double? temperature,
+    int? randomSeed,
+    int? topK,
     double? topP,
     int tokenBuffer = 256,
     String? loraPath,
@@ -966,20 +989,16 @@ class _VirtualConversationHandle implements ConversationHandle {
     required this.client,
     required this.systemMessage,
     required this.toolsJson,
-    required this.temperature,
-    required this.topK,
-    required this.topP,
-    required this.seed,
+    required this.sampling,
+    required this.samplingExplicit,
     this.maxOutputTokens,
   });
 
   final LiteRtLmFfiClient client;
   final String? systemMessage;
   final String? toolsJson;
-  final double temperature;
-  final int topK;
-  final double? topP;
-  final int seed;
+  final ResolvedSampling sampling;
+  final bool samplingExplicit;
   final int? maxOutputTokens;
 
   /// The tokenizer belongs to the engine, not to a conversation, so a virtual
@@ -1058,10 +1077,8 @@ class _VirtualConversationHandle implements ConversationHandle {
         history: historySnapshot,
         systemMessage: systemMessage,
         toolsJson: toolsJson,
-        temperature: temperature,
-        topK: topK,
-        topP: topP,
-        seed: seed,
+        sampling: sampling,
+        samplingExplicit: samplingExplicit,
         extraContext: extraContext,
         maxOutputTokens: maxOutputTokens,
       )) {

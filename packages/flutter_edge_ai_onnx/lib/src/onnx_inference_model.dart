@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart' show VoidCallback;
 import 'package:flutter_edge_ai/engine.dart';
 
 import 'ffi/gen_ai_client.dart';
+import 'onnx_sampling.dart';
 import 'onnx_session.dart';
 
 /// An ORT-GenAI text model: one [GenAiClient] (and its worker isolate), one
@@ -29,6 +30,7 @@ class OnnxInferenceModel extends InferenceModel with CloseNotifier {
     required this.modelType,
     required this.activeBackend,
     this.fileType = ModelFileType.onnx,
+    this.configTopK,
     required this.onClose,
   }) {
     // A worker that dies on its own turns this model closed and tells its
@@ -41,6 +43,9 @@ class OnnxInferenceModel extends InferenceModel with CloseNotifier {
 
   final GenAiClient client;
   final ModelType modelType;
+
+  /// `search.top_k` from the model's `genai_config.json`, when it sets one.
+  final int? configTopK;
 
   @override
   final ModelFileType fileType;
@@ -77,9 +82,9 @@ class OnnxInferenceModel extends InferenceModel with CloseNotifier {
 
   @override
   Future<InferenceModelSession> createSession({
-    double temperature = .8,
-    int randomSeed = 1,
-    int topK = 1,
+    double? temperature,
+    int? randomSeed,
+    int? topK,
     double? topP,
     String? loraPath,
     bool? enableVisionModality,
@@ -120,6 +125,18 @@ class OnnxInferenceModel extends InferenceModel with CloseNotifier {
     final completer = _createCompleter = Completer<InferenceModelSession>();
 
     try {
+      // Checked first: values it rejects must not cost the live session.
+      final sampling = withSamplingTopK(
+        SamplingParams(
+          temperature: temperature,
+          topK: topK,
+          topP: topP,
+          randomSeed: randomSeed,
+        )..validate(),
+        modelType: modelType,
+        configTopK: configTopK,
+      );
+
       // Legacy singleton lane: close the previous session (and, via its
       // close(), reset the client's live generator) BEFORE opening a fresh
       // one, so a new session never inherits stale KV-cache history.
@@ -141,6 +158,7 @@ class OnnxInferenceModel extends InferenceModel with CloseNotifier {
         fileType: fileType,
         systemInstruction: systemInstruction,
         maxOutputTokens: maxOutputTokens,
+        sampling: sampling,
         // Identity-guarded so a late close of a superseded session can't
         // null a newer `_session` (mirrors `FfiInferenceModel`).
         onClose: () {

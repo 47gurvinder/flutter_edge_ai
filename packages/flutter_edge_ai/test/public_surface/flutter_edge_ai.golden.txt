@@ -76,6 +76,7 @@ ResolvedHfFile class
 ResolvedHfModel class
 ResponseAction enum
 ResponseValidationResult class
+SamplingParams class final
 ServerError class final
 SessionMetrics class
 SkillExecutorProvider class abstract

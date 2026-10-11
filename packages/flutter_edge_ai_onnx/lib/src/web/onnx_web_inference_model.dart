@@ -13,6 +13,7 @@ import 'package:mutex/mutex.dart';
 
 import 'package:flutter_edge_ai/engine.dart';
 
+import '../onnx_sampling.dart';
 import 'transformers_js_interop.dart';
 import 'transformers_web_resolver.dart';
 
@@ -83,6 +84,35 @@ class OnnxWebInferenceModel extends InferenceModel with CloseNotifier {
   OnnxWebSession? _session;
   Completer<InferenceModelSession>? _createCompleter;
   bool _isClosed = false;
+
+  static bool _seedNoted = false;
+  static bool _topPNoted = false;
+
+  /// Says once per app run what web does not apply. Printed, because a
+  /// release build is where it gets reported and edgeAiLog is silent there.
+  /// The seed is not wired to Transformers.js' global `random.seed` yet, and
+  /// Transformers.js 4.3.0 samples with top-k only.
+  static void _noteIgnoredOnWeb({
+    required int? randomSeed,
+    required double? topP,
+  }) {
+    if (randomSeed != null && !_seedNoted) {
+      _seedNoted = true;
+      // ignore: avoid_print
+      print(
+        '[flutter_edge_ai_onnx] WARNING: randomSeed is not applied on web '
+        'yet. Shown once.',
+      );
+    }
+    if (topP != null && !_topPNoted) {
+      _topPNoted = true;
+      // ignore: avoid_print
+      print(
+        '[flutter_edge_ai_onnx] WARNING: topP is ignored on web: '
+        'Transformers.js samples with top-k only. Shown once.',
+      );
+    }
+  }
 
   @override
   InferenceModelSession? get session => _session;
@@ -166,9 +196,9 @@ class OnnxWebInferenceModel extends InferenceModel with CloseNotifier {
 
   @override
   Future<InferenceModelSession> createSession({
-    double temperature = .8,
-    int randomSeed = 1,
-    int topK = 1,
+    double? temperature,
+    int? randomSeed,
+    int? topK,
     double? topP,
     String? loraPath,
     bool? enableVisionModality,
@@ -219,6 +249,14 @@ class OnnxWebInferenceModel extends InferenceModel with CloseNotifier {
     final completer = _createCompleter = Completer<InferenceModelSession>();
 
     try {
+      // Checked first: values it rejects must not cost the live session.
+      final sampling = SamplingParams(
+        temperature: temperature,
+        topK: topK,
+        topP: topP,
+        randomSeed: randomSeed,
+      )..validate();
+      _noteIgnoredOnWeb(randomSeed: randomSeed, topP: topP);
       await _ensurePipeline();
       await _session?.close();
 
@@ -232,6 +270,7 @@ class OnnxWebInferenceModel extends InferenceModel with CloseNotifier {
         tokenizer: _tokenizer!,
         systemInstruction: systemInstruction,
         maxOutputTokens: maxOutputTokens,
+        sampling: sampling,
         generationMutex: generationMutex,
         onClose: () {
           if (identical(_session, newSession)) _session = null;
@@ -276,6 +315,7 @@ class OnnxWebSession extends InferenceModelSession {
     required this.tokenizer,
     this.systemInstruction,
     this.maxOutputTokens,
+    this.sampling = const SamplingParams(),
     required this.generationMutex,
     required this.onClose,
   }) {
@@ -289,6 +329,9 @@ class OnnxWebSession extends InferenceModelSession {
   final TransformersTokenizer tokenizer;
   final String? systemInstruction;
   final int? maxOutputTokens;
+
+  /// What the caller set; unset fields keep the repo's generation_config.json.
+  final SamplingParams sampling;
 
   /// Shared across the owning model — serializes generation. Acquired for
   /// the whole duration of a getResponse(Async) call.
@@ -381,9 +424,17 @@ class OnnxWebSession extends InferenceModelSession {
           'max_new_tokens'.toJS,
           (maxOutputTokens ?? _defaultMaxNewTokens).toJS,
         )
-        ..setProperty('do_sample'.toJS, false.toJS)
         ..setProperty('streamer'.toJS, streamer)
         ..setProperty('stopping_criteria'.toJS, stoppingCriteria);
+      // Only what the caller set; the rest comes from the repo's
+      // generation_config.json. The seed is not applied on web yet (see
+      // _noteIgnoredOnWeb).
+      for (final MapEntry(:key, :value) in onnxSearchOptions(
+        sampling,
+      ).entries) {
+        if (key == 'random_seed') continue;
+        generateOptions.setProperty(key.toJS, value.jsify());
+      }
 
       try {
         final result = pipeline.generate(messagesJs, generateOptions);

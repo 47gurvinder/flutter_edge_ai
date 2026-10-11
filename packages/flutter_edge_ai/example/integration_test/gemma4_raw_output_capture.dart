@@ -18,11 +18,19 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter_edge_ai/engine.dart' show ResolvedSampling;
 // ignore: implementation_imports — drives litertlm's FFI client directly to capture raw model output
 import 'package:flutter_edge_ai_litertlm/src/ffi/litert_lm_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path_provider/path_provider.dart';
+
+const _sampling = ResolvedSampling(
+  temperature: 0.6,
+  topK: 40,
+  topP: 0.95,
+  randomSeed: 42,
+);
 
 const _gemma4Path =
     '/Users/sashadenisov/Library/Containers/dev.flutterberlin.flutterGemmaExample55/Data/Documents/gemma-4-E2B-it.litertlm';
@@ -67,12 +75,7 @@ void main() {
       },
     ]);
 
-    await ffi.createConversation(
-      toolsJson: tools,
-      temperature: 0.6,
-      topK: 40,
-      seed: 42,
-    );
+    await ffi.createConversation(toolsJson: tools, sampling: _sampling);
 
     final messageJson = LiteRtLmFfiClient.buildMessageJson(
       'Make the background red.',
@@ -134,7 +137,7 @@ void main() {
       maxTokens: 2048,
       cacheDir: cacheDir.path,
     );
-    await ffi.createConversation(temperature: 0.6, topK: 40, seed: 42);
+    await ffi.createConversation(sampling: _sampling);
 
     final messageJson = LiteRtLmFfiClient.buildMessageJson(
       'What is the capital of France?',
