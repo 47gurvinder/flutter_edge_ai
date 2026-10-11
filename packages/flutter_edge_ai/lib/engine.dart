@@ -38,27 +38,15 @@ export 'src/parsing/sdk_response_parser.dart' show SdkResponseParser;
 export 'src/parsing/sdk_text_extractor.dart' show SdkTextExtractor;
 export 'src/model_management/model_specs.dart' show TtsModelTypeManifest;
 
-// Embedding SPI.
+// Embedding SPI. Core builds, hosts and closes every embedding model from
+// what a backend's describe() returns; CommonEmbeddingModel, the hosts and the
+// embedder cache stay internal.
 export 'src/embedding/embedding_pass.dart'
     show EmbeddingPass, EmbeddingPassDescriptor, EmbeddingPassInfo;
 export 'src/embedding/token_embedding_pass.dart'
     show TokenEmbeddingPass, TokenPassGraph;
 export 'src/embedding/forward_result.dart'
     show EmbeddingOutputContract, ForwardResult, finalizeEmbedding;
-// TRANSITIONAL(C stage 3): remove — the pre-2.2 seam, still implemented by
-// flutter_edge_ai_litertlm and flutter_edge_ai_onnx until C stage 2.
-export 'src/embedding/forward_pass.dart'
-    show
-        EmbeddingForwardPass,
-        EmbeddingForwardPassFactory,
-        ForwardPassDescriptor;
 export 'src/embedding/pooling.dart' show meanPoolAndNormalize;
 export 'src/embedding/tokenizer_adapter.dart'
     show EmbeddingTokenizer, EmbeddingTokenizerFactory, TokenizedInput;
-// TRANSITIONAL(C stage 3): remove — the pre-2.2 facade litertlm and onnx
-// still build natively until C stage 2 (real arm by default, web stub under
-// js_interop: its worker needs dart:isolate). Core's own CommonEmbeddingModel
-// (src/embedding/common_embedding_model.dart) is not exported.
-export 'src/embedding/legacy_common_embedding_model.dart'
-    if (dart.library.js_interop) 'src/embedding/legacy_common_embedding_model_stub.dart'
-    show CommonEmbeddingModel;

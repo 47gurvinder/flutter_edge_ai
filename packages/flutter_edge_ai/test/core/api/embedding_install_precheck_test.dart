@@ -6,7 +6,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+import 'package:flutter_edge_ai/engine.dart';
 import 'package:flutter_edge_ai/src/di/service_registry.dart';
 import 'package:flutter_edge_ai/src/mobile/flutter_edge_ai_mobile.dart'
     show MobileModelManager;
@@ -32,6 +32,14 @@ final class _Backend extends EmbeddingBackendProvider {
 
   @override
   bool canHandle(EmbeddingModelSpec spec) => handles(spec);
+
+  /// Never reached: these tests stop at install, before any embedder is
+  /// built.
+  @override
+  Future<EmbeddingPassDescriptor<Object>> describe(
+    EmbeddingModelSpec spec,
+    RuntimeConfig config,
+  ) => Future.error(UnsupportedError('install pre-check tests build nothing'));
 }
 
 void main() {

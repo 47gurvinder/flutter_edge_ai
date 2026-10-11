@@ -15,7 +15,6 @@ import 'package:flutter_edge_ai/src/embedding/embedding_input.dart';
 import 'package:flutter_edge_ai/src/embedding/embedding_modality.dart';
 import 'package:flutter_edge_ai/src/embedding/embedding_pass.dart';
 import 'package:flutter_edge_ai/src/embedding/task_type.dart';
-import 'package:flutter_edge_ai/src/lifecycle/close_notifier.dart';
 import 'package:flutter_edge_ai/src/media/encoded_media_format.dart';
 import 'package:flutter_edge_ai/src/mobile/flutter_edge_ai_mobile.dart';
 import 'package:flutter_edge_ai/src/model_management/model_specs.dart';
@@ -303,44 +302,6 @@ void main() {
       );
     });
 
-    test(
-      'whatever a pre-2.2 createModel throws is a load failure too',
-      () async {
-        // TRANSITIONAL(C stage 3): remove with the createModel path.
-        final backend = _LegacyBackend()..failNext = true;
-        EmbeddingRegistry.instance.registerAll([backend]);
-        final plugin = FlutterEdgeAiMobile();
-        await fixture.activate(plugin, model: 'm.tflite', tokenizer: 't.json');
-        await expectLater(
-          plugin.createEmbeddingModel(),
-          throwsA(
-            isA<EmbeddingLoadException>()
-                .having((e) => e.engine, 'engine', 'Legacy')
-                .having((e) => e.cause, 'cause', isA<StateError>()),
-          ),
-        );
-      },
-    );
-
-    test('a backend that predates describe() cannot take media', () async {
-      // TRANSITIONAL(C stage 3): remove with the createModel path.
-      final backend = _LegacyBackend();
-      EmbeddingRegistry.instance.registerAll([backend]);
-      final plugin = FlutterEdgeAiMobile();
-
-      await fixture.activate(plugin, model: 'm.tflite', tokenizer: 't.json');
-      await expectLater(
-        plugin.createEmbeddingModel(supportImage: true),
-        throwsA(isA<EmbeddingLoadException>()),
-      );
-      expect(backend.built, isEmpty, reason: 'refused before createModel');
-
-      // Text still works, wrapped in core's model.
-      final model = await plugin.createEmbeddingModel();
-      expect(model.dimension, 1);
-      expect(backend.built, hasLength(1));
-    });
-
     test('no backend that can run the spec is a StateError', () async {
       EmbeddingRegistry.instance.registerAll([
         _DescribingBackend(handles: false),
@@ -352,10 +313,10 @@ void main() {
   });
 
   group('reuse, rebuild and concurrency (each shell serialises its entry)', () {
-    late _LegacyBackend backend;
+    late _CountingBackend backend;
 
     setUp(() {
-      backend = _LegacyBackend();
+      backend = _CountingBackend();
       EmbeddingRegistry.instance.registerAll([backend]);
     });
 
@@ -365,13 +326,14 @@ void main() {
       final first = await plugin.createEmbeddingModel();
       final again = await plugin.createEmbeddingModel();
       expect(identical(first, again), isTrue);
-      expect(backend.built, hasLength(1));
+      expect(backend.built, 1);
 
       await fixture.activate(plugin, model: 'b.tflite', tokenizer: 'b.json');
       final second = await plugin.createEmbeddingModel();
       expect(identical(first, second), isFalse);
-      expect(backend.built, hasLength(2));
-      expect(backend.built.first.closed, isTrue);
+      expect(backend.built, 2);
+      expect(first.isClosed, isTrue);
+      await second.close();
     });
 
     test('a different tokenizer alone is a different embedder', () async {
@@ -387,8 +349,9 @@ void main() {
         model: 'a.tflite',
         tokenizer: 'wordpiece.json',
       );
-      await plugin.createEmbeddingModel();
-      expect(backend.built, hasLength(2));
+      final second = await plugin.createEmbeddingModel();
+      expect(backend.built, 2);
+      await second.close();
     });
 
     for (final shell in shells) {
@@ -417,8 +380,9 @@ void main() {
           backend.gate!.complete();
           final models = await Future.wait([a, b]);
 
-          expect(backend.built, hasLength(1));
+          expect(backend.built, 1);
           expect(identical(models[0], models[1]), isTrue);
+          await models[0].close();
         },
       );
 
@@ -444,6 +408,7 @@ void main() {
         expect(identical(models[0], models[1]), isFalse);
         expect(models[0].isClosed, isTrue, reason: 'b closed the superseded a');
         expect(plugin.initializedEmbeddingModel, same(models[1]));
+        await models[1].close();
       });
 
       test('${shell.name}: a failed build leaves no baseline behind', () async {
@@ -456,8 +421,9 @@ void main() {
           throwsA(isA<EmbeddingLoadException>()),
         );
         // The retry is a fresh decision, not a replay of the failure.
-        await plugin.createEmbeddingModel();
+        final model = await plugin.createEmbeddingModel();
         expect(backend.paths, hasLength(2));
+        await model.close();
       });
     }
   });
@@ -578,22 +544,25 @@ final class _Pass extends EmbeddingPass {
   }
 }
 
-/// A backend that still builds its own model (the pre-2.2 seam).
-// TRANSITIONAL(C stage 3): becomes a describing backend in the fake rewrite.
-final class _LegacyBackend extends EmbeddingBackendProvider {
-  final built = <_InertModel>[];
+/// A describing backend that counts what it describes. [gate] holds
+/// describe() — which the loader runs inside the cache's lane — so a test can
+/// see whether a second caller waits behind the first. [failNext] makes the
+/// next describe() throw, a failure before anything is built.
+final class _CountingBackend extends EmbeddingBackendProvider {
+  /// How many descriptors this backend handed out (= embedders core built).
+  int built = 0;
   final paths = <String>[];
   Completer<void>? gate;
   bool failNext = false;
 
   @override
-  String get name => 'Legacy';
+  String get name => 'Counting';
 
   @override
   bool canHandle(EmbeddingModelSpec spec) => true;
 
   @override
-  Future<EmbeddingModel> createModel(
+  Future<EmbeddingPassDescriptor<Object>> describe(
     EmbeddingModelSpec spec,
     RuntimeConfig config,
   ) async {
@@ -603,26 +572,12 @@ final class _LegacyBackend extends EmbeddingBackendProvider {
       failNext = false;
       throw StateError('backend refused to build');
     }
-    final model = _InertModel();
-    built.add(model);
-    return model;
-  }
-}
-
-class _InertModel extends EmbeddingModel with CloseNotifier {
-  bool closed = false;
-
-  @override
-  bool get isClosed => closed;
-
-  @override
-  // ignore: deprecated_member_use_from_same_package
-  Future<int> getDimension() async => 1;
-
-  @override
-  Future<void> close() async {
-    if (closed) return;
-    closed = true;
-    fireCloseListeners();
+    built++;
+    return const EmbeddingPassDescriptor<_PassConfig>(
+      engineTag: 'Counting',
+      factory: _buildPass,
+      config: _PassConfig(imageCapable: false, audioCapable: false),
+      activeBackend: PreferredBackend.cpu,
+    );
   }
 }

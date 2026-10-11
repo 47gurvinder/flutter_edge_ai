@@ -666,7 +666,7 @@ void main() {
 
     test('a body that never settles holds the lane, and releases it', () async {
       // The documented price of having no completer to join: one stuck build
-      // (a wedged native createModel) stalls EVERY later request on this shell,
+      // (a wedged native load) stalls EVERY later request on this shell,
       // not just a matching one. Pinned so the trade-off cannot change by
       // accident — the previous per-shell code stalled them too, via an await
       // on the in-flight completer, so this is not new, only explicit.

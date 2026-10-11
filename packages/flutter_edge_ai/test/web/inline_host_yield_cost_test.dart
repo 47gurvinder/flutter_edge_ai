@@ -54,7 +54,7 @@ void main() {
     }
     bare.stop();
 
-    final host = await startInlineEmbeddingHost(
+    final host = await startEmbeddingHost(
       const EmbeddingPassDescriptor<String>(
         engineTag: 'Instant',
         factory: _buildInstantPass,

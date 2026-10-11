@@ -1,10 +1,10 @@
 // The isolate embedding host (R5 §4.4): a long-lived worker isolate that
 // builds an engine's EmbeddingPass from its descriptor, loads it, and serves
 // one request at a time until it is closed. Evolved from the #609 embedding
-// worker (`embedding_worker.dart`, which the pre-2.2 seam still uses until C
-// stage 3): the same handshake, the same close that never kills the isolate,
-// the same death reporting — now driving an EmbeddingPass through the shared
-// RequestPump, with typed failures (wire.dart) instead of strings.
+// worker, which it replaces: the same handshake, the same close that never
+// kills the isolate, the same death reporting — now driving an EmbeddingPass
+// through the shared RequestPump, with typed failures (wire.dart) instead of
+// strings.
 //
 // Why a long-lived worker and not `Isolate.run` per call:
 //   - A real pass costs hundreds of ms to load but far less to run per call,

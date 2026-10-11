@@ -13,7 +13,6 @@ import 'package:flutter_edge_ai/src/model_file_manager_interface.dart'
 import 'package:flutter_edge_ai/src/model_management/constants/preferences_keys.dart';
 import 'package:flutter_edge_ai/src/model_management/model_specs.dart'
     show EmbeddingModelSpec;
-import 'package:flutter_edge_ai/src/registry/embedding_backend_provider.dart';
 import 'package:flutter_edge_ai/src/registry/embedding_registry.dart';
 import 'package:flutter_edge_ai/src/registry/runtime_config.dart';
 import 'package:flutter_edge_ai/src/utils/edge_ai_log.dart';
@@ -105,7 +104,7 @@ Future<EmbeddingModel> loadActiveEmbedder({
       if (supportAudio) EmbeddingModality.audio,
     },
   );
-  _Described? described;
+  EmbeddingPassDescriptor<Object>? described;
   final decision = await cache.reuseOrInvalidate(
     requested,
     label: active.name,
@@ -122,7 +121,7 @@ Future<EmbeddingModel> loadActiveEmbedder({
   final reused = decision.reuse;
   if (reused != null) return reused;
   final build = decision.build;
-  final (:backend, :config, :descriptor) =
+  final descriptor =
       described ??
       (throw StateError(
         'The embedder cache decided a build it never let the '
@@ -133,27 +132,13 @@ Future<EmbeddingModel> loadActiveEmbedder({
     // Step 4: core builds, hosts and checks the pass.
     // A pass whose load fails is closed behind the error; the cache holds
     // the next build until that close has ended (never two engines).
-    void holdNextBuild(Future<void> cleanup) =>
-        cache.trackFailedLoadCleanup(cleanup, build);
-    final EmbeddingModel model;
-    // TRANSITIONAL(C stage 3): remove the null branch — describe() is
-    // non-nullable in 2.2.0, and this becomes the one CommonEmbeddingModel.start.
-    if (descriptor != null) {
-      model = await CommonEmbeddingModel.start(
-        descriptor,
-        declaredMedia: build.media,
-        label: modelPath,
-        onFailedLoadCleanup: holdNextBuild,
-      );
-    } else {
-      model = await _buildThroughCreateModel(
-        backend,
-        active,
-        config,
-        modelPath,
-        holdNextBuild,
-      );
-    }
+    final EmbeddingModel model = await CommonEmbeddingModel.start(
+      descriptor,
+      declaredMedia: build.media,
+      label: modelPath,
+      onFailedLoadCleanup: (cleanup) =>
+          cache.trackFailedLoadCleanup(cleanup, build),
+    );
 
     // Core owns the lifecycle: the cache tracks the model, forgets it when it
     // closes (identity-guarded) and records what it was built from.
@@ -167,18 +152,11 @@ Future<EmbeddingModel> loadActiveEmbedder({
   }
 }
 
-/// What the backend said it would build, before anything was closed.
-typedef _Described = ({
-  EmbeddingBackendProvider backend,
-  RuntimeConfig config,
-  EmbeddingPassDescriptor<Object>? descriptor,
-});
-
 /// Finds the backend for [spec] and has it describe the pass for [build]
 /// ([preferredBackend] is the raw request, which [build] does not keep):
 /// nothing loaded, nothing closed. Refusals surface here, before any isolate
 /// exists.
-Future<_Described> _describe(
+Future<EmbeddingPassDescriptor<Object>> _describe(
   EmbeddingModelSpec spec,
   ActiveEmbedderParams build,
   PreferredBackend? preferredBackend,
@@ -204,45 +182,11 @@ Future<_Described> _describe(
     supportImage: build.media.contains(EmbeddingModality.image),
     supportAudio: build.media.contains(EmbeddingModality.audio),
   );
-  final descriptor = await _asLoadFailure(
+  return _asLoadFailure(
     backend.name,
     'could not describe a pass for',
     build.modelPath,
     () => backend.describe(spec, config),
-  );
-  // TRANSITIONAL(C stage 3): remove — a backend that predates describe()
-  // embeds text only; refused here, before anything is closed.
-  if (descriptor == null && build.media.isNotEmpty) {
-    throw EmbeddingLoadException(
-      '${backend.name} predates the embedding pass API and embeds text '
-      'only; it cannot load ${build.media.map((m) => m.name).join(' and ')} '
-      'for ${build.modelPath}.',
-      engine: backend.name,
-    );
-  }
-  return (backend: backend, config: config, descriptor: descriptor);
-}
-
-/// A backend that predates `describe()` builds its own model; core hosts it.
-// TRANSITIONAL(C stage 3): remove — every engine describe()s in 2.2.0.
-Future<EmbeddingModel> _buildThroughCreateModel(
-  EmbeddingBackendProvider backend,
-  EmbeddingModelSpec spec,
-  RuntimeConfig config,
-  String label,
-  void Function(Future<void> cleanup) onFailedLoadCleanup,
-) async {
-  final legacy = await _asLoadFailure(
-    backend.name,
-    'could not build its model for',
-    label,
-    () => backend.createModel(spec, config),
-  );
-  return CommonEmbeddingModel.hostLegacyModel(
-    legacy,
-    engineTag: backend.name,
-    label: label,
-    onFailedLoadCleanup: onFailedLoadCleanup,
   );
 }
 

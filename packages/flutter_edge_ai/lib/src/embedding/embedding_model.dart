@@ -4,6 +4,7 @@ import 'package:flutter_edge_ai/src/domain/platform_types.dart'
     show PreferredBackend;
 import 'package:flutter_edge_ai/src/model_management/cancel_token.dart'
     show CancelToken;
+import 'package:meta/meta.dart' show nonVirtual;
 
 import 'embedding_exceptions.dart';
 import 'embedding_input.dart';
@@ -17,23 +18,16 @@ import 'task_type.dart';
 /// for test fakes — `final class FakeEmbedder extends EmbeddingModel` (add
 /// `with CloseNotifier` from `engine.dart` for close listeners) implementing
 /// [dimension], [isClosed], [embed], [addCloseListener] and [close].
-// TRANSITIONAL(C stage 3): remove — becomes `abstract base class` (so
-// `implements`, and therefore mockito/mocktail mocks, stop compiling outside
-// core) once no engine package builds its own model any more. A `base` class
-// may still be extended from another library; what breaks is that every
-// subclass must then be `base`, `final` or `sealed`, and the litertlm and onnx
-// web models (until C stage 2) and the repo's test fakes are plain `class`.
-abstract class EmbeddingModel {
+///
+/// `base`: outside core it can be extended (by a `base`, `final` or `sealed`
+/// class) but not implemented, so `implements EmbeddingModel` — and therefore
+/// a mockito/mocktail mock of it — does not compile. A member added here in a
+/// later release then reaches every fake through its superclass instead of
+/// breaking it.
+abstract base class EmbeddingModel {
   /// Length of every vector this model returns. Known when the model is
   /// returned: every engine loads eagerly.
-  // TRANSITIONAL(C stage 3): remove the body — abstract in 2.2.0. It exists
-  // only so models built through the pre-2.2 seam (which answer
-  // `getDimension()` instead) keep compiling; core never hands one out
-  // unwrapped.
-  int get dimension => throw UnsupportedError(
-    '$runtimeType predates EmbeddingModel.dimension; '
-    'use the model FlutterEdgeAi.getActiveEmbedder() returns.',
-  );
+  int get dimension;
 
   /// What this model accepts: the media declared at load (and confirmed by
   /// the engine), plus text when the model has a text tower. A request
@@ -62,10 +56,9 @@ abstract class EmbeddingModel {
   PreferredBackend? get activeBackend => null;
 
   /// Whether [close] has been called, or the model can no longer be used
-  /// because its worker exited.
-  // TRANSITIONAL(C stage 3): remove the body — abstract in 2.2.0 (it was
-  // defaulted to false in 2.1).
-  bool get isClosed => false;
+  /// because its worker exited. Abstract since 2.2.0 (2.1 defaulted it to
+  /// false).
+  bool get isClosed;
 
   /// The vector for [input].
   ///
@@ -76,18 +69,10 @@ abstract class EmbeddingModel {
   /// `UnsupportedEmbeddingCombinationException`,
   /// `EmbeddingFormatNotSupportedException`,
   /// `EmbeddingInputTooLongException`, `EmbeddingEngineException`.
-  // TRANSITIONAL(C stage 3): remove the body — abstract in 2.2.0. Models
-  // built through the pre-2.2 seam override `generateEmbedding` instead, and
-  // core never hands one out unwrapped.
   Future<List<double>> embed(
     EmbeddingInput input, {
     required TaskType taskType,
-  }) => Future.error(
-    UnsupportedError(
-      '$runtimeType predates EmbeddingModel.embed; '
-      'use the model FlutterEdgeAi.getActiveEmbedder() returns.',
-    ),
-  );
+  });
 
   /// The vectors for [inputs], in input order.
   ///
@@ -129,8 +114,7 @@ abstract class EmbeddingModel {
     'Use embed(EmbeddingInput.text(text), taskType: taskType). '
     'Removed in 2.4.0.',
   )
-  // TRANSITIONAL(C stage 3): add @nonVirtual — pre-2.2 seam models still
-  // override this forwarder.
+  @nonVirtual
   Future<List<double>> generateEmbedding(
     String text, {
     TaskType taskType = TaskType.retrievalQuery,
@@ -141,8 +125,7 @@ abstract class EmbeddingModel {
     'Use embedAll([for (final t in texts) EmbeddingInput.text(t)], '
     'taskType: taskType). Removed in 2.4.0.',
   )
-  // TRANSITIONAL(C stage 3): add @nonVirtual — pre-2.2 seam models still
-  // override this forwarder.
+  @nonVirtual
   Future<List<List<double>>> generateEmbeddings(
     List<String> texts, {
     TaskType taskType = TaskType.retrievalQuery,
@@ -152,8 +135,7 @@ abstract class EmbeddingModel {
 
   /// Deprecated: use [dimension].
   @Deprecated('Use dimension. Removed in 2.4.0.')
-  // TRANSITIONAL(C stage 3): add @nonVirtual — pre-2.2 seam models still
-  // override this forwarder.
+  @nonVirtual
   Future<int> getDimension() => isClosed
       ? Future.error(const EmbedderClosedException())
       : Future.sync(() => dimension);

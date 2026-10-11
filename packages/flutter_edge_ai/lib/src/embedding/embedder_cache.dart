@@ -111,7 +111,7 @@ class EmbedderCache {
   /// silently widened that window once already.
   ///
   /// Not reentrant: a [body] that calls back into the same entry point waits
-  /// for itself. Nothing in the plugin does; a backend's `createModel` that
+  /// for itself. Nothing in the plugin does; a backend's `describe()` that
   /// called `getActiveEmbedder` would.
   Future<T> serialize<T>(Future<T> Function() body) {
     final previous = _lane;

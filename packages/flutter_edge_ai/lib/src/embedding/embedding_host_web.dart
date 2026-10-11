@@ -5,8 +5,6 @@
 // closed once.
 //
 // Pure Dart (no dart:isolate, no dart:js_interop): the VM tests run it.
-// TRANSITIONAL(C stage 3): remove this line — until then the pre-2.2 seam
-// path hosts its models here on native too.
 
 import 'dart:async';
 
@@ -41,29 +39,6 @@ Future<EmbeddingHost> startEmbeddingHost(
   @visibleForTesting Duration slowLoadNotice = _slowLoadNotice,
   @visibleForTesting Duration slowCloseNotice = _slowCloseNotice,
   void Function(Future<void> cleanup)? onFailedLoadCleanup,
-}) => startInlineEmbeddingHost(
-  descriptor,
-  declaredMedia: declaredMedia,
-  label: label,
-  onFailedLoadCleanup: onFailedLoadCleanup,
-  slowLoadNotice: slowLoadNotice,
-  slowCloseNotice: slowCloseNotice,
-);
-
-/// [startEmbeddingHost], callable on every platform.
-///
-/// [passDied] completes, with a reason, when the pass's engine stopped on its
-/// own; the host then behaves as an isolate host whose worker exited.
-// TRANSITIONAL(C stage 3): remove [passDied] — only the pre-2.2 seam's
-// models (hosted inline on native too) can die under the host.
-Future<EmbeddingHost> startInlineEmbeddingHost(
-  EmbeddingPassDescriptor<Object> descriptor, {
-  required Set<EmbeddingModality> declaredMedia,
-  required String label,
-  Duration slowLoadNotice = _slowLoadNotice,
-  Duration slowCloseNotice = _slowCloseNotice,
-  void Function(Future<void> cleanup)? onFailedLoadCleanup,
-  Future<String>? passDied,
 }) async {
   final engine = descriptor.engineTag;
   final EmbeddingPass pass;
@@ -94,7 +69,6 @@ Future<EmbeddingHost> startInlineEmbeddingHost(
       engine: engine,
       label: label,
       slowCloseNotice: slowCloseNotice,
-      passDied: passDied,
     );
   } catch (e, st) {
     final cleanup = _closeAfterFailedLoad(pass, engine, label, slowCloseNotice);
@@ -157,11 +131,9 @@ final class _InlineEmbeddingHost implements EmbeddingHost {
     required this._engine,
     required this._label,
     required this._slowCloseNotice,
-    Future<String>? passDied,
   }) {
     _pump = RequestPump<_Request>(_serve);
     _runDone = _pump.run();
-    if (passDied != null) unawaited(passDied.then(_died));
   }
 
   final EmbeddingPass _pass;
@@ -170,9 +142,7 @@ final class _InlineEmbeddingHost implements EmbeddingHost {
   final Duration _slowCloseNotice;
   late final RequestPump<_Request> _pump;
   late final Future<void> _runDone;
-  final _unexpectedExit = Completer<String>();
   Future<void>? _closeFuture;
-  String? _deathReason;
 
   @override
   final EmbeddingPassInfo info;
@@ -180,28 +150,19 @@ final class _InlineEmbeddingHost implements EmbeddingHost {
   @override
   final Set<EmbeddingModality> modalities;
 
+  /// Never completes: the pass runs on the caller's own isolate, so there is
+  /// no worker that could exit under the host.
   @override
-  Future<String> get unexpectedExit => _unexpectedExit.future;
+  final Future<String> unexpectedExit = Completer<String>().future;
 
   @override
   Future<List<double>> embed(EmbeddingInput input, TaskType taskType) {
     final request = _Request(input, taskType);
     if (_closeFuture != null ||
-        _deathReason != null ||
         !_pump.file(request, media: isMediaRequest(input))) {
-      return Future.error(_closedError());
+      return Future.error(closedBeforeRun);
     }
     return request.completer.future;
-  }
-
-  EmbeddingException _closedError() {
-    final reason = _deathReason;
-    return reason == null
-        ? closedBeforeRun
-        : EmbedderClosedException(
-            'The embedding model is closed: its $_engine engine stopped on its '
-            'own ($reason).',
-          );
   }
 
   Future<void> _serve(_Request request) async {
@@ -254,25 +215,5 @@ final class _InlineEmbeddingHost implements EmbeddingHost {
     } finally {
       notice.cancel();
     }
-  }
-
-  /// The engine stopped under the host: fail what has not started, tell the
-  /// owner, and release what is left.
-  // TRANSITIONAL(C stage 3): remove with startInlineEmbeddingHost's passDied.
-  void _died(String reason) {
-    if (_closeFuture != null || _deathReason != null) return;
-    _deathReason = reason;
-    final failure = EmbeddingEngineException(
-      'The $_engine embedder for $_label stopped unexpectedly: $reason',
-      engine: _engine,
-    );
-    for (final request in _pump.requestClose()) {
-      request.completer.completeError(failure);
-    }
-    warnEmbeddingHost(
-      'the $_engine embedder for $_label stopped unexpectedly: $reason',
-    );
-    _unexpectedExit.complete(reason);
-    _closeFuture = _shutDown();
   }
 }

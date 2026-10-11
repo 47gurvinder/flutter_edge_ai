@@ -7,7 +7,6 @@ BundledSource class final
 CancelToken class
 CanceledError class final
 CloseNotifier mixin
-CommonEmbeddingModel class
 CorruptionAction enum
 CorruptionDetectionResult class
 DiagnosticReport class
@@ -19,13 +18,11 @@ DownloadProgress class
 EdgeAiLogLevel enum
 EmbedderCloseTimeoutException class final
 EmbedderClosedException class final
-EmbeddingBackendProvider class abstract
+EmbeddingBackendProvider class abstract base
 EmbeddingCancelledException class final
 EmbeddingEngineException class final
 EmbeddingException class abstract base
 EmbeddingFormatNotSupportedException class final
-EmbeddingForwardPass class abstract
-EmbeddingForwardPassFactory typedef
 EmbeddingInput class final
 EmbeddingInputTooLongException class final
 EmbeddingInstallation class
@@ -33,7 +30,7 @@ EmbeddingInstallationBuilder class
 EmbeddingLoadException class final
 EmbeddingModality enum
 EmbeddingModalityNotLoadedException class final
-EmbeddingModel class abstract
+EmbeddingModel class abstract base
 EmbeddingModelSpec class final
 EmbeddingOutputContract enum
 EmbeddingPass class abstract base
@@ -53,7 +50,6 @@ FlutterEdgeAi class
 FlutterEdgeAiDesktop class
 FlutterEdgeAiPlugin class abstract
 ForbiddenError class final
-ForwardPassDescriptor class
 ForwardResult class
 FunctionCallParser class
 FunctionCallResponse class

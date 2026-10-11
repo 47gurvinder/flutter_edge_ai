@@ -23,15 +23,10 @@ import 'embedding_host.dart';
 import 'embedding_host_io.dart'
     if (dart.library.js_interop) 'embedding_host_web.dart'
     as host;
-// TRANSITIONAL(C stage 3): remove — the inline host on every platform, for
-// models built through the pre-2.2 createModel seam.
-import 'embedding_host_web.dart' as inline;
 import 'embedding_input.dart';
 import 'embedding_modality.dart';
 import 'embedding_model.dart';
 import 'embedding_pass.dart';
-// TRANSITIONAL(C stage 3): remove with hostLegacyModel.
-import 'legacy_model_pass.dart';
 import 'task_type.dart';
 
 /// How many media requests may be outstanding on one model, across every
@@ -90,39 +85,6 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
       running,
       activeBackend: descriptor.activeBackend,
       engine: descriptor.engineTag,
-      label: label,
-    );
-  }
-
-  /// Hosts [legacy], a model an engine built through the pre-2.2
-  /// `EmbeddingBackendProvider.createModel`, so the caller still gets core's
-  /// API, request checks and close semantics. Text only.
-  ///
-  /// Fails with `EmbeddingLoadException`; [legacy] is closed then.
-  // TRANSITIONAL(C stage 3): remove — no engine builds its own model in 2.2.0.
-  static Future<CommonEmbeddingModel> hostLegacyModel(
-    EmbeddingModel legacy, {
-    required String engineTag,
-    required String label,
-    void Function(Future<void> cleanup)? onFailedLoadCleanup,
-  }) async {
-    final config = LegacyModelConfig(legacy, engine: engineTag);
-    final running = await inline.startInlineEmbeddingHost(
-      EmbeddingPassDescriptor<LegacyModelConfig>(
-        engineTag: engineTag,
-        factory: buildLegacyModelPass,
-        config: config,
-        activeBackend: legacy.activeBackend,
-      ),
-      declaredMedia: const {},
-      label: label,
-      onFailedLoadCleanup: onFailedLoadCleanup,
-      passDied: config.died.future,
-    );
-    return CommonEmbeddingModel._(
-      running,
-      activeBackend: legacy.activeBackend,
-      engine: engineTag,
       label: label,
     );
   }
@@ -427,7 +389,7 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
     return reason == null
         ? const EmbedderClosedException()
         : EmbedderClosedException(
-            'The embedding model is closed: its $_engine engine stopped '
+            'The embedding model is closed: its $_engine worker exited '
             'unexpectedly ($reason).',
           );
   }
