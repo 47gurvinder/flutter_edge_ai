@@ -288,6 +288,52 @@ void main() {
       }
     });
 
+    test('the embedding route builds one added-token-free tokenizer and '
+        'never needs the file again', () async {
+      final path = await writeJson('tokenizer.json', _toyHfJson());
+      final route = await loadGemmaSentencePieceEmbeddingTokenizer(path);
+      await File(path).delete();
+      expect(route.encode('', 'x<a><bos>').ids, [2, 13, 4, 10, 9, 3, 3, 11, 1]);
+      expect(route.encode('', 'x<sot>').ids, [2, 13, 16, 1]);
+    });
+
+    test('the public tokenizer builds its stretch tokenizer only when '
+        'encodeForEmbedding first needs it, from the file it was loaded '
+        'from', () async {
+      final path = await writeJson('tokenizer.json', _toyHfJson());
+      final tokenizer = await loadEmbeddingTokenizer(path);
+      // Its own encode() needs nothing more than the dependency's load.
+      await File(path).rename('$path.moved');
+      expect(tokenizer.encode('<a>').ids, [4]);
+      await expectLater(
+        () => encodeForEmbedding(tokenizer, '', 'x<a>'),
+        throwsA(
+          isStateError.having((e) => e.message, 'message', contains(path)),
+        ),
+      );
+      await File('$path.moved').rename(path);
+      expect(encodeForEmbedding(tokenizer, '', 'x<a>'), [2, 13, 4, 1]);
+    });
+
+    test('a file changed after the public load is not used for the lazy '
+        'stretch tokenizer', () async {
+      final path = await writeJson('tokenizer.json', _toyHfJson());
+      final tokenizer = await loadEmbeddingTokenizer(path);
+      final changed = _toyHfJson()..['padding'] = null;
+      (changed['model'] as Map)['merges'] = <Object>[];
+      await File(path).writeAsString('${jsonEncode(changed)}\n');
+      expect(
+        () => encodeForEmbedding(tokenizer, '', 'x<a>'),
+        throwsA(
+          isStateError.having(
+            (e) => e.message,
+            'message',
+            allOf(contains(path), contains('changed')),
+          ),
+        ),
+      );
+    });
+
     test('the pieces are every added token in the vocabulary but <pad>, '
         '<eos>, <bos> and <unk>, `special` or not; the map for the stretches '
         'has no added tokens, and the input map is untouched', () {

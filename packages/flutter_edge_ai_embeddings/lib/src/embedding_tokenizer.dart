@@ -53,8 +53,13 @@ const int eosId = 1;
 /// `</div>`, `<mask>`, `<start_of_turn>`, …) matched first and kept whole, and
 /// `<pad>`, `<eos>`, `<bos>` and `<unk>` never produced from text. For a
 /// HuggingFace `tokenizer.json` in Gemma's shape the text between two pieces
-/// is encoded by a second tokenizer loaded from the same file without its
-/// `added_tokens`, so that file costs two tokenizers in memory.
+/// needs a second tokenizer, loaded from the same file without its
+/// `added_tokens`. It is built the first time one of those two functions runs
+/// on the returned tokenizer, by reading [tokenizerPath] again: a
+/// [StateError] then if the file is gone or has changed since. (The embedding
+/// route — [loadGemmaSentencePieceEmbeddingTokenizer],
+/// [loadSiglipSentencePieceEmbeddingTokenizer] — builds only that second
+/// tokenizer and never the first.)
 ///
 /// Throws [UnsupportedError] for a BPE model with user-defined pieces whose
 /// normalizer this package cannot reproduce them under, and
@@ -86,40 +91,63 @@ Future<SentencePieceTokenizer> loadEmbeddingTokenizer(
   // `_applyTokenizerSettings` is HF-JSON-only, so on the `.model` arm the two
   // calls are a no-op today. They stay because the contract above is one
   // sentence for both arms, and it should not quietly depend on which ran.
-  final (tokenizer, pass) = tokenizerPath.endsWith('.json')
-      ? _loadJson(await File(tokenizerPath).readAsString(), tokenizerPath)
-      : _loadModel(await File(tokenizerPath).readAsBytes(), tokenizerPath);
+  return _load(tokenizerPath, forEmbedding: false);
+}
+
+/// Loads [path] as [loadEmbeddingTokenizer] does, for the public API or — when
+/// [forEmbedding] — for the embedding route, which needs only the tokenizer
+/// that encodes content: for a HuggingFace `tokenizer.json` in Gemma's shape
+/// that is the one without `added_tokens`, and the file's full tokenizer is
+/// never built (it is a second ~0.6 s and ~70 MB on EmbeddingGemma's 20 MB
+/// file).
+Future<SentencePieceTokenizer> _load(
+  String path, {
+  required bool forEmbedding,
+}) async {
+  final (tokenizer, pass) = path.endsWith('.json')
+      ? _loadJson(
+          await File(path).readAsString(),
+          path,
+          forEmbedding: forEmbedding,
+        )
+      : _loadModel(await File(path).readAsBytes(), path);
+  if (pass != null) _userDefinedPass[tokenizer] = pass;
+  // The cascade is the mechanism; `requireBareContent` is the enforcement, and
+  // it is separate because `^1.4.1` is open-topped. See its doc for exactly
+  // which failure shapes it does and does not cover — the ones it cannot see
+  // are `siglip_loader_contract_test.dart`'s job.
+  return _bare(tokenizer, path);
+}
+
+/// [tokenizer] with the file's own padding and truncation switched off, and
+/// checked to be off (see [loadEmbeddingTokenizer] for why).
+SentencePieceTokenizer _bare(SentencePieceTokenizer tokenizer, String path) {
   tokenizer
     ..noPadding()
     ..noTruncation();
-  if (pass != null) {
-    // The second tokenizer of a tokenizer.json is held to the same contract:
-    // it encodes the content between two pieces, which must come back bare.
-    if (!identical(pass.stretches, tokenizer)) {
-      pass.stretches
-        ..noPadding()
-        ..noTruncation();
-      requireBareContent(pass.stretches, tokenizerPath);
-    }
-    _userDefinedPass[tokenizer] = pass;
-  }
-
-  // The cascade above is the mechanism; `requireBareContent` is the
-  // enforcement, and it is separate because `^1.4.1` is open-topped. See its
-  // doc for exactly which failure shapes it does and does not cover — the ones
-  // it cannot see are `siglip_loader_contract_test.dart`'s job.
-  return requireBareContent(tokenizer, tokenizerPath);
+  return requireBareContent(tokenizer, path);
 }
 
 /// SentencePiece's user-defined pass for one loaded file: its pieces, and the
 /// tokenizer that encodes the text between two of them — one that matches no
-/// added token of its own. For a `.model` and the dependency's own JSON that is
-/// the returned tokenizer itself; for a HuggingFace `tokenizer.json`, a second
-/// one loaded without the file's `added_tokens`.
-typedef _UserDefinedPass = ({
-  UserDefinedPieces pieces,
-  SentencePieceTokenizer stretches,
-});
+/// added token of its own. For a `.model`, the dependency's own JSON and the
+/// embedding route that is the loaded tokenizer itself; for a HuggingFace
+/// `tokenizer.json` loaded through [loadEmbeddingTokenizer], a second one,
+/// built on first use.
+final class _UserDefinedPass {
+  _UserDefinedPass(this.pieces, SentencePieceTokenizer stretches)
+    : _stretches = stretches,
+      _build = null;
+
+  _UserDefinedPass.lazy(this.pieces, SentencePieceTokenizer Function() build)
+    : _build = build;
+
+  final UserDefinedPieces pieces;
+  final SentencePieceTokenizer Function()? _build;
+  SentencePieceTokenizer? _stretches;
+
+  SentencePieceTokenizer get stretches => _stretches ??= _build!();
+}
 
 /// What [loadEmbeddingTokenizer] read about each tokenizer it returned, when
 /// the file has user-defined pieces SentencePiece's way can be reproduced for
@@ -160,7 +188,7 @@ final _userDefinedPass = Expando<_UserDefinedPass>(
   }
   return (
     tokenizer,
-    pieces == null ? null : (pieces: pieces, stretches: tokenizer),
+    pieces == null ? null : _UserDefinedPass(pieces, tokenizer),
   );
 }
 
@@ -188,7 +216,11 @@ final bool _dependencyDropsLeadingBom = () {
   );
 }();
 
-(SentencePieceTokenizer, _UserDefinedPass?) _loadJson(String raw, String path) {
+(SentencePieceTokenizer, _UserDefinedPass?) _loadJson(
+  String raw,
+  String path, {
+  required bool forEmbedding,
+}) {
   final json = jsonDecode(raw);
   if (json is! Map<String, dynamic>) {
     throw FormatException('$path is not a JSON object');
@@ -203,21 +235,65 @@ final bool _dependencyDropsLeadingBom = () {
     final pieces = UserDefinedPieces.fromLibraryJson(json, source: path);
     return (
       tokenizer,
-      pieces == null ? null : (pieces: pieces, stretches: tokenizer),
+      pieces == null ? null : _UserDefinedPass(pieces, tokenizer),
     );
   }
   // Read first: a file this package refuses fails before the expensive load.
   final gemma = UserDefinedPieces.fromHuggingFaceJson(json, source: path);
+  if (gemma == null) {
+    return (
+      HuggingFaceTokenizerLoader.fromMap(
+        json,
+        config: const SentencePieceConfig(),
+      ),
+      null,
+    );
+  }
+  if (forEmbedding) {
+    final stretches = HuggingFaceTokenizerLoader.fromMap(
+      gemma.stretchJson,
+      config: const SentencePieceConfig(),
+    );
+    return (stretches, _UserDefinedPass(gemma.pieces, stretches));
+  }
   final tokenizer = HuggingFaceTokenizerLoader.fromMap(
     json,
     config: const SentencePieceConfig(),
   );
-  if (gemma == null) return (tokenizer, null);
-  final stretches = HuggingFaceTokenizerLoader.fromMap(
-    gemma.stretchJson,
-    config: const SentencePieceConfig(),
+  final loadedAs = FileStat.statSync(path);
+  return (
+    tokenizer,
+    _UserDefinedPass.lazy(gemma.pieces, () => _stretchesFor(path, loadedAs)),
   );
-  return (tokenizer, (pieces: gemma.pieces, stretches: stretches));
+}
+
+/// The added-token-free tokenizer of the `tokenizer.json` at [path], read
+/// again; [loadedAs] is what the file was when [loadEmbeddingTokenizer] read
+/// it. Throws [StateError] when the file is gone, has changed since, or no
+/// longer reads as it did.
+SentencePieceTokenizer _stretchesFor(String path, FileStat loadedAs) {
+  Never fail(String why) => throw StateError(
+    '$path $why since loadEmbeddingTokenizer read it, and '
+    'encodeForEmbedding / encodeForSiglipEmbedding read it again for the '
+    'text between user-defined pieces. Load it again.',
+  );
+  final now = FileStat.statSync(path);
+  if (now.type == FileSystemEntityType.notFound) fail('is gone');
+  if (now.size != loadedAs.size || now.modified != loadedAs.modified) {
+    fail('has changed');
+  }
+  final json = jsonDecode(File(path).readAsStringSync());
+  final gemma = json is Map<String, dynamic>
+      ? UserDefinedPieces.fromHuggingFaceJson(json, source: path)
+      : null;
+  if (gemma == null) fail('no longer reads as it did');
+  return _bare(
+    HuggingFaceTokenizerLoader.fromMap(
+      gemma.stretchJson,
+      config: const SentencePieceConfig(),
+    ),
+    path,
+  );
 }
 
 /// The content ids of [text]: SentencePiece's user-defined pass when
@@ -245,16 +321,18 @@ List<int> encodeForEmbedding(
 ) => <int>[bosId, ..._contentIds(tokenizer, prefix + text), eosId];
 
 /// [EmbeddingTokenizerFactory] tear-off (design D-T1) — a thin
-/// [EmbeddingTokenizer] adapter over [loadEmbeddingTokenizer] +
-/// [encodeForEmbedding]. Byte-identical to the pre-generalization LiteRT
-/// path: same BOS=2/EOS=1 convention, same `prefix + text` concatenation
-/// order. Always returns `attentionMask: null, tokenTypeIds: null` — Gemma
+/// [EmbeddingTokenizer] adapter over the loader and [encodeForEmbedding]: the
+/// same ids [loadEmbeddingTokenizer] + [encodeForEmbedding] give, but for a
+/// `tokenizer.json` only the tokenizer the embedding needs is built (see
+/// [loadEmbeddingTokenizer]). Same BOS=2/EOS=1 convention, same
+/// `prefix + text` concatenation order as the pre-generalization LiteRT
+/// path. Always returns `attentionMask: null, tokenTypeIds: null` — Gemma
 /// SentencePiece has no notion of either; the embedding pass pads internally
 /// and has no mask to report back.
 Future<EmbeddingTokenizer> loadGemmaSentencePieceEmbeddingTokenizer(
   String tokenizerPath,
 ) async {
-  final tokenizer = await loadEmbeddingTokenizer(tokenizerPath);
+  final tokenizer = await _load(tokenizerPath, forEmbedding: true);
   return _GemmaSentencePieceEmbeddingTokenizer(tokenizer);
 }
 
@@ -348,9 +426,9 @@ List<int> encodeForSiglipEmbedding(
   return [...ids, ...List<int>.filled(siglipSeqLen - ids.length, siglipPadId)];
 }
 
-/// [EmbeddingTokenizerFactory] tear-off for the SigLIP2 text tower — reuses the
-/// same base [loadEmbeddingTokenizer] (`.json`/`.model` branch) as Gemma, but
-/// wraps it with SigLIP's no-BOS/single-EOS/lowercase convention instead.
+/// [EmbeddingTokenizerFactory] tear-off for the SigLIP2 text tower — the same
+/// loader (`.json`/`.model` branch, embedding route) as Gemma's factory, but
+/// wrapped with SigLIP's no-BOS/single-EOS/lowercase convention instead.
 ///
 /// The returned tokenizer **ignores the TaskType prefix**. `TaskType` is an
 /// EmbeddingGemma convention (`'task: search result | query: '`), and SigLIP's
@@ -365,7 +443,7 @@ List<int> encodeForSiglipEmbedding(
 Future<EmbeddingTokenizer> loadSiglipSentencePieceEmbeddingTokenizer(
   String tokenizerPath,
 ) async {
-  final tokenizer = await loadEmbeddingTokenizer(tokenizerPath);
+  final tokenizer = await _load(tokenizerPath, forEmbedding: true);
   _assertSiglip2Vocab(tokenizer, tokenizerPath);
   return _SiglipSentencePieceEmbeddingTokenizer(tokenizer);
 }
