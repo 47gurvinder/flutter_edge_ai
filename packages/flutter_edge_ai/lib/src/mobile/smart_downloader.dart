@@ -1594,16 +1594,4 @@ class SmartDownloader {
   static void _cancelResumeWatchdog(String taskId) {
     _resumeWatchdogs.remove(taskId)?.cancel();
   }
-
-  /// Checks if a URL is from HuggingFace CDN
-  ///
-  /// This is kept for backward compatibility but SmartDownloader works with ANY URL.
-  /// You don't need to check this before using SmartDownloader.
-  @Deprecated('SmartDownloader works with all URLs. No need to check anymore.')
-  static bool isHuggingFaceUrl(String url) {
-    return url.contains('huggingface.co') ||
-        url.contains('cdn-lfs.huggingface.co') ||
-        url.contains('cdn-lfs-us-1.huggingface.co') ||
-        url.contains('cdn-lfs-eu-1.huggingface.co');
-  }
 }
