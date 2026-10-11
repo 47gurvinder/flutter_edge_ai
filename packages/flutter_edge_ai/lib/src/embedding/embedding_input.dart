@@ -82,10 +82,10 @@ final class EmbeddingInput {
 
 /// An input carrying several modalities at once.
 ///
-/// The public constructor for this arrives with core 2.3.0 (R5 §2.1, P3); the
-/// 2.2.0 facade already refuses such an input unless the engine declared
+/// The public constructor for this arrives with core 2.4.0 (R5 §2.1, P3); the
+/// 2.3.0 facade already refuses such an input unless the engine declared
 /// `combinedInputs` (D17), and this is how that refusal is tested before
-/// then. Not exported by any public library. Same rules as the 2.3.0
+/// then. Not exported by any public library. Same rules as the 2.4.0
 /// constructor: at least one part, no empty byte array.
 @visibleForTesting
 EmbeddingInput debugCombinedEmbeddingInput({

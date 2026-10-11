@@ -1,6 +1,6 @@
 // What the shell-level embedder tests share: a real ServiceRegistry over temp
 // directories, and a way to make a model the ACTIVE embedder of one shell —
-// since 2.2.0 createEmbeddingModel takes no paths, it builds the active one.
+// since 2.3.0 createEmbeddingModel takes no paths, it builds the active one.
 
 import 'dart:io';
 import 'dart:typed_data';

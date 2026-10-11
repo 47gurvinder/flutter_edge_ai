@@ -108,7 +108,7 @@ void main() {
       expect(echoed.modalities, {EmbeddingModality.image});
     });
 
-    test('the combined-input helper keeps the 2.3.0 constructor rules', () {
+    test('the combined-input helper keeps the 2.4.0 constructor rules', () {
       final combined = debugCombinedEmbeddingInput(
         text: 'a cat',
         images: [

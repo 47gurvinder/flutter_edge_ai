@@ -51,7 +51,7 @@ void _removeBundle() => _js('''
   delete window.cleanupLiteRtEmbeddings;
 ''');
 
-/// What a page with a copy from flutter_edge_ai_litertlm <= 1.11.x has: the
+/// What a page with a copy from flutter_edge_ai_litertlm <= 1.12.x has: the
 /// v1 functions and no `liteRtEmbeddingsApiVersion`.
 void _installV1Bundle() => _js('''
   delete window.liteRtEmbeddingsApiVersion;
@@ -161,7 +161,7 @@ void main() {
                 (e) => e.message,
                 'message',
                 'web/litert_embeddings.js is older than '
-                    'flutter_edge_ai_litertlm 1.12.0; copy '
+                    'flutter_edge_ai_litertlm 1.13.0; copy '
                     'packages/flutter_edge_ai_litertlm/web/litert_embeddings.js '
                     'into your web/',
               ),

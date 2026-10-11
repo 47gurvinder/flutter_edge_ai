@@ -202,7 +202,7 @@ final class EmbeddingModelSpec extends ModelSpec {
   String? get tokenizerFilename => _tokenizerFilename;
 
   /// True exactly when there is no separate tokenizer file
-  /// (`tokenizerSource == null`). In 2.2.0 that means a `.litertlm` bundle.
+  /// (`tokenizerSource == null`). In 2.3.0 that means a `.litertlm` bundle.
   /// Which engine runs it is each engine's own business.
   bool get isSelfContained => _tokenizerSource == null;
 

@@ -95,7 +95,7 @@ void main() {
   });
 
   test(
-    'a record the 2.2 rules refuse fails closed on web and says why',
+    'a record the 2.3 rules refuse fails closed on web and says why',
     () async {
       await ServiceRegistry.initialize();
       resetRejectedActiveEmbeddingIdentity();

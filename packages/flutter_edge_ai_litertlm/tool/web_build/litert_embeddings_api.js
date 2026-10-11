@@ -21,7 +21,7 @@
  * to the model's input length and NEVER truncated: a longer input comes back
  * as `too_long`, which Dart turns into EmbeddingInputTooLongException.
  *
- * API v1 (flutter_edge_ai_litertlm ≤ 1.11.x) had `generateEmbedding`,
+ * API v1 (flutter_edge_ai_litertlm ≤ 1.12.x) had `generateEmbedding`,
  * `generateDocumentEmbedding` and `generateEmbeddings`, prepended one of two
  * hard-coded prefixes itself (every task type but a document got the query
  * prompt), tokenized prefix and text separately with a "▁" before the text,

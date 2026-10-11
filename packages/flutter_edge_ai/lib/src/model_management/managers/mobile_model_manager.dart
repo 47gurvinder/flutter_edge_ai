@@ -496,7 +496,7 @@ class MobileModelManager extends ModelFileManager
       return;
     }
 
-    // The 2.2 spec rules can refuse what 2.1 wrote under these keys (a
+    // The 2.3 spec rules can refuse what 2.2 wrote under these keys (a
     // .litertlm paired with a tokenizer). Fail closed and say why, as the
     // record path does — never let it escape and skip the restores after it.
     final EmbeddingModelSpec runtimeSpec;
@@ -528,7 +528,7 @@ class MobileModelManager extends ModelFileManager
       );
     } on ArgumentError catch (e) {
       reportRejectedActiveEmbeddingIdentity(
-        'its pre-2.2 identity keys name a model the 2.2 rules refuse: '
+        'its pre-2.3 identity keys name a model the 2.3 rules refuse: '
         '${e.message}',
       );
       return;

@@ -12,7 +12,7 @@
 //
 // The compiled input's sequence length is the model's `maxInputTokens`: an
 // input longer than that fails with `EmbeddingInputTooLongException` in
-// `TokenEmbeddingPass.embed` before it reaches the graph. Until 2.2 the run
+// `TokenEmbeddingPass.embed` before it reaches the graph. Until 2.3 the run
 // silently kept the first `seqLen` ids instead.
 //
 // ⚠️ Invariant I0: the vector [LiteRtEmbeddingGraph.run] returns is the

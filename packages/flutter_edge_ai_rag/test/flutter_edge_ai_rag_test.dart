@@ -1258,7 +1258,7 @@ class _FakeEmbedder implements RagEmbedder {
   }
 }
 
-/// A fake in the shape core 2.2 requires: a `final class` extending
+/// A fake in the shape core 2.3 requires: a `final class` extending
 /// `EmbeddingModel` that implements `dimension`, `isClosed`, `embed`,
 /// `addCloseListener` and `close`. rag reaches it through the deprecated
 /// forwarders (`generateEmbedding`, `getDimension`), which call these.

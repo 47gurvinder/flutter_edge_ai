@@ -1847,7 +1847,7 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
           );
         }
 
-        // createEmbeddingModel no longer takes explicit paths (2.2.0): the
+        // createEmbeddingModel no longer takes explicit paths (2.3.0): the
         // platform interface builds the ACTIVE embedder, so install the files
         // first — the same install the Modern test below repeats.
         _log(

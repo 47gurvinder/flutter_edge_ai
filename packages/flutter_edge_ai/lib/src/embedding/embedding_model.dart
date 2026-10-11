@@ -56,7 +56,7 @@ abstract base class EmbeddingModel {
   PreferredBackend? get activeBackend => null;
 
   /// Whether [close] has been called, or the model can no longer be used
-  /// because its worker exited. Abstract since 2.2.0 (2.1 defaulted it to
+  /// because its worker exited. Abstract since 2.3.0 (2.2 defaulted it to
   /// false).
   bool get isClosed;
 
@@ -112,7 +112,7 @@ abstract base class EmbeddingModel {
   /// Deprecated: use `embed(EmbeddingInput.text(text), taskType: taskType)`.
   @Deprecated(
     'Use embed(EmbeddingInput.text(text), taskType: taskType). '
-    'Removed in 2.4.0.',
+    'Removed in 2.5.0.',
   )
   @nonVirtual
   Future<List<double>> generateEmbedding(
@@ -123,7 +123,7 @@ abstract base class EmbeddingModel {
   /// Deprecated: use `embedAll` over `EmbeddingInput.text` inputs.
   @Deprecated(
     'Use embedAll([for (final t in texts) EmbeddingInput.text(t)], '
-    'taskType: taskType). Removed in 2.4.0.',
+    'taskType: taskType). Removed in 2.5.0.',
   )
   @nonVirtual
   Future<List<List<double>>> generateEmbeddings(
@@ -134,7 +134,7 @@ abstract base class EmbeddingModel {
   ], taskType: taskType);
 
   /// Deprecated: use [dimension].
-  @Deprecated('Use dimension. Removed in 2.4.0.')
+  @Deprecated('Use dimension. Removed in 2.5.0.')
   @nonVirtual
   Future<int> getDimension() => isClosed
       ? Future.error(const EmbedderClosedException())

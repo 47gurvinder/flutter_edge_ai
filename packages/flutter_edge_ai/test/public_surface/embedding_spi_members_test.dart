@@ -3,7 +3,7 @@
 // The symbol goldens (public_surface_test.dart) pin top-level NAMES only, so a
 // dropped parameter default, a member turned abstract or a new required named
 // parameter on `EmbeddingPassInfo` would pass them — and break, or silently
-// change, every engine built against 2.2.0. This one resolves engine.dart's
+// change, every engine built against 2.3.0. This one resolves engine.dart's
 // export namespace with the same analyzer session and renders, for each SPI
 // type, its declaration and one line per public member it declares: kind,
 // full signature (required / optional / named parameters with their

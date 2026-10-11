@@ -58,12 +58,12 @@ const _liteRtLm = 'LiteRT-LM';
 Never _describeBundle(String file, RuntimeConfig config) {
   if (config.supportImage || config.supportAudio) {
     throw const EmbeddingLoadException(
-      'flutter_edge_ai_litertlm 1.12.0 embeds text only; images arrive in '
-      '1.13.0, audio in 1.15.0',
+      'flutter_edge_ai_litertlm 1.13.0 embeds text only; images arrive in '
+      '1.14.0, audio in 1.16.0',
       engine: _liteRtLm,
     );
   }
-  // Until the EmbeddingGemma 2 pass lands (the next PR of the 2.2.0 train),
+  // Until the EmbeddingGemma 2 pass lands (the next PR of the 2.3.0 train),
   // a .litertlm embedder is refused here, before any isolate exists.
   throw EmbeddingLoadException(
     '$file is a .litertlm embedding bundle, which this build of '

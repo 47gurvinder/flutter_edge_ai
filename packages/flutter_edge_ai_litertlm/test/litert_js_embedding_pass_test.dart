@@ -141,7 +141,7 @@ LiteRtJsEmbeddingPass _pass(
 
 /// R5 §7's message, verbatim: what an app with a stale `web/` copy sees.
 const _staleBundleMessage =
-    'web/litert_embeddings.js is older than flutter_edge_ai_litertlm 1.12.0; '
+    'web/litert_embeddings.js is older than flutter_edge_ai_litertlm 1.13.0; '
     'copy packages/flutter_edge_ai_litertlm/web/litert_embeddings.js into '
     'your web/';
 

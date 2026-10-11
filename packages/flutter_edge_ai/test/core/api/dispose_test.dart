@@ -68,7 +68,7 @@ void _resetAll() {
 class _MockInferenceEngine extends Mock implements InferenceEngineProvider {}
 
 /// Only registered and cleared. A fake that extends, not a mock:
-/// `EmbeddingBackendProvider` becomes `abstract base` in 2.2.0, which no mock
+/// `EmbeddingBackendProvider` becomes `abstract base` in 2.3.0, which no mock
 /// can implement.
 final class _FakeEmbeddingBackend extends EmbeddingBackendProvider {
   const _FakeEmbeddingBackend();

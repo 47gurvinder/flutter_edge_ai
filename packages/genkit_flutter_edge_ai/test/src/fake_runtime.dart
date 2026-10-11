@@ -240,7 +240,7 @@ class FakeInferenceChat extends gemma.InferenceChat {
   Future<void> close() async {}
 }
 
-/// Fake embedding model in the shape core 2.2 requires of a fake: a `final
+/// Fake embedding model in the shape core 2.3 requires of a fake: a `final
 /// class` extending `EmbeddingModel` that implements `dimension`, `isClosed`,
 /// `embed`, `addCloseListener` and `close`. A closed one fails every request
 /// with `EmbedderClosedException`, as core's model does.

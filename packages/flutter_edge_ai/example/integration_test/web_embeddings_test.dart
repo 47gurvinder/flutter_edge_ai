@@ -290,7 +290,7 @@ void main() {
                   'message',
                   contains(
                     'web/litert_embeddings.js is older than '
-                    'flutter_edge_ai_litertlm 1.12.0; copy '
+                    'flutter_edge_ai_litertlm 1.13.0; copy '
                     'packages/flutter_edge_ai_litertlm/web/'
                     'litert_embeddings.js into your web/',
                   ),

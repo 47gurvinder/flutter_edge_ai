@@ -1,6 +1,6 @@
 // The shells' embedder path (R5 §4.2, §5.5, §10.1 "Shells"), driven through
 // the real mobile and desktop shells over an installed ACTIVE embedder — since
-// 2.2.0 there are no explicit paths. Covers what the backend is handed
+// 2.3.0 there are no explicit paths. Covers what the backend is handed
 // (RuntimeConfig: a null tokenizer path for a self-contained spec, the media
 // flags, widened on a rebuild), the describe() path through core's own host,
 // and the reuse / rebuild / concurrency rules each shell must keep by wrapping

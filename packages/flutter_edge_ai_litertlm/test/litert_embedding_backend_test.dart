@@ -121,7 +121,7 @@ void main() {
     });
 
     test(
-      'a .litertlm bundle with declared media gets the 1.12.0 refusal',
+      'a .litertlm bundle with declared media gets the 1.13.0 refusal',
       () async {
         for (final (image, audio) in [(true, false), (false, true)]) {
           await expectLater(
@@ -135,8 +135,8 @@ void main() {
             ),
             _loadRefusal(
               'LiteRT-LM',
-              'flutter_edge_ai_litertlm 1.12.0 embeds text only; images arrive '
-                  'in 1.13.0, audio in 1.15.0',
+              'flutter_edge_ai_litertlm 1.13.0 embeds text only; images arrive '
+                  'in 1.14.0, audio in 1.16.0',
             ),
           );
         }

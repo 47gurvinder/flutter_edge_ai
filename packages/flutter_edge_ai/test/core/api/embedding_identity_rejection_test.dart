@@ -1,5 +1,5 @@
 // A persisted active-embedder record the restore refuses (corrupt, from a
-// newer core, or breaking the 2.2 spec rules) still fails closed — but it is
+// newer core, or breaking the 2.3 spec rules) still fails closed — but it is
 // said, in release builds too, and getActiveEmbedder names the reason instead
 // of the false "No active embedding model set".
 
@@ -17,8 +17,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// A v1 record pairing a .litertlm bundle with a tokenizer: 2.1 could write
-/// it, the 2.2 spec rules refuse it.
+/// A v1 record pairing a .litertlm bundle with a tokenizer: 2.2 could write
+/// it, the 2.3 spec rules refuse it.
 String _litertlmWithTokenizerRecord() => jsonEncode({
   'schemaVersion': 1,
   'active': true,
@@ -149,9 +149,9 @@ void main() {
     );
   });
 
-  test('pre-2.2 keys the new rules refuse fail closed without skipping the '
+  test('pre-2.3 keys the new rules refuse fail closed without skipping the '
       'restores after it (STT here)', () async {
-    // The pre-record keys of a .litertlm paired with a tokenizer — which 2.1
+    // The pre-record keys of a .litertlm paired with a tokenizer — which 2.2
     // could install — and an active STT model.
     for (final name in [
       'eg2.litertlm',

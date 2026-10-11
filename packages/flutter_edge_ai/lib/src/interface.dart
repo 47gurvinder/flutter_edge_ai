@@ -112,7 +112,7 @@ abstract class FlutterEdgeAiPlugin extends PlatformInterface {
   /// `FlutterEdgeAi.installEmbedder()` or
   /// `modelManager.ensureModelReadyFromSpec()`) — the one already loaded when
   /// it serves the request, else a new one. The active model is the only
-  /// source: explicit paths were removed in 2.2.0.
+  /// source: explicit paths were removed in 2.3.0.
   ///
   /// [supportImage] / [supportAudio] declare the media the caller will send;
   /// text is implied whenever the model has a text tower. A loaded embedder
