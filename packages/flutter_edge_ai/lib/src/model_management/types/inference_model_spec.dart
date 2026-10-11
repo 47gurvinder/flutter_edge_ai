@@ -4,10 +4,8 @@ part of '../model_specs.dart';
 /// source, `asset://` an asset, `native://` a bundled resource, `file://` a
 /// file, and a schemeless string an asset.
 ///
-/// Core's remaining legacy-URL entry points (the deprecated
-/// [InferenceModelSpec.fromLegacyUrl] and the model managers'
-/// `createInferenceSpec` / `createEmbeddingSpec`) build their sources here, so
-/// core itself never calls a deprecated member. Not exported.
+/// The deprecated [InferenceModelSpec.fromLegacyUrl] builds its sources here
+/// until its removal in 2.4.0. Not exported.
 @internal
 ModelSource modelSourceFromLegacyUrl(String url) {
   if (url.startsWith('https://') || url.startsWith('http://')) {

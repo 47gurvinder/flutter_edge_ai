@@ -1,7 +1,6 @@
 // Pins the legacy URL -> ModelSource mapping behind the deprecated
-// InferenceModelSpec.fromLegacyUrl (removed in 2.4.0) and the managers'
-// createInferenceSpec / createEmbeddingSpec. model_spec_test.dart covers the
-// factory too, but only in a browser.
+// InferenceModelSpec.fromLegacyUrl (removed in 2.4.0). model_spec_test.dart
+// covers the factory too, but only in a browser.
 
 import 'package:flutter_edge_ai/src/domain/model_source.dart';
 import 'package:flutter_edge_ai/src/model.dart';

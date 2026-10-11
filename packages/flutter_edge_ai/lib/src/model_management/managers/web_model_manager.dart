@@ -7,8 +7,6 @@ import 'package:flutter_edge_ai/src/di/service_registry.dart';
 import 'package:flutter_edge_ai/src/infrastructure/web_file_system_service.dart';
 import 'package:flutter_edge_ai/src/infrastructure/web_download_service.dart';
 import 'package:flutter_edge_ai/src/model_management/constants/preferences_keys.dart';
-import 'package:flutter_edge_ai/src/model_management/model_specs.dart'
-    show modelSourceFromLegacyUrl;
 import 'package:flutter_edge_ai/src/model_management/active_embedding_identity.dart';
 import 'package:flutter_edge_ai/src/model_management/active_identity_store.dart';
 import 'package:flutter_edge_ai/src/model_management/model_activation.dart';
@@ -837,96 +835,6 @@ class WebModelManager extends ModelFileManager
   }
 
   Future<void> _ensureInitialized() => initialize();
-
-  /// Creates an inference model specification from parameters
-  static InferenceModelSpec createInferenceSpec({
-    required String name,
-    required String modelUrl,
-    String? loraUrl,
-    ModelReplacePolicy replacePolicy = ModelReplacePolicy.keep,
-  }) {
-    return InferenceModelSpec(
-      name: name,
-      modelSource: modelSourceFromLegacyUrl(modelUrl),
-      loraSource: loraUrl != null ? modelSourceFromLegacyUrl(loraUrl) : null,
-      replacePolicy: replacePolicy,
-      modelType: ModelType.general,
-    );
-  }
-
-  /// Creates an embedding model specification from parameters
-  static EmbeddingModelSpec createEmbeddingSpec({
-    required String name,
-    required String modelUrl,
-    required String tokenizerUrl,
-    ModelReplacePolicy replacePolicy = ModelReplacePolicy.keep,
-  }) {
-    return EmbeddingModelSpec(
-      name: name,
-      modelSource: modelSourceFromLegacyUrl(modelUrl),
-      tokenizerSource: modelSourceFromLegacyUrl(tokenizerUrl),
-      replacePolicy: replacePolicy,
-    );
-  }
-
-  /// Creates a bundled inference model specification (for production builds)
-  ///
-  /// Use this for models packaged in web/assets/models/
-  ///
-  /// Example:
-  /// ```dart
-  /// final spec = WebModelManager.createBundledInferenceSpec(
-  ///   resourceName: 'gemma3-270m-it-q8.task',
-  /// );
-  /// await manager.ensureModelReadyFromSpec(spec);
-  /// ```
-  static InferenceModelSpec createBundledInferenceSpec({
-    required String resourceName,
-    String? loraResourceName,
-    ModelReplacePolicy replacePolicy = ModelReplacePolicy.keep,
-    ModelType modelType = ModelType.general,
-    ModelFileType fileType = ModelFileType.task,
-  }) {
-    final name = resourceName.split('.').first;
-
-    return InferenceModelSpec(
-      name: name,
-      modelSource: BundledSource(resourceName),
-      loraSource: loraResourceName != null
-          ? BundledSource(loraResourceName)
-          : null,
-      replacePolicy: replacePolicy,
-      modelType: modelType,
-      fileType: fileType,
-    );
-  }
-
-  /// Creates a bundled embedding model specification (for production builds)
-  ///
-  /// Use this for embedding models packaged in web/assets/models/
-  ///
-  /// Example:
-  /// ```dart
-  /// final spec = WebModelManager.createBundledEmbeddingSpec(
-  ///   modelResourceName: 'embeddinggemma-300M.tflite',
-  ///   tokenizerResourceName: 'sentencepiece.model',
-  /// );
-  /// await manager.ensureModelReadyFromSpec(spec);
-  /// ```
-  static EmbeddingModelSpec createBundledEmbeddingSpec({
-    required String modelResourceName,
-    required String tokenizerResourceName,
-    ModelReplacePolicy replacePolicy = ModelReplacePolicy.keep,
-  }) {
-    final name = modelResourceName.split('.').first;
-
-    return EmbeddingModelSpec(
-      name: name,
-      modelSource: BundledSource(modelResourceName),
-      tokenizerSource: BundledSource(tokenizerResourceName),
-      replacePolicy: replacePolicy,
-    );
-  }
 
   // Active models (modern API)
   ModelSpec? _activeInferenceModel;

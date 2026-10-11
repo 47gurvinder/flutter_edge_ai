@@ -1230,37 +1230,6 @@ class MobileModelManager extends ModelFileManager
     }
   }
 
-  /// Creates an inference model specification from parameters
-  static InferenceModelSpec createInferenceSpec({
-    required String name,
-    required String modelUrl,
-    String? loraUrl,
-    ModelReplacePolicy replacePolicy = ModelReplacePolicy.replace,
-  }) {
-    return InferenceModelSpec(
-      name: name,
-      modelSource: modelSourceFromLegacyUrl(modelUrl),
-      loraSource: loraUrl != null ? modelSourceFromLegacyUrl(loraUrl) : null,
-      replacePolicy: replacePolicy,
-      modelType: ModelType.general,
-    );
-  }
-
-  /// Creates an embedding model specification from parameters
-  static EmbeddingModelSpec createEmbeddingSpec({
-    required String name,
-    required String modelUrl,
-    required String tokenizerUrl,
-    ModelReplacePolicy replacePolicy = ModelReplacePolicy.keep,
-  }) {
-    return EmbeddingModelSpec(
-      name: name,
-      modelSource: modelSourceFromLegacyUrl(modelUrl),
-      tokenizerSource: modelSourceFromLegacyUrl(tokenizerUrl),
-      replacePolicy: replacePolicy,
-    );
-  }
-
   /// Creates a bundled inference model specification (for production builds)
   ///
   /// Use this for models packaged with your app in native platform assets:
