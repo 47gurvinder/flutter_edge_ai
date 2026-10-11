@@ -12,7 +12,6 @@ library;
 
 export 'src/interface.dart'
     show
-        EmbeddingModel,
         FlutterEdgeAiPlugin,
         InferenceModel,
         InferenceModelSession,
@@ -56,6 +55,7 @@ export 'src/domain/platform_types.dart'
 // Embedding inputs, task types and failures.
 export 'src/embedding/embedding_modality.dart' show EmbeddingModality;
 export 'src/embedding/embedding_input.dart' show EmbeddingInput;
+export 'src/embedding/embedding_model.dart' show EmbeddingModel;
 export 'src/embedding/task_type.dart' show TaskType;
 export 'src/embedding/embedding_exceptions.dart'
     show
