@@ -8,6 +8,7 @@
 import 'dart:async';
 
 import 'embedding_exceptions.dart';
+import 'embedding_host.dart' show warnEmbeddingHost;
 import 'embedding_input.dart';
 import 'embedding_model.dart';
 import 'embedding_pass.dart';
@@ -37,10 +38,20 @@ final class _LegacyModelPass extends EmbeddingPass {
   _LegacyModelPass(this._config) {
     // Also fires when the host closes this pass, which closes the model; the
     // inline host ignores a death reported while it is closing.
-    _config.model.addCloseListener(() {
-      if (_config.died.isCompleted) return;
-      _config.died.complete('the ${_config.engine} model closed itself');
-    });
+    try {
+      _config.model.addCloseListener(() {
+        if (_config.died.isCompleted) return;
+        _config.died.complete('the ${_config.engine} model closed itself');
+      });
+    } catch (e) {
+      // `addCloseListener` is abstract on the interface, so a third-party
+      // model may refuse it. Core's own model (the one the cache tracks) still
+      // takes listeners; only a self-close of this one goes unnoticed.
+      warnEmbeddingHost(
+        'the ${_config.engine} model refused a close listener ($e); if it '
+        'closes on its own, core will not notice until a request fails.',
+      );
+    }
   }
 
   final LegacyModelConfig _config;

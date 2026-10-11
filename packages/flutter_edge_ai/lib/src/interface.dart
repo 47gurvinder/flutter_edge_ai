@@ -107,25 +107,29 @@ abstract class FlutterEdgeAiPlugin extends PlatformInterface {
     int? maxConcurrentSessions,
   });
 
-  /// Creates and returns a new [EmbeddingModel] instance.
-  ///
-  /// Modern API: If paths are not provided, uses the active embedding model set via
+  /// Returns the embedder for the active embedding model (set by
   /// `FlutterEdgeAi.installEmbedder()` or
-  /// `modelManager.ensureModelReadyFromSpec()`.
+  /// `modelManager.ensureModelReadyFromSpec()`) — the one already loaded when
+  /// it serves the request, else a new one. The active model is the only
+  /// source: explicit paths were removed in 2.2.0.
   ///
-  /// Legacy API: Provide explicit paths for backward compatibility.
+  /// [supportImage] / [supportAudio] declare the media the caller will send;
+  /// text is implied whenever the model has a text tower. A loaded embedder
+  /// that lacks a declared medium is rebuilt with the union of what it had and
+  /// what is asked, so declarations only widen.
   ///
-  /// [modelPath] — path to the embedding model file (optional if active model set).
-  /// [tokenizerPath] — path to the tokenizer file (optional if active model set).
-  /// [preferredBackend] — backend preference (e.g., CPU, GPU).
+  /// [preferredBackend] — backend preference; see
+  /// `FlutterEdgeAi.getActiveEmbedder` for what it does and does not change.
   ///
-  /// May fail with a `TimeoutException` when the previous embedder is still
-  /// closing after 60 s; its close keeps running, and a later call succeeds
-  /// once it finishes.
+  /// Fails with `StateError` (no active embedding model), with
+  /// `EmbeddingLoadException` (the model failed to load, or the engine cannot
+  /// serve a declared medium), or with `EmbedderCloseTimeoutException` when the
+  /// previous embedder is still closing after 60 s — its close keeps running,
+  /// and a later call succeeds once it finishes.
   Future<EmbeddingModel> createEmbeddingModel({
-    String? modelPath,
-    String? tokenizerPath,
     PreferredBackend? preferredBackend,
+    bool supportImage = false,
+    bool supportAudio = false,
   });
 
   /// Creates and returns a new [SpeechRecognizer] instance.

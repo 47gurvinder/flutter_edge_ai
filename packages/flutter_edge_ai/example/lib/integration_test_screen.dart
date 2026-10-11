@@ -1825,9 +1825,16 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
           );
         }
 
+        // createEmbeddingModel no longer takes explicit paths (2.2.0): the
+        // platform interface builds the ACTIVE embedder, so install the files
+        // first — the same install the Modern test below repeats.
         _log(
-          '  📁 [LEGACY] Paths validated (Legacy API uses paths directly in createEmbeddingModel)',
+          '  📁 [LEGACY] Installing from files for the platform interface...',
         );
+        await FlutterEdgeAi.installEmbedder()
+            .modelFromFile(embeddingModelPath)
+            .tokenizerFromFile(embeddingTokenizerPath)
+            .install();
         _log('✅ [$_currentTestIndex/$_totalTests] Install complete');
         setState(() => _embeddingModelReady = true);
         await Future.delayed(const Duration(milliseconds: 500));
@@ -1835,10 +1842,7 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
         _currentTestIndex++;
         _log('▶️  [$_currentTestIndex/$_totalTests]   ▶️ Run Embedding');
         final embeddingModel7 = await legacy.FlutterEdgeAiPlugin.instance
-            .createEmbeddingModel(
-              modelPath: embeddingModelPath,
-              tokenizerPath: embeddingTokenizerPath,
-            );
+            .createEmbeddingModel();
         final emb7 = await embeddingModel7.generateEmbedding('Hello, world!');
         _log('  🔢 Dimensions: ${emb7.length}');
         _log('  🔢 First 5 values: ${emb7.take(5).toList()}');

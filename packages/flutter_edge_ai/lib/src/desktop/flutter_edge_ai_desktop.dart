@@ -14,8 +14,6 @@ import '../domain/platform_types.dart';
 import '../model.dart';
 import '../domain/model_source.dart';
 import '../registry/engine_registry.dart';
-import '../registry/embedding_registry.dart';
-import '../registry/embedding_backend_provider.dart';
 import '../registry/stt_registry.dart';
 import '../registry/stt_backend_provider.dart';
 import '../registry/tts_registry.dart';
@@ -24,17 +22,13 @@ import '../registry/runtime_config.dart';
 // Model spec types come from the dart:io-free specs library; the manager
 // implementation comes from the mobile library (desktop reuses it).
 import '../model_management/model_specs.dart'
-    show
-        EmbeddingModelSpec,
-        InferenceModelSpec,
-        SttModelSpec,
-        SttModelType,
-        TtsModelSpec;
+    show InferenceModelSpec, SttModelSpec, SttModelType, TtsModelSpec;
 import '../mobile/flutter_edge_ai_mobile.dart' show MobileModelManager;
 
 import '../model_management/constants/preferences_keys.dart';
 import 'package:flutter_edge_ai/src/embedding/embedder_backend_notice.dart';
 import 'package:flutter_edge_ai/src/embedding/embedder_cache.dart';
+import 'package:flutter_edge_ai/src/embedding/embedder_loader.dart';
 
 /// Normalizes a `createTtsModel`/`getActiveTts` `language` argument for the
 /// same-model reuse guard's store/compare — defaults `null` to `'english'`
@@ -428,9 +422,9 @@ class FlutterEdgeAiDesktop extends FlutterEdgeAiPlugin {
 
   @override
   Future<EmbeddingModel> createEmbeddingModel({
-    String? modelPath,
-    String? tokenizerPath,
     PreferredBackend? preferredBackend,
+    bool supportImage = false,
+    bool supportAudio = false,
   }) {
     // FIRST statement, before every guard. It is idempotent and one-shot, so
     // it needs neither resolved paths nor cache state — and putting it in a
@@ -444,132 +438,14 @@ class FlutterEdgeAiDesktop extends FlutterEdgeAiPlugin {
     // callers can both slip through. Moving that resolution earlier once
     // widened exactly that window; the lane makes the ordering not matter.
     return _embedderCache.serialize(
-      () => _reuseOrBuildEmbedder(
-        modelPath: modelPath,
-        tokenizerPath: tokenizerPath,
+      () => loadActiveEmbedder(
+        manager: _modelManager,
+        cache: _embedderCache,
         preferredBackend: preferredBackend,
+        supportImage: supportImage,
+        supportAudio: supportAudio,
       ),
     );
-  }
-
-  /// Runs inside [EmbedderCache.serialize], so it may assume nothing else is
-  /// touching the cache while it awaits.
-  Future<EmbeddingModel> _reuseOrBuildEmbedder({
-    String? modelPath,
-    String? tokenizerPath,
-    PreferredBackend? preferredBackend,
-  }) async {
-    final currentActiveModel = _modelManager.activeEmbeddingModel;
-    // Named from how this call was MADE, not from whatever happens to be
-    // active: a caller passing explicit paths while an unrelated embedder is
-    // installed would otherwise see that other model's name in the log.
-    String label = 'explicit paths';
-
-    // Paths are resolved BEFORE the reuse check, and the explicit-paths caller
-    // goes through the same comparison as everyone else. Both were bugs: this
-    // shell compared the spec NAME, so a same-named embedder reinstalled to a
-    // new file was served stale — and a caller passing explicit paths got
-    // whatever singleton existed, with no comparison at all. Resolving first
-    // costs one preferences read on a reuse and removes both.
-    if (modelPath == null || tokenizerPath == null) {
-      if (currentActiveModel == null) {
-        throw StateError(
-          'No active embedding model set. '
-          'Use `FlutterEdgeAi.installEmbedder()` first.',
-        );
-      }
-      final filePaths = await _modelManager.getModelFilePaths(
-        currentActiveModel,
-      );
-      if (filePaths == null || filePaths.isEmpty) {
-        throw StateError('Embedding model file paths not found');
-      }
-      modelPath ??= filePaths[PreferencesKeys.embeddingModelFile];
-      tokenizerPath ??= filePaths[PreferencesKeys.embeddingTokenizerFile];
-      if (currentActiveModel is EmbeddingModelSpec) {
-        label = currentActiveModel.name;
-      }
-    }
-    if (modelPath == null) {
-      throw StateError('Embedding model path is required');
-    }
-    if (tokenizerPath == null) {
-      throw StateError('Tokenizer path is required for desktop embeddings');
-    }
-
-    final requestedParams = ActiveEmbedderParams(
-      modelPath: modelPath,
-      tokenizerPath: tokenizerPath,
-      preferredBackend: preferredBackend,
-    );
-    final decision = await _embedderCache.reuseOrInvalidate(
-      requestedParams,
-      label: label,
-    );
-    final reused = decision.reuse;
-    if (reused != null) return reused;
-
-    try {
-      edgeAiLog('[FlutterEdgeAiDesktop] Loading embedding model: $modelPath');
-      // No throw for PreferredBackend.npu here any more. It was the only
-      // `getActive*` path where a PREFERENCE was a hard error, and it
-      // contradicted three things at once: `gpu` passed silently to the
-      // identical CPU build, desktop INFERENCE falls npu -> gpu -> cpu rather
-      // than throwing, and PreferredBackend's own contract promises a
-      // fallback. Its message was also wrong about Windows NPU. Callers now
-      // get a CPU embedder and can read `activeBackend` to see it.
-
-      // The LiteRT embedding runtime lives in flutter_edge_ai_litertlm; core
-      // resolves paths (preamble above) + owns the singleton lifecycle, then
-      // dispatches construction through the EmbeddingRegistry. The backend
-      // reads ONLY config.modelPath/config.tokenizerPath — it ignores the spec
-      // arg for path resolution.
-      final activeSpec = currentActiveModel is EmbeddingModelSpec
-          ? currentActiveModel
-          : null;
-      final EmbeddingBackendProvider? backend = activeSpec != null
-          ? EmbeddingRegistry.instance.findFor(activeSpec)
-          : (EmbeddingRegistry.instance.registered.isNotEmpty
-                ? EmbeddingRegistry.instance.registered.first
-                : null);
-      if (backend == null) {
-        throw StateError(
-          'No embedding backend registered. Add flutter_edge_ai_litertlm to '
-          'pubspec.yaml and pass LiteRtEmbeddingBackend() in '
-          'embeddingBackends: of FlutterEdgeAi.initialize(...). Registered '
-          'backends: '
-          '${EmbeddingRegistry.instance.registered.map((b) => b.name).join(", ")}.',
-        );
-      }
-      // modelPath/tokenizerPath are non-null here (resolved in the preamble).
-      // maxTokens is unused by embeddings.
-      final embConfig = RuntimeConfig(
-        maxTokens: 0,
-        modelPath: modelPath,
-        tokenizerPath: tokenizerPath,
-        preferredBackend: preferredBackend,
-      );
-      // The backend's createModel(spec, config) signature requires a non-null
-      // spec, but it resolves paths exclusively from config. On the legacy
-      // explicit-paths path there is no active spec, so synthesize one from the
-      // resolved file paths (FileSource) purely to satisfy the signature.
-      final specForBackend =
-          activeSpec ??
-          EmbeddingModelSpec(
-            name: 'legacy:${path.basename(modelPath)}',
-            modelSource: ModelSource.file(modelPath),
-            tokenizerSource: ModelSource.file(tokenizerPath),
-          );
-      final model = await backend.createModel(specForBackend, embConfig);
-
-      // Core owns the singleton lifecycle: the cache tracks the model, resets
-      // on close (identity-guarded) and records what it was built from.
-      await _embedderCache.adopt(model, decision.build);
-      return model;
-    } catch (_) {
-      _embedderCache.invalidate();
-      rethrow;
-    }
   }
 
   @override

@@ -1,67 +1,70 @@
 // `createEmbeddingModel` on the two shells a VM test can construct: a new
 // embedder is never built while the one it replaces is still closing, so two
 // native models are never resident at once. Web is absent because
-// `FlutterEdgeAiWeb` needs `dart:js_interop`; it uses the same `EmbedderCache`.
+// `FlutterEdgeAiWeb` needs `dart:js_interop`; it uses the same `EmbedderCache`
+// through the same `loadActiveEmbedder`.
+//
+// The backend here builds its own model (the pre-2.2 createModel seam), which
+// core hosts; the gated close is that model's.
 //
 // Run: flutter test test/core/embedding/embedder_replacement_test.dart
 
 import 'dart:async';
 
 import 'package:flutter_edge_ai/src/lifecycle/close_notifier.dart';
+import 'package:flutter_edge_ai/src/model_management/model_specs.dart';
 import 'package:flutter_edge_ai/src/registry/embedding_backend_provider.dart';
 import 'package:flutter_edge_ai/src/registry/embedding_registry.dart';
 import 'package:flutter_edge_ai/src/registry/runtime_config.dart';
-import 'package:flutter_edge_ai/src/desktop/flutter_edge_ai_desktop.dart';
 import 'package:flutter_edge_ai/src/interface.dart';
-import 'package:flutter_edge_ai/src/mobile/flutter_edge_ai_mobile.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import 'shell_fixture.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  final fixture = ShellFixture();
   late _CountingBackend backend;
 
-  setUp(() {
-    SharedPreferences.setMockInitialValues({});
+  setUp(() async {
+    await fixture.setUp();
     EmbeddingRegistry.instance.reset();
     backend = _CountingBackend();
     EmbeddingRegistry.instance.registerAll([backend]);
   });
 
-  tearDown(() => EmbeddingRegistry.instance.reset());
+  tearDown(() async {
+    final gate = backend.closeGate;
+    if (gate != null && !gate.isCompleted) gate.complete();
+    await fixture.tearDown();
+    EmbeddingRegistry.instance.reset();
+  });
 
-  for (final shell in _shells) {
+  for (final shell in shells) {
     test('${shell.name}: a replacement is not built until the embedder it '
         'replaces has finished closing', () async {
       final plugin = shell.create();
-      addTearDown(() => plugin.initializedEmbeddingModel?.close());
       final closeGate = Completer<void>();
       backend.closeGate = closeGate;
-      // Registered after the close above, so it runs first: a failed
-      // expectation must not leave that close waiting on a shut gate.
-      addTearDown(() {
-        if (!closeGate.isCompleted) closeGate.complete();
-      });
 
-      final first = await plugin.createEmbeddingModel(
-        modelPath: '/a.tflite',
-        tokenizerPath: '/a.json',
-      );
-      final second = plugin.createEmbeddingModel(
-        modelPath: '/b.tflite',
-        tokenizerPath: '/b.json',
-      );
+      await fixture.activate(plugin, model: 'a.tflite', tokenizer: 'a.json');
+      await plugin.createEmbeddingModel();
+      await fixture.activate(plugin, model: 'b.tflite', tokenizer: 'b.json');
+      final second = plugin.createEmbeddingModel();
       await pumpEventQueue();
 
-      expect((first as _GatedCloseModel).teardowns, 1);
+      expect(backend.models.first.teardowns, 1);
       expect(backend.builds, [
-        '/a.tflite',
-      ], reason: '/b must not be built while /a is still closing');
+        fixture.modelPath('a.tflite'),
+      ], reason: 'b must not be built while a is still closing');
 
       closeGate.complete();
       await second;
-      expect(backend.builds, ['/a.tflite', '/b.tflite']);
+      expect(backend.builds, [
+        fixture.modelPath('a.tflite'),
+        fixture.modelPath('b.tflite'),
+      ]);
     });
 
     test('${shell.name}: an embedder the app closed without awaiting is not '
@@ -70,36 +73,25 @@ void main() {
       // alone as "gone" built the replacement while the app's own close was
       // still freeing the old native model.
       final plugin = shell.create();
-      addTearDown(() => plugin.initializedEmbeddingModel?.close());
       final closeGate = Completer<void>();
       backend.closeGate = closeGate;
-      // Registered after the close above, so it runs first: a failed
-      // expectation must not leave that close waiting on a shut gate.
-      addTearDown(() {
-        if (!closeGate.isCompleted) closeGate.complete();
-      });
 
-      final first = await plugin.createEmbeddingModel(
-        modelPath: '/a.tflite',
-        tokenizerPath: '/a.json',
-      );
+      await fixture.activate(plugin, model: 'a.tflite', tokenizer: 'a.json');
+      final first = await plugin.createEmbeddingModel();
       unawaited(first.close());
 
-      final again = plugin.createEmbeddingModel(
-        modelPath: '/a.tflite',
-        tokenizerPath: '/a.json',
-      );
+      final again = plugin.createEmbeddingModel();
       await pumpEventQueue();
       expect(backend.builds, [
-        '/a.tflite',
-      ], reason: 'the app\'s close of the first /a is still running');
+        fixture.modelPath('a.tflite'),
+      ], reason: 'the app\'s close of the first one is still running');
 
       closeGate.complete();
       final rebuilt = await again;
-      expect(backend.builds, ['/a.tflite', '/a.tflite']);
+      expect(backend.builds, hasLength(2));
       expect(identical(rebuilt, first), isFalse);
       expect(
-        (first as _GatedCloseModel).teardowns,
+        backend.models.first.teardowns,
         1,
         reason: 'the shell joined the app\'s close rather than run another',
       );
@@ -107,23 +99,16 @@ void main() {
   }
 }
 
-final _shells = <({String name, FlutterEdgeAiPlugin Function() create})>[
-  (name: 'mobile', create: FlutterEdgeAiMobile.new),
-  (name: 'desktop', create: () => FlutterEdgeAiDesktop.instance),
-];
-
 /// Records every model path the shell asks it to build.
-class _CountingBackend extends EmbeddingBackendProvider {
+final class _CountingBackend extends EmbeddingBackendProvider {
   final List<String> builds = [];
+  final List<_GatedCloseModel> models = [];
 
   /// When set, each built model's teardown waits on it.
   Completer<void>? closeGate;
 
   @override
   String get name => 'counting';
-
-  @override
-  int get priority => 0;
 
   @override
   bool canHandle(EmbeddingModelSpec spec) => true;
@@ -134,11 +119,13 @@ class _CountingBackend extends EmbeddingBackendProvider {
     RuntimeConfig config,
   ) async {
     builds.add(config.modelPath);
-    return _GatedCloseModel(closeGate);
+    final model = _GatedCloseModel(closeGate);
+    models.add(model);
+    return model;
   }
 }
 
-/// Closes the way `CommonEmbeddingModel` does: closed at once, torn down when
+/// Closes the way a worker-backed model does: closed at once, torn down when
 /// the gate opens, and every `close()` call returns the same teardown.
 class _GatedCloseModel extends EmbeddingModel with CloseNotifier {
   _GatedCloseModel(this._closeGate);
@@ -152,20 +139,7 @@ class _GatedCloseModel extends EmbeddingModel with CloseNotifier {
   bool get isClosed => _closed;
 
   @override
-  Future<List<double>> generateEmbedding(
-    String text, {
-    TaskType taskType = TaskType.retrievalQuery,
-  }) async => const [0.0];
-
-  @override
-  Future<List<List<double>>> generateEmbeddings(
-    List<String> texts, {
-    TaskType taskType = TaskType.retrievalQuery,
-  }) async => const [
-    [0.0],
-  ];
-
-  @override
+  // ignore: deprecated_member_use_from_same_package
   Future<int> getDimension() async => 1;
 
   @override
