@@ -10,11 +10,24 @@
 //
 // ⚠️ I1 risk: getting `bosId`/`eosId` or the `prefix + text` concatenation
 // order wrong silently changes every embedding vector without any exception.
+//
+// The content ids are SentencePiece's, not the dependency's alone: the
+// dependency splits Gemma's user-defined pieces (`</div>`, `<mask>`, …) that
+// SentencePiece keeps whole, so the loader reads them from the file and
+// [encodeForEmbedding] / [encodeForSiglipEmbedding] match them first
+// (`user_defined_pieces.dart`; test/sentencepiece_reference_test.dart compares
+// every row of a fixed corpus with the Python `sentencepiece` package).
+
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dart_sentencepiece_tokenizer/dart_sentencepiece_tokenizer.dart';
 
 import 'package:flutter_edge_ai/engine.dart';
 import 'tokenizer_contract.dart';
+import 'sentencepiece_model_proto.dart';
+import 'user_defined_pieces.dart';
 
 /// Gemma special-token IDs, added by this package rather than by the loader:
 /// `loadEmbeddingTokenizer` passes an explicit `SentencePieceConfig` with
@@ -32,6 +45,17 @@ const int eosId = 1;
 /// and terminators are the caller's — [encodeForEmbedding],
 /// [encodeForSiglipEmbedding], and the embedding pass that owns `seqLen`. (A raw
 /// `.model` carries no such blocks, so there the guarantee is free.)
+///
+/// [encodeForEmbedding] and [encodeForSiglipEmbedding] tokenize with what this
+/// function read from the file as SentencePiece does: the model's
+/// user-defined pieces (Gemma's `</div>`, `<mask>`, `[multimodal]`, …) are
+/// matched first and kept whole, which the returned tokenizer's own `encode()`
+/// does not do. For a HuggingFace `tokenizer.json` in Gemma's shape the file's
+/// `added_tokens` are therefore NOT registered with the returned tokenizer:
+/// its user-defined pieces are matched by those two functions, and `<pad>`,
+/// `<eos>`, `<bos>` and `<unk>` are — as in SentencePiece — never produced
+/// from text (`<pad>`/`<eos>`/`<bos>` keep their special-token ids for
+/// `encode(addSpecialTokens: true)`).
 ///
 /// Throws [StateError] if the resolved `dart_sentencepiece_tokenizer` accepts
 /// the calls that disable those settings and leaves them set anyway. That is a
@@ -57,18 +81,13 @@ Future<SentencePieceTokenizer> loadEmbeddingTokenizer(
   // `_applyTokenizerSettings` is HF-JSON-only, so on the `.model` arm the two
   // calls are a no-op today. They stay because the contract above is one
   // sentence for both arms, and it should not quietly depend on which ran.
-  final tokenizer = tokenizerPath.endsWith('.json')
-      ? await TokenizerJsonLoader.fromJsonFile(
-          tokenizerPath,
-          config: const SentencePieceConfig(),
-        )
-      : await SentencePieceTokenizer.fromModelFile(
-          tokenizerPath,
-          config: const SentencePieceConfig(),
-        );
+  final (tokenizer, pieces) = tokenizerPath.endsWith('.json')
+      ? _loadJson(await File(tokenizerPath).readAsString())
+      : _loadModel(await File(tokenizerPath).readAsBytes());
   tokenizer
     ..noPadding()
     ..noTruncation();
+  if (pieces != null) _userDefinedPieces[tokenizer] = pieces;
 
   // The cascade above is the mechanism; `requireBareContent` is the
   // enforcement, and it is separate because `^1.4.1` is open-topped. See its
@@ -77,8 +96,120 @@ Future<SentencePieceTokenizer> loadEmbeddingTokenizer(
   return requireBareContent(tokenizer, tokenizerPath);
 }
 
+/// What [loadEmbeddingTokenizer] read about each tokenizer it returned: the
+/// user-defined pieces its file declares, when the pipeline is one where
+/// SentencePiece's treatment of them can be reproduced (see
+/// `user_defined_pieces.dart`). Absent for any other tokenizer, which then
+/// encodes exactly as the dependency does.
+final _userDefinedPieces = Expando<UserDefinedPieces>(
+  'SentencePiece user-defined pieces',
+);
+
+(SentencePieceTokenizer, UserDefinedPieces?) _loadModel(Uint8List bytes) {
+  final model = SentencePieceModelProto.parse(bytes);
+  // The dependency drops a leading U+FEFF from every piece it decodes, which
+  // gives Gemma's `<?` and `//` the ids of `\ufeff<?` and `\ufeff//`. Hand it
+  // a file it reads right, and check that it did.
+  final tokenizer = SentencePieceTokenizer.fromBytes(
+    model.bomLed.isNotEmpty && _dependencyDropsLeadingBom
+        ? withLeadingBomsKept(bytes)
+        : bytes,
+    config: const SentencePieceConfig(),
+  );
+  for (final MapEntry(key: id, value: piece) in model.bomLed.entries) {
+    final readAs = tokenizer.convertIdsToTokens([id]).single;
+    final idOf = tokenizer.convertTokensToIds([piece]).single;
+    if (readAs != piece || idOf != id) {
+      throw StateError(
+        'dart_sentencepiece_tokenizer read piece $id ${jsonEncode(piece)} as '
+        '${jsonEncode(readAs)}, and gives that text id $idOf: its ids for '
+        'text containing it would be wrong. Pin dart_sentencepiece_tokenizer '
+        'to a version this package handles; 1.4.1 is known good.',
+      );
+    }
+  }
+  return (tokenizer, UserDefinedPieces.fromModelProto(model));
+}
+
+/// Whether `dart_sentencepiece_tokenizer` drops ONE leading U+FEFF from a
+/// piece it reads from a `.model` (1.4.1 does: it decodes with `utf8.decode`).
+/// Asked of the dependency itself, once, with a one-piece model whose piece
+/// is `\ufeff\ufeffx`; any answer but `\ufeffx` (dropped one) or
+/// `\ufeff\ufeffx` (kept both) is a reader this package cannot correct.
+final bool _dependencyDropsLeadingBom = () {
+  const probe = '\ufeff\ufeffx';
+  final readAs = SentencePieceTokenizer.fromBytes(
+    // ModelProto { pieces { piece: probe } }
+    Uint8List.fromList(const [
+      0x0A, 9, // pieces, 9 bytes
+      0x0A, 7, // piece, 7 bytes
+      0xEF, 0xBB, 0xBF, 0xEF, 0xBB, 0xBF, 0x78,
+    ]),
+  ).convertIdsToTokens([0]).single;
+  if (readAs == probe) return false;
+  if (readAs == probe.substring(1)) return true;
+  throw StateError(
+    'dart_sentencepiece_tokenizer reads the piece ${jsonEncode(probe)} as '
+    '${jsonEncode(readAs)}; this package cannot correct that. Pin it to '
+    '1.4.1.',
+  );
+}();
+
+(SentencePieceTokenizer, UserDefinedPieces?) _loadJson(String raw) {
+  final json = jsonDecode(raw);
+  if (json is! Map<String, dynamic>) {
+    throw const FormatException('tokenizer JSON is not an object');
+  }
+  if (!TokenizerJsonLoader.isHuggingFaceFormat(json)) {
+    // The package's own format: it registers no added tokens, so the pieces
+    // read from its types are the only thing to add.
+    return (
+      TokenizerJsonLoader.fromJsonString(
+        raw,
+        config: const SentencePieceConfig(),
+      ),
+      UserDefinedPieces.fromLibraryJson(json),
+    );
+  }
+  final gemma = UserDefinedPieces.fromHuggingFaceJson(json);
+  if (gemma == null) {
+    return (
+      HuggingFaceTokenizerLoader.fromMap(
+        json,
+        config: const SentencePieceConfig(),
+      ),
+      null,
+    );
+  }
+  final tokenizer = HuggingFaceTokenizerLoader.fromMap(
+    gemma.tokenizerJson,
+    config: const SentencePieceConfig(),
+  );
+  // With `added_tokens` emptied the loader no longer knows the special tokens
+  // by name. Their ids are Gemma's — fromHuggingFaceJson checked the vocab —
+  // and are given back for `encode(addSpecialTokens: true)`.
+  tokenizer.addSpecialTokens(const {
+    'pad_token': '<pad>',
+    'eos_token': '<eos>',
+    'bos_token': '<bos>',
+  });
+  return (tokenizer, gemma.pieces);
+}
+
+/// The content ids of [text]: SentencePiece's user-defined pass when
+/// [loadEmbeddingTokenizer] read one for [tokenizer], else its own `encode()`.
+List<int> _contentIds(SentencePieceTokenizer tokenizer, String text) {
+  final pieces = _userDefinedPieces[tokenizer];
+  return pieces == null
+      ? tokenizer.encode(text).ids
+      : pieces.encode(tokenizer, text);
+}
+
 /// Tokenizes ([prefix] + [text]) with Gemma BOS/EOS:
-/// `[bosId, ...encode(prefix + text).ids, eosId]`.
+/// `[bosId, ...ids(prefix + text), eosId]`, where the ids are what
+/// SentencePiece produces for a [tokenizer] from [loadEmbeddingTokenizer]
+/// (its user-defined pieces kept whole) and `tokenizer.encode(...).ids` for
+/// any other.
 ///
 /// Does NOT pad to a fixed sequence length, nor check one — that is the
 /// embedding pass's job (it owns `seqLen`, e.g. LiteRT's compiled input tensor
@@ -87,10 +218,7 @@ List<int> encodeForEmbedding(
   SentencePieceTokenizer tokenizer,
   String prefix,
   String text,
-) {
-  final encoded = tokenizer.encode(prefix + text);
-  return <int>[bosId, ...encoded.ids, eosId];
-}
+) => <int>[bosId, ..._contentIds(tokenizer, prefix + text), eosId];
 
 /// [EmbeddingTokenizerFactory] tear-off (design D-T1) — a thin
 /// [EmbeddingTokenizer] adapter over [loadEmbeddingTokenizer] +
@@ -180,7 +308,7 @@ List<int> encodeForSiglipEmbedding(
   // off, so this is bare content and the width rule below is the only one that
   // applies. Without that the file's `{Fixed: 64}` block comes back applied and
   // the EOS appended here would land past the pad run.
-  final content = tokenizer.encode(text.toLowerCase()).ids;
+  final content = _contentIds(tokenizer, text.toLowerCase());
   // Prefix-free, so the EOS is the only id beside the content.
   final actualTokens = content.length + 1;
   if (actualTokens > siglipSeqLen) {
@@ -257,12 +385,12 @@ class _SiglipSentencePieceEmbeddingTokenizer implements EmbeddingTokenizer {
     // `attention_mask` input, the embedding pass otherwise fabricates an all-ones
     // one over the pad tail, and a graph that falls through to
     // `last_hidden_state` would mean-pool 63 pads into the vector.
-    // Counted from the END rather than by locating the EOS, and on 1.4.x that is
-    // no longer merely tidier: the loader matches `added_tokens` inside content,
-    // so text containing a literal `<eos>` really can carry id 1 mid-sequence
-    // and `indexOf(siglipEosId)` would stop there. The tail cannot lie —
-    // everything past the EOS is padding this function just wrote, and the EOS
-    // itself is never [siglipPadId].
+    // Counted from the END rather than by locating the EOS. A tokenizer.json
+    // that is not in Gemma's shape keeps the dependency's `added_tokens`
+    // matching (1.4.x), so text containing a literal `<eos>` can carry id 1
+    // mid-sequence and `indexOf(siglipEosId)` would stop there. The tail cannot
+    // lie — everything past the EOS is padding this function just wrote, and
+    // the EOS itself is never [siglipPadId].
     var realTokens = siglipSeqLen;
     while (realTokens > 0 && ids[realTokens - 1] == siglipPadId) {
       realTokens--;
