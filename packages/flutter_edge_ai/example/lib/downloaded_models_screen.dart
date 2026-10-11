@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
@@ -306,13 +307,16 @@ class _DownloadedModelsScreenState extends State<DownloadedModelsScreen> {
             ),
           );
         }
-        trailingChildren.add(
-          IconButton(
-            icon: const Icon(Icons.copy_outlined),
-            tooltip: 'Copy path',
-            onPressed: () => _copyPath(entry),
-          ),
-        );
+        // Web has no file path to copy: getModelPath returns the bare file name.
+        if (!kIsWeb) {
+          trailingChildren.add(
+            IconButton(
+              icon: const Icon(Icons.copy_outlined),
+              tooltip: 'Copy path',
+              onPressed: () => _copyPath(entry),
+            ),
+          );
+        }
         if (!isLoading && !isDeleting && canDelete) {
           trailingChildren.add(
             IconButton(
