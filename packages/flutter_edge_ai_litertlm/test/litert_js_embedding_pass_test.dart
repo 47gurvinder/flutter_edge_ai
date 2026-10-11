@@ -39,8 +39,10 @@ final class _FakePage implements LiteRtJsBundle {
   int? apiVersion = 2;
 
   /// When set, the next load fails after fetching the tokenizer — as the
-  /// bundle does when the model fails to compile.
+  /// bundle does when the model fails to compile, or compiles into a graph it
+  /// refuses — with [loadError].
   bool failNextLoad = false;
+  String loadError = 'Failed to load LiteRT model: compile failed';
 
   /// When true, `web/litert_embeddings.js` is not on the page: none of its
   /// window functions exist, so every call into them throws, as the real
@@ -76,7 +78,7 @@ final class _FakePage implements LiteRtJsBundle {
     tokenizerLoaded = true;
     if (failNextLoad) {
       failNextLoad = false;
-      throw StateError('Failed to load LiteRT model: compile failed');
+      throw StateError(loadError);
     }
     modelLoaded = true;
     return (dimension: dimension, maxInputTokens: maxInputTokens);
@@ -306,6 +308,53 @@ void main() {
       } finally {
         await model.close();
       }
+    });
+  });
+
+  group('a graph the bundle cannot feed', () {
+    test('a multi-input (BERT-style) graph, which the bundle refuses at load, '
+        'reaches the app as EmbeddingLoadException naming the reason, and '
+        'the page is cleaned behind it', () async {
+      // What litert_embeddings.js rejects loadLiteRtEmbeddings with for a
+      // graph with three inputs; tool/web_build/test/api_v2.test.mjs pins it.
+      const refusal =
+          'Failed to initialize LiteRT embeddings: Failed to load LiteRT '
+          'model: the model declares 3 inputs (input_ids, attention_mask, '
+          'token_type_ids) but LiteRT.js embeddings feed exactly one: the '
+          'token ids.';
+      final page = _FakePage()
+        ..failNextLoad = true
+        ..loadError = refusal;
+      Future<void>? cleanup;
+      await expectLater(
+        inline.startEmbeddingHost(
+          EmbeddingPassDescriptor<LiteRtJsEmbeddingConfig>(
+            engineTag: liteRtJsEngine,
+            factory: buildLiteRtJsEmbeddingPass,
+            config: _config(page),
+            activeBackend: null,
+          ),
+          declaredMedia: const {},
+          label: 'minilm.tflite',
+          onFailedLoadCleanup: (done) => cleanup = done,
+        ),
+        throwsA(
+          isA<EmbeddingLoadException>()
+              .having((e) => e.engine, 'engine', liteRtJsEngine)
+              .having(
+                (e) => e.message,
+                'message',
+                allOf(
+                  contains('declares 3 inputs'),
+                  contains('exactly one: the token ids'),
+                ),
+              ),
+        ),
+      );
+      await cleanup;
+      // The bundle loaded the tokenizer before it refused the model.
+      expect(page.disposes, 1);
+      expect(page.tokenizerLoaded, isFalse);
     });
   });
 

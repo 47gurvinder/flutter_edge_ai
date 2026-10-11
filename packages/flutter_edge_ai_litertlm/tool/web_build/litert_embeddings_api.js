@@ -193,8 +193,9 @@ async function loadLiteRTModel(modelPath, wasmPath = '/node_modules/@litertjs/co
     reportFullAcceleration(tfliteModel);
 
     // What Dart reports as EmbeddingPassInfo: read from the model, never
-    // assumed. A model whose shapes cannot be read fails the load here rather
-    // than embed at a guessed length.
+    // assumed. A model this file cannot feed, or whose shapes cannot be read,
+    // fails the load here rather than every embed after it.
+    refuseMultiInputGraph(tfliteModel);
     maxSequenceLength = readSequenceLength(tfliteModel);
     embeddingDimension = readDimension(tfliteModel);
     console.log(
@@ -206,6 +207,26 @@ async function loadLiteRTModel(modelPath, wasmPath = '/node_modules/@litertjs/co
   } catch (error) {
     throw new Error('Failed to load LiteRT model: ' + error.message);
   }
+}
+
+/**
+ * Throws unless the graph has exactly one input. `runIds` builds one tensor —
+ * the token ids — so a BERT-style export that also takes `attention_mask` and
+ * `token_type_ids` would load here and then fail every embed. The native
+ * LiteRT pass refuses the same graphs at load.
+ */
+function refuseMultiInputGraph(model) {
+  const inputs = model.getInputDetails() ?? [];
+  if (inputs.length === 1) return;
+  const names = Array.from(inputs, (input) => input?.name).filter(Boolean);
+  throw new Error(
+    `the model declares ${inputs.length} inputs` +
+    (names.length ? ` (${names.join(', ')})` : '') +
+    ' but LiteRT.js embeddings feed exactly one: the token ids. A graph that ' +
+    'also takes attention_mask or token_type_ids (a BERT / MiniLM export) ' +
+    'cannot run here; register flutter_edge_ai_onnx\'s OnnxEmbeddingBackend ' +
+    'and install the .onnx export of the same model instead.',
+  );
 }
 
 /** The compiled input `[1, seq]`'s sequence length, or a thrown Error. */
@@ -266,28 +287,47 @@ async function runIds(ids) {
   // has no such field, and the measured no-move path gives identical vectors
   // with WebGPU still selected.
   const inputTensor = new Tensor(padded, [1, maxSequenceLength]);
+  let outputTensors = [];
+  let cpuTensor = null;
   try {
     // @litertjs/core 2.x returns a promise here; 0.2.x returned the tensors
     // directly.
-    const outputTensors = await tfliteModel.run(inputTensor);
+    outputTensors = await tfliteModel.run(inputTensor);
+    // Read only once every output is in `outputTensors`, so a getter that
+    // throws still leaves them all to the finally below.
     const outputTensor = outputTensors[0];
+    if (!outputTensor) throw new Error('the model returned no output tensor');
     // Every run reports it: the first embedding an app makes is usually a
     // document during a RAG ingest.
     reportAccelerator(outputTensor.accelerator);
-
-    let cpuTensor = outputTensor;
-    try {
-      if (outputTensor.accelerator === 'webgpu') {
-        cpuTensor = await outputTensor.moveTo('wasm');
-      }
-      // A copy: the typed array may be a view that delete() frees.
-      return Float32Array.from(cpuTensor.toTypedArray());
-    } finally {
-      if (cpuTensor !== outputTensor && !cpuTensor.deleted) cpuTensor.delete();
-      if (!outputTensor.deleted) outputTensor.delete();
-    }
+    cpuTensor = outputTensor.accelerator === 'webgpu'
+      ? await outputTensor.moveTo('wasm')
+      : outputTensor;
+    // A copy: the typed array may be a view that delete() frees.
+    return Float32Array.from(cpuTensor.toTypedArray());
   } finally {
-    if (!inputTensor.deleted) inputTensor.delete();
+    // EVERY tensor the run handed back is ours to free, not only the one we
+    // read: a graph with a second output (pooled and per-token, say) would
+    // otherwise leak it on every call. Then the CPU copy, then the input.
+    for (const tensor of Array.isArray(outputTensors) ? outputTensors : []) {
+      freeTensor(tensor);
+    }
+    freeTensor(cpuTensor);
+    freeTensor(inputTensor);
+  }
+}
+
+/**
+ * Deletes [tensor] unless it is null or already deleted. A failing delete is
+ * logged, not thrown: it must not stop the other tensors from being freed, nor
+ * replace the error that brought us here.
+ */
+function freeTensor(tensor) {
+  if (!tensor || tensor.deleted) return;
+  try {
+    tensor.delete();
+  } catch (error) {
+    console.warn('[LiteRT] Could not free a tensor:', error);
   }
 }
 
@@ -382,6 +422,8 @@ window.liteRtEmbeddingsApiVersion = API_VERSION;
  * @returns {Promise<{dimension: number, maxInputTokens: number}>} read from
  *     the model: its output's last dimension and its input's sequence length,
  *     which the task prefix, BOS and EOS count towards
+ * @throws when the graph does not take exactly one input (the token ids) or
+ *     its input length or output dimension cannot be read
  */
 window.loadLiteRtEmbeddings = async function(modelPath, tokenizerPath, wasmPath) {
   try {
