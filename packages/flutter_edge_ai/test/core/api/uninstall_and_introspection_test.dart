@@ -290,7 +290,7 @@ final class _ThirdPartyEmbeddingManager extends ModelFileManager {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class _FakeEmbeddingBackend implements EmbeddingBackendProvider {
+class _FakeEmbeddingBackend extends EmbeddingBackendProvider {
   @override
   String get name => 'FakeEmbedding';
 

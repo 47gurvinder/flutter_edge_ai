@@ -113,7 +113,7 @@ final _shells = <({String name, FlutterEdgeAiPlugin Function() create})>[
 ];
 
 /// Records every model path the shell asks it to build.
-class _CountingBackend implements EmbeddingBackendProvider {
+class _CountingBackend extends EmbeddingBackendProvider {
   final List<String> builds = [];
 
   /// When set, each built model's teardown waits on it.

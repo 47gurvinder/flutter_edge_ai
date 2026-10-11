@@ -142,7 +142,7 @@ void main() {
   );
 }
 
-class _FakeEmbeddingBackend implements EmbeddingBackendProvider {
+class _FakeEmbeddingBackend extends EmbeddingBackendProvider {
   @override
   String get name => 'FakeEmbedding';
   @override

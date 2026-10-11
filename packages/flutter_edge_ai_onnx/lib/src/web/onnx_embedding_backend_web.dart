@@ -14,7 +14,7 @@ import 'onnx_web_embedding_model.dart';
 /// Priority 10 (above LiteRT's web catch-all 0) — same rationale as the
 /// native arm: an app that registers both backends and installs an `.onnx`
 /// model gets this one.
-class OnnxEmbeddingBackend implements EmbeddingBackendProvider {
+class OnnxEmbeddingBackend extends EmbeddingBackendProvider {
   const OnnxEmbeddingBackend();
 
   @override

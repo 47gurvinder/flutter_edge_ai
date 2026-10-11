@@ -363,7 +363,7 @@ final _shells = <({String name, FlutterEdgeAiPlugin Function() create})>[
 
 /// Counts how many times the shell actually asked for a model to be built, and
 /// with which path — the only way to tell "reused" from "rebuilt" from outside.
-class _CountingBackend implements EmbeddingBackendProvider {
+class _CountingBackend extends EmbeddingBackendProvider {
   final List<String> seenModelPaths = [];
 
   /// When set, `createModel` waits on it — the window a second caller needs to

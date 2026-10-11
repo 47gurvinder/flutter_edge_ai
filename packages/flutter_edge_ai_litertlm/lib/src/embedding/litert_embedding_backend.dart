@@ -11,7 +11,7 @@ import 'litert_embedding_forward_pass.dart';
 
 /// LiteRT C API embedding backend (Gecko / EmbeddingGemma `.tflite`). Pure
 /// factory; core owns the singleton lifecycle via [EmbeddingModel.addCloseListener].
-class LiteRtEmbeddingBackend implements EmbeddingBackendProvider {
+class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
   const LiteRtEmbeddingBackend();
 
   @override

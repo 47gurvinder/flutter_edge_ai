@@ -7,7 +7,7 @@ import 'package:flutter_edge_ai/engine.dart';
 import 'web/web_embedding_model.dart';
 
 /// Web LiteRT embedding backend — builds [WebEmbeddingModel] (LiteRT.js).
-class LiteRtEmbeddingBackend implements EmbeddingBackendProvider {
+class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
   const LiteRtEmbeddingBackend();
 
   @override

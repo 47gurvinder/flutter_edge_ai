@@ -19,7 +19,7 @@ import 'onnx_embedding_forward_pass.dart';
 /// Priority 10 (above LiteRT's catch-all 0) so an app that registers both
 /// backends and installs an `.onnx` model gets this one, not LiteRT's
 /// `canHandle: true` catch-all.
-class OnnxEmbeddingBackend implements EmbeddingBackendProvider {
+class OnnxEmbeddingBackend extends EmbeddingBackendProvider {
   const OnnxEmbeddingBackend();
 
   /// Unlike [OnnxEngine], [canHandle] here MUST stay extension-based (not
