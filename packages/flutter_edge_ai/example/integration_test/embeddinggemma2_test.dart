@@ -5,6 +5,8 @@
 //
 // What it holds the device to:
 // - 768 dimensions, unit norm, finite, not all zero; maxInputTokens 1024;
+// - the engine's weight cache lands in the pass-owned directory under
+//   <appSupport>/flutter_edge_ai/embedding_cache/ (under MAX_PATH on Windows);
 // - the golden (integration_test/goldens/eg2_text_golden.json, through its
 //   generated .dart twin): cos >= 0.9999 against `vector` on macOS arm64 (the
 //   build and platform the golden came from), >= 0.998 anywhere else, and
@@ -194,6 +196,42 @@ void main() {
       '${firstWatch.elapsedMilliseconds} ms',
     );
   }, timeout: const Timeout(Duration(minutes: 20)));
+
+  testWidgets('the engine writes its weight cache into the directory the '
+      'pass owns (D22)', (tester) async {
+    await _ensureEg2();
+    await FlutterEdgeAi.getActiveEmbedder();
+    final sep = Platform.pathSeparator;
+    final base = Directory(
+      '${(await getApplicationSupportDirectory()).path}'
+      '${sep}flutter_edge_ai${sep}embedding_cache',
+    );
+    final caches = [
+      for (final dir in base.listSync().whereType<Directory>())
+        for (final file in dir.listSync().whereType<File>())
+          if (file.path.endsWith('.xnnpack_cache') &&
+              file.path.contains(_eg2.filename))
+            file,
+    ];
+    final longest = caches.isEmpty
+        ? 0
+        : caches.map((f) => f.path.length).reduce(math.max);
+    _log(
+      'weight cache: ${caches.map((f) => '${f.path} '
+          '(${f.lengthSync() ~/ _mb} MiB)').join(', ')}; longest path '
+      '$longest characters',
+    );
+    // Without it the engine runs with no weight cache: about 290 MB more and
+    // a slow create, reported only in the native log.
+    expect(
+      caches.where((f) => f.lengthSync() > _mb),
+      isNotEmpty,
+      reason: 'no .xnnpack_cache for ${_eg2.filename} under ${base.path}',
+    );
+    if (Platform.isWindows) {
+      expect(longest, lessThan(260), reason: 'past MAX_PATH');
+    }
+  });
 
   testWidgets('reproduces the golden vectors and ranks every query\'s '
       'document first', (tester) async {
