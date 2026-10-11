@@ -189,9 +189,19 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
     for (final modality in input.modalities) {
       if (!loaded.contains(modality)) {
         return EmbeddingModalityNotLoadedException(
-          'This model was loaded for ${_names(loaded)}; the input carries '
-          '${modality.name}. Declare it at load, e.g. '
-          'getActiveEmbedder(support${_capitalized(modality.name)}: true).',
+          switch (modality) {
+            EmbeddingModality.text =>
+              'This model has no text tower; it embeds ${_names(loaded)} '
+                  'only.',
+            EmbeddingModality.image =>
+              'This model was loaded for ${_names(loaded)}; the input '
+                  'carries an image. Declare images at load: '
+                  'getActiveEmbedder(supportImage: true).',
+            EmbeddingModality.audio =>
+              'This model was loaded for ${_names(loaded)}; the input '
+                  'carries audio. Declare audio at load: '
+                  'getActiveEmbedder(supportAudio: true).',
+          },
           modality: modality,
           loaded: loaded,
         );
@@ -478,5 +488,3 @@ String _names(Set<EmbeddingModality> modalities) => [
 String _formatNames(Set<EncodedMediaFormat> formats) => formats.isEmpty
     ? 'none'
     : (formats.map((f) => f.name).toList()..sort()).join(', ');
-
-String _capitalized(String s) => '${s[0].toUpperCase()}${s.substring(1)}';

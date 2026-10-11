@@ -179,6 +179,75 @@ void main() {
       );
     });
 
+    test('a model that would accept nothing is refused at load', () {
+      // No text tower, and the medium it has was not declared.
+      expect(
+        () => check(
+          EmbeddingPassInfo(
+            dimension: 4,
+            modalities: const {EmbeddingModality.image},
+            imageFormats: {EncodedMediaFormat.jpeg},
+          ),
+          const {},
+        ),
+        throwsA(
+          isA<EmbeddingLoadException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('supportImage'), isNot(contains('supportText'))),
+          ),
+        ),
+      );
+    });
+
+    test('a format listed under the other modality is an engine bug', () {
+      expect(
+        () => check(
+          EmbeddingPassInfo(
+            dimension: 4,
+            modalities: const {EmbeddingModality.text, EmbeddingModality.image},
+            imageFormats: {EncodedMediaFormat.jpeg, EncodedMediaFormat.wav},
+          ),
+          const {EmbeddingModality.image},
+        ),
+        throwsA(
+          isA<EmbeddingLoadException>().having(
+            (e) => e.message,
+            'message',
+            contains('wav'),
+          ),
+        ),
+      );
+      expect(
+        () => check(
+          EmbeddingPassInfo(
+            dimension: 4,
+            modalities: const {EmbeddingModality.text, EmbeddingModality.audio},
+            audioFormats: {EncodedMediaFormat.png},
+          ),
+          const {},
+        ),
+        throwsA(isA<EmbeddingLoadException>()),
+      );
+    });
+
+    test('maxInputTokens must be positive when declared', () {
+      for (final bad in [0, -1]) {
+        expect(
+          () => check(
+            EmbeddingPassInfo(dimension: 4, maxInputTokens: bad),
+            const {},
+          ),
+          throwsA(isA<EmbeddingLoadException>()),
+          reason: '$bad',
+        );
+      }
+      expect(
+        check(const EmbeddingPassInfo(dimension: 4, maxInputTokens: 1), {}),
+        {EmbeddingModality.text},
+      );
+    });
+
     test('audio support without audio formats is an engine bug', () {
       expect(
         () => check(

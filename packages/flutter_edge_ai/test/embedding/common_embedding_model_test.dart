@@ -153,6 +153,31 @@ void main() {
       expect(fake.calls, isEmpty);
     });
 
+    test(
+      'text sent to a model without a text tower names no fake option',
+      () async {
+        final fake = _FakeHost(
+          info: EmbeddingPassInfo(
+            dimension: 2,
+            modalities: const {EmbeddingModality.image},
+            imageFormats: {EncodedMediaFormat.jpeg},
+          ),
+          modalities: const {EmbeddingModality.image},
+        );
+        final model = CommonEmbeddingModel.withHost(fake);
+        await expectLater(
+          model.embed(EmbeddingInput.text('q'), taskType: TaskType.none),
+          throwsA(
+            isA<EmbeddingModalityNotLoadedException>().having(
+              (e) => e.message,
+              'message',
+              allOf(isNot(contains('supportText')), contains('no text tower')),
+            ),
+          ),
+        );
+      },
+    );
+
     test('3. several modalities on an engine without combinedInputs '
         '(the D17 gate)', () async {
       final fake = _imageHost();
