@@ -1208,9 +1208,10 @@ void main() {
       // The next caller builds, and is not held: there is nothing left to
       // wait for. Closing the dead model afterwards notifies nobody twice.
       expect(
-        await cache
-            .reuseOrInvalidate(params, label: 'after death')
-            .timeout(const Duration(seconds: 5)),
+        (await cache
+                .reuseOrInvalidate(params, label: 'after death')
+                .timeout(const Duration(seconds: 5)))
+            .reuse,
         isNull,
       );
       // The guard, not the emptied listener list, is what keeps a close()

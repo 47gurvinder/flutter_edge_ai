@@ -526,10 +526,11 @@ class FlutterEdgeAiMobile extends FlutterEdgeAiPlugin {
       tokenizerPath: tokenizerPath,
       preferredBackend: preferredBackend,
     );
-    final reused = await _embedderCache.reuseOrInvalidate(
+    final decision = await _embedderCache.reuseOrInvalidate(
       requestedParams,
       label: label,
     );
+    final reused = decision.reuse;
     if (reused != null) return reused;
 
     // Verify the active model is still installed (for Modern API path)
@@ -592,7 +593,7 @@ class FlutterEdgeAiMobile extends FlutterEdgeAiPlugin {
       // Core owns the singleton lifecycle: the cache tracks the model, resets
       // on close (identity-guarded) and records what it was built from, so the
       // next caller has something to compare against.
-      await _embedderCache.adopt(model, requestedParams);
+      await _embedderCache.adopt(model, decision.build);
       return model;
     } catch (_) {
       // FIX #170: leave no bookkeeping behind, so a retry with a different

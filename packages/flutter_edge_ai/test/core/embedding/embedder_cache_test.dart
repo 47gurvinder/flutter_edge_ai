@@ -1,10 +1,20 @@
 import 'dart:async';
 
 import 'package:flutter_edge_ai/src/embedding/embedder_cache.dart';
+import 'package:flutter_edge_ai/src/embedding/embedding_exceptions.dart';
+import 'package:flutter_edge_ai/src/embedding/embedding_modality.dart';
 import 'package:flutter_edge_ai/src/lifecycle/close_notifier.dart';
 import 'package:flutter_edge_ai/src/registry/runtime_config.dart';
 import 'package:flutter_edge_ai/src/interface.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+/// The model to reuse, or null for "build one" — what most cases here ask.
+extension on EmbedderCache {
+  Future<EmbeddingModel?> reuseOrNull(
+    ActiveEmbedderParams requested, {
+    required String label,
+  }) => reuseOrInvalidate(requested, label: label).then((d) => d.reuse);
+}
 
 /// The state machine the three shells used to each own a copy of. Every case
 /// here is a defect that reached review in one shell or another: a rebuild that
@@ -18,10 +28,7 @@ void main() {
     test('an empty cache asks for a build', () async {
       final cache = EmbedderCache();
 
-      expect(
-        await cache.reuseOrInvalidate(paramsFor('/a'), label: 'test'),
-        isNull,
-      );
+      expect(await cache.reuseOrNull(paramsFor('/a'), label: 'test'), isNull);
     });
 
     test('matching params reuse the model without closing it', () async {
@@ -29,10 +36,7 @@ void main() {
       final model = _FakeEmbedder();
       cache.record(model, paramsFor('/a'));
 
-      final reused = await cache.reuseOrInvalidate(
-        paramsFor('/a'),
-        label: 'test',
-      );
+      final reused = await cache.reuseOrNull(paramsFor('/a'), label: 'test');
 
       expect(reused, same(model));
       expect(model.closeCount, 0);
@@ -46,10 +50,7 @@ void main() {
         final model = _FakeEmbedder();
         cache.record(model, paramsFor('/a'));
 
-        final reused = await cache.reuseOrInvalidate(
-          paramsFor('/b'),
-          label: 'test',
-        );
+        final reused = await cache.reuseOrNull(paramsFor('/b'), label: 'test');
 
         expect(reused, isNull);
         expect(model.closeCount, 1);
@@ -64,7 +65,7 @@ void main() {
       cache.record(model, paramsFor('/a', tokenizer: '/t1'));
 
       expect(
-        await cache.reuseOrInvalidate(
+        await cache.reuseOrNull(
           paramsFor('/a', tokenizer: '/t2'),
           label: 'test',
         ),
@@ -80,10 +81,7 @@ void main() {
       cache.record(model, paramsFor('/a'));
 
       // A rebuild for /b is in flight and stuck inside close().
-      final rebuild = cache.reuseOrInvalidate(
-        paramsFor('/b'),
-        label: 'rebuild',
-      );
+      final rebuild = cache.reuseOrNull(paramsFor('/b'), label: 'rebuild');
       await pumpEventQueue();
 
       // Someone asks for /a — the config the closing model was built from.
@@ -91,7 +89,7 @@ void main() {
       // either until it has finished closing.
       var answered = false;
       final duringClose = cache
-          .reuseOrInvalidate(paramsFor('/a'), label: 'matching')
+          .reuseOrNull(paramsFor('/a'), label: 'matching')
           .whenComplete(() => answered = true);
       await pumpEventQueue();
       expect(answered, isFalse, reason: 'the old model is still closing');
@@ -119,7 +117,7 @@ void main() {
 
       var answered = false;
       final rebuild = cache
-          .reuseOrInvalidate(paramsFor('/b'), label: 'rebuild')
+          .reuseOrNull(paramsFor('/b'), label: 'rebuild')
           .whenComplete(() => answered = true);
       await pumpEventQueue();
 
@@ -139,7 +137,7 @@ void main() {
 
     test(
       'a close that outlasts the wait fails the caller with a '
-      'TimeoutException, keeps running, and holds every later build',
+      'EmbedderCloseTimeoutException, keeps running, and holds every later build',
       () async {
         // Unbounded, one wedged native close hangs every embedder call in the
         // app behind the serialize lane.
@@ -151,13 +149,19 @@ void main() {
         cache.record(model, paramsFor('/a'));
 
         await expectLater(
-          cache.reuseOrInvalidate(paramsFor('/b'), label: 'first'),
+          cache.reuseOrNull(paramsFor('/b'), label: 'first'),
           throwsA(
-            isA<TimeoutException>().having(
-              (e) => e.message,
-              'message',
-              allOf(contains('/a'), contains('closing')),
-            ),
+            isA<EmbedderCloseTimeoutException>()
+                .having(
+                  (e) => e.message,
+                  'message',
+                  allOf(contains('/a'), contains('closing')),
+                )
+                .having(
+                  (e) => e.waited,
+                  'waited',
+                  const Duration(milliseconds: 100),
+                ),
           ),
         );
         expect(model.closeCount, 1, reason: 'the close was started...');
@@ -166,8 +170,8 @@ void main() {
         // Still closing: the next caller must not be told to build either —
         // and it waits for the SAME close rather than starting another.
         await expectLater(
-          cache.reuseOrInvalidate(paramsFor('/b'), label: 'second'),
-          throwsA(isA<TimeoutException>()),
+          cache.reuseOrNull(paramsFor('/b'), label: 'second'),
+          throwsA(isA<EmbedderCloseTimeoutException>()),
           reason: 'building now would put two native models in memory',
         );
         expect(model.closeCount, 1);
@@ -176,7 +180,7 @@ void main() {
         await pumpEventQueue();
         expect(model.closed, isTrue);
         expect(
-          await cache.reuseOrInvalidate(paramsFor('/b'), label: 'third'),
+          await cache.reuseOrNull(paramsFor('/b'), label: 'third'),
           isNull,
           reason: 'with the old model gone, the build may go ahead',
         );
@@ -203,10 +207,8 @@ void main() {
             for (var i = 0; i < 3; i++)
               cache
                   .serialize(
-                    () => cache.reuseOrInvalidate(
-                      paramsFor('/b'),
-                      label: 'caller $i',
-                    ),
+                    () =>
+                        cache.reuseOrNull(paramsFor('/b'), label: 'caller $i'),
                   )
                   .then<Object?>(
                     (v) => v,
@@ -217,7 +219,7 @@ void main() {
                   ),
           ];
           final outcomes = await Future.wait(callers);
-          expect(outcomes, everyElement(isA<TimeoutException>()));
+          expect(outcomes, everyElement(isA<EmbedderCloseTimeoutException>()));
         },
         zoneSpecification: ZoneSpecification(
           print: (self, parent, zone, line) => printed.add(line),
@@ -243,7 +245,7 @@ void main() {
       expect(announced, hasLength(1));
       expect(announced.single, contains('/a'));
       expect(
-        await cache.reuseOrInvalidate(paramsFor('/b'), label: 'after'),
+        await cache.reuseOrNull(paramsFor('/b'), label: 'after'),
         isNull,
         reason: 'with the close done, the build goes ahead',
       );
@@ -265,7 +267,7 @@ void main() {
 
       var answered = false;
       final rebuild = cache
-          .reuseOrInvalidate(paramsFor('/a'), label: 'after app close')
+          .reuseOrNull(paramsFor('/a'), label: 'after app close')
           .whenComplete(() => answered = true);
       await pumpEventQueue();
       expect(answered, isFalse, reason: 'the app\'s close is still running');
@@ -278,6 +280,134 @@ void main() {
         reason: 'the cache joined the app\'s close rather than run another',
       );
     }, timeout: const Timeout(Duration(seconds: 10)));
+  });
+
+  group('EmbedderCache declared media (R5 §4.6)', () {
+    ActiveEmbedderParams p({
+      String model = '/m',
+      Set<EmbeddingModality> media = const {},
+    }) => ActiveEmbedderParams(
+      modelPath: model,
+      tokenizerPath: '/t',
+      media: media,
+    );
+
+    test('a model loaded for images serves a text-only request', () async {
+      final cache = EmbedderCache();
+      final model = _FakeEmbedder();
+      cache.record(model, p(media: {EmbeddingModality.image}));
+
+      final decision = await cache.reuseOrInvalidate(p(), label: 'text');
+      expect(decision.reuse, same(model));
+      expect(decision.build.media, {EmbeddingModality.image});
+      expect(model.closeCount, 0);
+    });
+
+    test(
+      'media the model lacks rebuild it with the UNION, never narrower',
+      () async {
+        final cache = EmbedderCache();
+        final model = _FakeEmbedder();
+        cache.record(model, p(media: {EmbeddingModality.image}));
+
+        final decision = await cache.reuseOrInvalidate(
+          p(media: {EmbeddingModality.audio}),
+          label: 'audio',
+        );
+        expect(decision.reuse, isNull);
+        expect(decision.build.media, {
+          EmbeddingModality.image,
+          EmbeddingModality.audio,
+        });
+        expect(decision.build.firstDifference(p()), isNull);
+        expect(model.closeCount, 1, reason: 'one engine resident at a time');
+      },
+    );
+
+    test('a different model builds what was asked, not a union', () async {
+      final cache = EmbedderCache();
+      final model = _FakeEmbedder();
+      cache.record(model, p(media: {EmbeddingModality.image}));
+
+      final decision = await cache.reuseOrInvalidate(
+        p(model: '/other', media: {EmbeddingModality.audio}),
+        label: 'other',
+      );
+      expect(decision.reuse, isNull);
+      expect(decision.build.modelPath, '/other');
+      expect(decision.build.media, {EmbeddingModality.audio});
+    });
+
+    test('a closed cached model is replaced by the request alone', () async {
+      final cache = EmbedderCache();
+      final model = _FakeEmbedder();
+      cache.record(model, p(media: {EmbeddingModality.image}));
+      await model.close();
+
+      final decision = await cache.reuseOrInvalidate(
+        p(media: {EmbeddingModality.audio}),
+        label: 'after close',
+      );
+      expect(decision.build.media, {EmbeddingModality.audio});
+    });
+
+    test(
+      'a text index and an image index used alternately cause one rebuild',
+      () async {
+        // R5 §4.6: strict keys would close the text index's model whenever
+        // the image index opened, and the other way round, for ever.
+        final cache = EmbedderCache();
+        var builds = 0;
+        Future<EmbeddingModel> resolve(Set<EmbeddingModality> media) async {
+          final decision = await cache.reuseOrInvalidate(
+            p(media: media),
+            label: 'index',
+          );
+          final reused = decision.reuse;
+          if (reused != null) return reused;
+          builds++;
+          final built = _FakeEmbedder();
+          await cache.adopt(built, decision.build);
+          return built;
+        }
+
+        final first = await resolve(const {});
+        final imageModel = await resolve({EmbeddingModality.image});
+        for (var i = 0; i < 3; i++) {
+          expect(await resolve(const {}), same(imageModel));
+          expect(await resolve({EmbeddingModality.image}), same(imageModel));
+        }
+        expect(builds, 2, reason: 'the first build, and one widening rebuild');
+        expect((first as _FakeEmbedder).closeCount, 1);
+        expect(cache.params!.media, {EmbeddingModality.image});
+      },
+    );
+  });
+
+  group('ActiveEmbedderParams.media', () {
+    ActiveEmbedderParams p([Set<EmbeddingModality> media = const {}]) =>
+        ActiveEmbedderParams(modelPath: '/m', media: media);
+
+    test('text is implied, never listed', () {
+      expect(p({EmbeddingModality.text, EmbeddingModality.image}).media, {
+        EmbeddingModality.image,
+      });
+    });
+
+    test('identity (==, hashCode, firstDifference) ignores media', () {
+      final image = p({EmbeddingModality.image});
+      expect(image, p());
+      expect(image.hashCode, p().hashCode);
+      expect(image.firstDifference(p()), isNull);
+    });
+
+    test('canServe: same identity and covering media', () {
+      final both = p({EmbeddingModality.image, EmbeddingModality.audio});
+      expect(both.canServe(p({EmbeddingModality.image})), isTrue);
+      expect(both.canServe(p()), isTrue);
+      expect(p().canServe(p({EmbeddingModality.image})), isFalse);
+      expect(both.canServe(ActiveEmbedderParams(modelPath: '/other')), isFalse);
+    });
   });
 
   group('EmbedderCache.record', () {
@@ -340,7 +470,7 @@ void main() {
       cache.record(hostile, paramsFor('/a'));
 
       expect(
-        await cache.reuseOrInvalidate(paramsFor('/b'), label: 'rebuild'),
+        await cache.reuseOrNull(paramsFor('/b'), label: 'rebuild'),
         isNull,
         reason: 'the answer is still "build a new one"',
       );
@@ -361,7 +491,7 @@ void main() {
       await silent.close();
 
       expect(
-        await cache.reuseOrInvalidate(paramsFor('/a'), label: 'test'),
+        await cache.reuseOrNull(paramsFor('/a'), label: 'test'),
         isNull,
         reason: 'the params match, so only isClosed can save this caller',
       );
@@ -519,7 +649,7 @@ void main() {
 
         expect(
           await cache.serialize(
-            () => cache.reuseOrInvalidate(paramsFor('/a'), label: 'retry'),
+            () => cache.reuseOrNull(paramsFor('/a'), label: 'retry'),
           ),
           isNull,
           reason: 'a failed build must not leave a baseline behind',

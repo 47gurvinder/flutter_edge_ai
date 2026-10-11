@@ -1,6 +1,7 @@
 import 'package:meta/meta.dart' show immutable;
 import 'package:flutter_edge_ai/src/domain/platform_types.dart'
     show ActivationDataType, PreferredBackend;
+import 'package:flutter_edge_ai/src/embedding/embedding_modality.dart';
 
 /// Runtime config for building a model — the per-call params `getActiveModel`
 /// collects, kept as a small holder so the provider contract stays stable as
@@ -44,10 +45,12 @@ class RuntimeConfig {
   final String modelPath;
 
   /// Resolved on-disk path to the tokenizer. Used by embedding and STT
-  /// backends; null for inference. The spec carries source *identities*
-  /// (network/asset/file); core
-  /// resolves them to on-disk paths via the model manager and passes the
-  /// resolved tokenizer path here (install-vs-runtime separation).
+  /// backends; null for inference, and null for a self-contained embedder
+  /// (`EmbeddingModelSpec.isSelfContained`, e.g. a `.litertlm` bundle that
+  /// carries its own tokenizer). The spec carries source *identities*
+  /// (network/asset/file); core resolves them to on-disk paths via the model
+  /// manager and passes the resolved tokenizer path here (install-vs-runtime
+  /// separation).
   final String? tokenizerPath;
 
   final PreferredBackend? preferredBackend;
@@ -67,7 +70,14 @@ class RuntimeConfig {
   /// faster there (Gemma 3n audio is ~2× CPU on Metal), so set it to
   /// `PreferredBackend.gpu` for speed. Ignored by MediaPipe.
   final PreferredBackend? preferredAudioBackend;
+
+  /// Inference: whether the model is created with vision. Embedders: the
+  /// media the caller declared (`getActiveEmbedder(supportImage:)`), widened
+  /// by core to everything the cached embedder already served.
   final bool supportImage;
+
+  /// Inference: whether the model is created with audio. Embedders: as
+  /// [supportImage], for audio.
   final bool supportAudio;
   final int? maxNumImages;
   final bool? enableSpeculativeDecoding;
@@ -254,9 +264,14 @@ class ActiveModelParams {
 /// invisible; web kept its own record with both paths nullable; desktop
 /// compared the name too. All three call this now.
 ///
-/// Only three values decide what an embedder IS. Everything else a caller can
-/// vary is per-call — `taskType` is an argument to `generateEmbedding`, not a
-/// property of the model.
+/// Only three values decide what an embedder IS — [modelPath],
+/// [tokenizerPath] and [activeBackend]; `==`, `hashCode` and
+/// [firstDifference] compare those. [media] — the declared media — decides
+/// only whether the embedder can SERVE a request ([canServe]): an embedder
+/// loaded for images serves a text-only caller too, so a text index and an
+/// image index over one model never close each other's embedder (R5 §4.6).
+/// Everything else a caller can vary is per-call — `taskType` is an argument
+/// to `embed`, not a property of the model.
 @immutable
 class ActiveEmbedderParams {
   /// The requested backend is normalised HERE rather than in a method a caller
@@ -275,7 +290,12 @@ class ActiveEmbedderParams {
     required this.modelPath,
     this.tokenizerPath,
     PreferredBackend? preferredBackend,
-  }) : activeBackend = _resolvedBackend(preferredBackend) {
+    Set<EmbeddingModality> media = const {},
+  }) : activeBackend = _resolvedBackend(preferredBackend),
+       media = Set.unmodifiable({
+         for (final m in media)
+           if (m != EmbeddingModality.text) m,
+       }) {
     if (modelPath.isEmpty) {
       throw ArgumentError.value(
         modelPath,
@@ -290,8 +310,13 @@ class ActiveEmbedderParams {
   /// to a new path was invisible to them.
   final String modelPath;
 
-  /// Resolved by core and baked into the embedding worker at spawn.
+  /// Resolved by core and baked into the embedding worker at spawn. Null for
+  /// a self-contained embedder.
   final String? tokenizerPath;
+
+  /// The media the embedder is (to be) loaded with; text is implied whenever
+  /// the model has a text tower, so it is never listed here.
+  final Set<EmbeddingModality> media;
 
   /// What the embedder actually runs on, which is CPU whatever was asked — ON
   /// NATIVE. The web shell builds this object too, and there it still holds
@@ -339,6 +364,20 @@ class ActiveEmbedderParams {
     if (activeBackend != other.activeBackend) return 'activeBackend';
     return null;
   }
+
+  /// Whether an embedder built from these params can serve [requested]: the
+  /// same embedder, loaded with every medium [requested] declares.
+  bool canServe(ActiveEmbedderParams requested) =>
+      firstDifference(requested) == null && media.containsAll(requested.media);
+
+  /// The same embedder, declared with [media] instead.
+  ActiveEmbedderParams withMedia(Set<EmbeddingModality> media) =>
+      ActiveEmbedderParams(
+        modelPath: modelPath,
+        tokenizerPath: tokenizerPath,
+        preferredBackend: activeBackend,
+        media: media,
+      );
 
   /// True when [requested] asks for something other than what an embedder
   /// actually uses, so a caller can be told once that it changed nothing.

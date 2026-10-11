@@ -502,10 +502,11 @@ class FlutterEdgeAiDesktop extends FlutterEdgeAiPlugin {
       tokenizerPath: tokenizerPath,
       preferredBackend: preferredBackend,
     );
-    final reused = await _embedderCache.reuseOrInvalidate(
+    final decision = await _embedderCache.reuseOrInvalidate(
       requestedParams,
       label: label,
     );
+    final reused = decision.reuse;
     if (reused != null) return reused;
 
     try {
@@ -563,7 +564,7 @@ class FlutterEdgeAiDesktop extends FlutterEdgeAiPlugin {
 
       // Core owns the singleton lifecycle: the cache tracks the model, resets
       // on close (identity-guarded) and records what it was built from.
-      await _embedderCache.adopt(model, requestedParams);
+      await _embedderCache.adopt(model, decision.build);
       return model;
     } catch (_) {
       _embedderCache.invalidate();

@@ -253,13 +253,14 @@ class FlutterEdgeAiWeb extends FlutterEdgeAiPlugin {
       tokenizerPath: tokenizerPath,
       preferredBackend: preferredBackend,
     );
-    final reused = await _embedderCache.reuseOrInvalidate(
+    final decision = await _embedderCache.reuseOrInvalidate(
       requestedParams,
       // Reusing: on web the runtime picks the accelerator itself — LiteRT.js
       // per compile, onnxruntime-web by trying ['webgpu', 'wasm'] in order —
       // and the notice already fired at the top of this method.
       label: 'web embedder',
     );
+    final reused = decision.reuse;
     if (reused != null) return reused;
 
     try {
@@ -309,7 +310,7 @@ class FlutterEdgeAiWeb extends FlutterEdgeAiPlugin {
               ),
         embConfig,
       );
-      await _embedderCache.adopt(model, requestedParams);
+      await _embedderCache.adopt(model, decision.build);
       return model;
     } catch (_) {
       _embedderCache.invalidate();
