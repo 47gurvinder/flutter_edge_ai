@@ -1,13 +1,16 @@
-// MEASUREMENT, not a regression gate: what the request pump's zero-timer yield
-// (W2: `await Future<void>.delayed(Duration.zero)` before every request) costs
-// on the web page. Browsers clamp nested timers to >= 4 ms after a few levels,
-// so on the inline host every request may pay ~4 ms however fast the pass is.
+// MEASUREMENT, not a regression gate: what the request pump's per-request
+// yield (W2) costs on the web page. It used to be a zero timer
+// (`Future<void>.delayed(Duration.zero)`), which browsers clamp to >= 4 ms
+// once timers nest, so every request paid ≈ 4.3 ms however fast the pass was
+// (Chrome 155, GCE VM: 864–934 ms for the embedAll below). Since stage 3b the
+// inline host yields with a MessageChannel message on web
+// (`event_loop_yield_web.dart`), which is not clamped.
 //
 // A pass that answers at once (`Future.value`), behind core's inline host and
 // facade: `embedAll` of 200 short texts, printed as total and per-request ms,
-// next to 200 bare zero-timer awaits on the same page as the clamp baseline.
-// Asserts only that everything completed; the numbers decide whether the
-// yield needs another shape on web.
+// next to 200 bare zero-timer awaits (the clamp baseline) and 200 bare
+// MessageChannel yields on the same page. Asserts only that everything
+// completed; the numbers are for the record.
 //
 // Not run by tool/test_all.sh or CI, which run on the VM. Run:
 //   flutter test --platform chrome test/web/inline_host_yield_cost_test.dart
@@ -18,6 +21,7 @@ import 'package:flutter_edge_ai/src/embedding/common_embedding_model.dart';
 import 'package:flutter_edge_ai/src/embedding/embedding_host_web.dart';
 import 'package:flutter_edge_ai/src/embedding/embedding_input.dart';
 import 'package:flutter_edge_ai/src/embedding/embedding_pass.dart';
+import 'package:flutter_edge_ai/src/embedding/event_loop_yield_web.dart';
 import 'package:flutter_edge_ai/src/embedding/task_type.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -54,6 +58,13 @@ void main() {
     }
     bare.stop();
 
+    // What the inline host now awaits before every request.
+    final channel = Stopwatch()..start();
+    for (var i = 0; i < count; i++) {
+      await yieldToEventLoop();
+    }
+    channel.stop();
+
     final host = await startEmbeddingHost(
       const EmbeddingPassDescriptor<String>(
         engineTag: 'Instant',
@@ -84,6 +95,11 @@ void main() {
     print(
       '[inline-host yield cost] $count bare zero-timer awaits: '
       '${_ms(bare.elapsed, count)}',
+    );
+    // ignore: avoid_print
+    print(
+      '[inline-host yield cost] $count bare MessageChannel yields: '
+      '${_ms(channel.elapsed, count)}',
     );
 
     expect(vectors, hasLength(count));

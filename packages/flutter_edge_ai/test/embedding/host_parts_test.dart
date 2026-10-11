@@ -111,6 +111,34 @@ void main() {
       expect(pump.file('late', media: false), isFalse);
       expect(pump.queued, 0);
     });
+
+    test('yields through the host\'s yield before every request, and a close '
+        'that lands during a yield starts nothing more', () async {
+      // The inline host passes a MessageChannel yield on web (a nested zero
+      // timer is clamped to >= 4 ms there); the isolate host keeps the zero
+      // timer. Either way the pump re-checks for a close after the yield.
+      final served = <String>[];
+      var yields = 0;
+      List<String>? notStarted;
+      late final RequestPump<String> pump;
+      pump = RequestPump<String>(
+        (r) async => served.add(r),
+        yieldToEventLoop: () async {
+          yields++;
+          if (yields == 2) notStarted = pump.requestClose();
+        },
+      );
+      pump
+        ..file('a', media: false)
+        ..file('b', media: false)
+        ..file('c', media: true);
+
+      await pump.run();
+
+      expect(served, ['a']);
+      expect(yields, 2, reason: 'one yield per request, before it starts');
+      expect(notStarted, ['b', 'c']);
+    });
   });
 
   group('runTeardown', () {

@@ -48,9 +48,22 @@ final class RequestLanes<T> {
 /// every request ahead of it ran.
 final class RequestPump<T> {
   /// [serve] runs one request and must not throw (W7): a throw ends [run].
-  RequestPump(this._serve);
+  ///
+  /// [yieldToEventLoop] runs before every request (W2, see [run]); it must
+  /// complete only after the events queued before it have been handled. The
+  /// default, a zero-duration timer, is what the isolate host needs. The web
+  /// inline host passes a `MessageChannel` message instead: browsers clamp
+  /// nested zero-delay timers to at least 4 ms, which made every request on
+  /// the page cost ≈ 4.3 ms however fast the pass was.
+  RequestPump(
+    this._serve, {
+    Future<void> Function() yieldToEventLoop = _zeroTimer,
+  }) : _yield = yieldToEventLoop;
+
+  static Future<void> _zeroTimer() => Future<void>.delayed(Duration.zero);
 
   final Future<void> Function(T request) _serve;
+  final Future<void> Function() _yield;
   final _lanes = RequestLanes<T>();
   bool _closeRequested = false;
   Completer<void>? _wake;
@@ -93,10 +106,12 @@ final class RequestPump<T> {
       // this isolate inside a synchronous native call, so a close sent
       // meanwhile is still in the message queue when the call returns — and
       // awaiting an already-completed future drains only microtasks, never
-      // that queue. A zero-duration timer is posted to the BACK of the same
-      // queue, so by the time it fires the listener has filed the close and
-      // [requestClose] has emptied the lanes.
-      await Future<void>.delayed(Duration.zero);
+      // that queue. The default zero-duration timer is posted to the BACK of
+      // the same queue, so by the time it fires the listener has filed the
+      // close and [requestClose] has emptied the lanes. On the web page the
+      // same turn comes from a MessageChannel message: a task, like the timer
+      // or input event a close() is called from, but never clamped.
+      await _yield();
       if (_closeRequested) break;
       final next = _lanes.takeNext();
       if (next == null) continue;

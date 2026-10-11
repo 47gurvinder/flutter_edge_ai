@@ -4,7 +4,9 @@
 // native: text before media, queued requests fail on close, the pass is
 // closed once.
 //
-// Pure Dart (no dart:isolate, no dart:js_interop): the VM tests run it.
+// Pure Dart (no dart:isolate): the VM tests run it. The one web-specific
+// piece, the pump's per-request yield, comes through a conditional import —
+// a MessageChannel message on the page, a zero timer everywhere else.
 
 import 'dart:async';
 
@@ -15,6 +17,8 @@ import 'embedding_host.dart';
 import 'embedding_input.dart';
 import 'embedding_modality.dart';
 import 'embedding_pass.dart';
+import 'event_loop_yield.dart'
+    if (dart.library.js_interop) 'event_loop_yield_web.dart';
 import 'load_check.dart';
 import 'request_lanes.dart';
 import 'task_type.dart';
@@ -132,7 +136,7 @@ final class _InlineEmbeddingHost implements EmbeddingHost {
     required this._label,
     required this._slowCloseNotice,
   }) {
-    _pump = RequestPump<_Request>(_serve);
+    _pump = RequestPump<_Request>(_serve, yieldToEventLoop: yieldToEventLoop);
     _runDone = _pump.run();
   }
 
