@@ -97,9 +97,6 @@ class ServiceRegistry {
   final int maxDownloadRetries;
   final WebStorageMode webStorageMode;
 
-  /// Backward compatibility getter for enableWebCache
-  bool get enableWebCache => webStorageMode != WebStorageMode.none;
-
   /// Check if streaming storage mode is enabled (OPFS)
   bool get useStreamingStorage => webStorageMode == WebStorageMode.streaming;
 
