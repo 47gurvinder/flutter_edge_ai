@@ -59,7 +59,7 @@ if ! grep -q '"libLiteRtLm.dylib"' "$DIR/c/BUILD"; then
 LDSEOF
 
   # Windows .def: whitelist of symbols to export from LiteRtLm.dll.
-  # Derived from lib/core/ffi/litert_lm_bindings.dart lookupFunction calls.
+  # Derived from lib/src/ffi/litert_lm_bindings.dart lookupFunction calls.
   cat > "$DIR/c/windows_exports.def" << 'DEFEOF'
 LIBRARY "LiteRtLm"
 EXPORTS

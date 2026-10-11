@@ -305,7 +305,7 @@ flutter analyze packages/ && dart format . && tool/test_all.sh
 | `lib/src/tokenizer_router.dart` | `resolveEmbeddingTokenizer` — sniffs the tokenizer file and routes WordPiece / SigLIP2-refusal / SentencePiece (moved from `flutter_gemma_onnx`; never was ONNX-specific) |
 | `lib/src/wordpiece_tokenizer_json.dart` | The WordPiece `tokenizer.json` parse step, split out so it carries no `dart:js_interop` and stays VM-testable |
 | `lib/src/embedding_tokenizer.dart` | Gemma SentencePiece tokenize + BOS=2/EOS=1 + TaskType prefix (`.json`/`.model` loader) |
-| *(no engine dep, no `hook/build.dart`, no `web/`)* | The seam, worker, pooling and facade moved to core’s `lib/src/embedding/` (then `lib/core/embedding/`) in 1.9.0; the LiteRT.js web bundle moved to the litertlm package in `flutter_gemma_litertlm` 1.8.0 |
+| *(no engine dep, no `hook/build.dart`, no `web/`)* | The seam, worker, pooling and facade moved to core’s `lib/core/embedding/` in 1.9.0 (now `lib/src/embedding/`); the LiteRT.js web bundle moved to the litertlm package in `flutter_gemma_litertlm` 1.8.0 |
 
 **`packages/flutter_edge_ai_mediapipe/` (.task MediaPipe; mobile + web, NO desktop):**
 

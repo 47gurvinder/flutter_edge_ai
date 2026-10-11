@@ -459,7 +459,7 @@ class LiteRtLmWebInferenceModel extends InferenceModel with CloseNotifier {
 
 /// Session-side accumulator + async iterator pump for `@litert-lm/core`.
 ///
-/// Mirrors [FfiInferenceModelSession] (lib/core/ffi/ffi_inference_model.dart)
+/// Mirrors [FfiInferenceModelSession] (lib/src/ffi/ffi_inference_model.dart)
 /// 1:1 — same buffering of query chunks, same Gemma 4 raw-JSON-accumulating
 /// branch, same `with RawSdkResponseSession` mixin so [InferenceChat] reads
 /// `lastRawResponse` and extracts `tool_calls` via the shared

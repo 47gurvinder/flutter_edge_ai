@@ -2,10 +2,11 @@ import 'dart:convert';
 
 /// Pure-Dart extractor for LiteRT-LM SDK JSON response chunks.
 ///
-/// Lives outside `lib/core/ffi/` so the web `@litert-lm/core` path can
-/// reuse the exact same text-extraction logic that the native FFI path
-/// uses — both inputs are the same OpenAI Chat Completions chunk JSON
-/// shape produced by `liblitert_lm` and `@litert-lm/core` respectively.
+/// Lives in core, not in flutter_edge_ai_litertlm's native `lib/src/ffi/`, so
+/// the web `@litert-lm/core` path can reuse the exact same text-extraction
+/// logic that the native FFI path uses — both inputs are the same OpenAI Chat
+/// Completions chunk JSON shape produced by `liblitert_lm` and
+/// `@litert-lm/core` respectively.
 ///
 /// Handles two response formats:
 /// - Text: `{"role":"assistant","content":[{"type":"text","text":"hello"}]}`

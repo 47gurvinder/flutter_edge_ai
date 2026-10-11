@@ -671,7 +671,8 @@ void main() {
   //
   // LiteRT-LM NPU executor only supports internal greedy sampling. As of
   // 0.15.1 we skip the sampler-params setter chain when backend == 'npu'
-  // (lib/core/ffi/litert_lm_client.dart::createConversation). These tests
+  // (flutter_edge_ai_litertlm lib/src/ffi/litert_lm_client.dart,
+  // `_createRawConversation`). These tests
   // verify the path end-to-end: engine creates successfully with NPU
   // backend even when caller passes non-default temperature/topK/topP, and
   // generation is deterministic (same prompt → identical output across
