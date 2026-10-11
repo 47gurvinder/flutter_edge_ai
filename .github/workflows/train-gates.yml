@@ -50,5 +50,8 @@ jobs:
       - name: Core public surface
         run: tool/check_core_surface.sh
 
+      - name: Web import graph
+        run: dart tool/check_web_graph.dart
+
       - name: Run tests (all packages)
         run: tool/test_all.sh
