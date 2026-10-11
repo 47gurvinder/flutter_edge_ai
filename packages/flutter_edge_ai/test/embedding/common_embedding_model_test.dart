@@ -563,6 +563,50 @@ void main() {
       await _settle();
     });
 
+    test('a long-lived CancelToken keeps nothing of a finished call', () async {
+      // The token's listener outlives the call when the token is never
+      // cancelled; it must hold a link that the call clears when it settles,
+      // not the call's results.
+      final fake = _FakeHost(autoReply: false);
+      final model = CommonEmbeddingModel.withHost(fake);
+      final token = CancelToken();
+      expect(debugLiveEmbedAllCancelLinks(), 0);
+
+      final ok = model.embedAll(
+        [EmbeddingInput.text('a')],
+        taskType: TaskType.none,
+        cancelToken: token,
+      );
+      await _settle();
+      expect(debugLiveEmbedAllCancelLinks(), 1);
+      fake.calls.last.reply.complete([0, 0]);
+      await ok;
+      expect(debugLiveEmbedAllCancelLinks(), 0, reason: 'cleared on success');
+
+      final failing = model.embedAll(
+        [EmbeddingInput.text('b')],
+        taskType: TaskType.none,
+        cancelToken: token,
+      );
+      await _settle();
+      fake.calls.last.reply.completeError(
+        const EmbeddingEngineException('x', engine: 'E'),
+      );
+      await expectLater(failing, throwsA(isA<EmbeddingEngineException>()));
+      expect(debugLiveEmbedAllCancelLinks(), 0, reason: 'cleared on failure');
+
+      final cancelled = model.embedAll(
+        [EmbeddingInput.text('c')],
+        taskType: TaskType.none,
+        cancelToken: token,
+      );
+      await _settle();
+      token.cancel('test');
+      await expectLater(cancelled, throwsA(isA<EmbeddingCancelledException>()));
+      expect(debugLiveEmbedAllCancelLinks(), 0, reason: 'cleared on cancel');
+      fake.calls.last.reply.complete([0, 0]);
+    });
+
     test('an already-cancelled token sends nothing', () async {
       final fake = _FakeHost();
       final model = CommonEmbeddingModel.withHost(fake);

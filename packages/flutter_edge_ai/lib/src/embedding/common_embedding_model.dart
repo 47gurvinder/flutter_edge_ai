@@ -285,8 +285,15 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
     var outstanding = 0;
     var finished = 0;
 
+    // The CancelToken's listener may outlive this call by far (an app can
+    // keep one token for its lifetime), so it holds only this link, which
+    // the call clears the moment it settles.
+    final link = cancelToken == null ? null : _CancelLink();
+
     void fail(Object error, [StackTrace? stack]) {
-      if (!result.isCompleted) result.completeError(error, stack);
+      if (result.isCompleted) return;
+      link?.clear();
+      result.completeError(error, stack);
     }
 
     void sendMore() {
@@ -310,6 +317,7 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
             try {
               vectors[index] = vector;
               if (++finished == inputs.length) {
+                link?.clear();
                 result.complete([for (final v in vectors) v!]);
               } else {
                 sendMore();
@@ -326,12 +334,9 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
       }
     }
 
-    if (cancelToken != null) {
-      unawaited(
-        cancelToken.whenCancelled.then(
-          (_) => fail(const EmbeddingCancelledException()),
-        ),
-      );
+    if (cancelToken != null && link != null) {
+      link.onCancel = () => fail(const EmbeddingCancelledException());
+      _listenForCancel(cancelToken, link);
     }
     sendMore();
     return result.future;
@@ -423,6 +428,40 @@ final class CommonEmbeddingModel extends EmbeddingModel with CloseNotifier {
     }
   }
 }
+
+/// What a `CancelToken`'s listener holds for one `embedAll` call: the call's
+/// cancel action until the call settles, nothing after. A token kept for the
+/// life of an app therefore retains nothing of the calls it was passed to.
+final class _CancelLink {
+  void Function()? _onCancel;
+
+  /// The call's cancel action. Counted while held, so a test can see that a
+  /// settled call left nothing behind in the token.
+  set onCancel(void Function()? action) {
+    if (_onCancel == null && action != null) _liveCancelLinks++;
+    if (_onCancel != null && action == null) _liveCancelLinks--;
+    _onCancel = action;
+  }
+
+  void fire() => _onCancel?.call();
+
+  void clear() => onCancel = null;
+}
+
+int _liveCancelLinks = 0;
+
+/// Registers [link] with [token]. Top-level on purpose: a closure created
+/// inside `_embedWindowed` would share that function's context — which holds
+/// the call's results — and the token would keep all of it alive. This one's
+/// context holds the link alone.
+void _listenForCancel(CancelToken token, _CancelLink link) {
+  unawaited(token.whenCancelled.then((_) => link.fire()));
+}
+
+/// How many cancel links still hold an `embedAll` call's cancel action — zero
+/// once every call with a `CancelToken` has settled. For tests.
+@visibleForTesting
+int debugLiveEmbedAllCancelLinks() => _liveCancelLinks;
 
 /// Thrown by [CommonEmbeddingModel._send] for a request whose `embedAll` call
 /// settled while the request waited for a permit. Nobody observes it: the
