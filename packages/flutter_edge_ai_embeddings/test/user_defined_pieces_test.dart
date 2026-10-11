@@ -6,12 +6,14 @@ library;
 // SentencePiece `.model`, a HuggingFace `tokenizer.json` and the dependency's
 // own JSON. The real vocabularies are sentencepiece_reference_test.dart's.
 //
-// The toy vocabulary has the user-defined pieces `<a>`, `<ab>`, `▁▁` and an
-// emoji, and the normal piece `x<` with the best score of all — the merge the
-// dependency makes in `x<a>` when nothing freezes `<a>`.
+// The toy vocabulary has the user-defined pieces `<a>`, `<ab>`, `▁▁`, an
+// emoji and `<sot>` (which a tokenizer.json marks `special`, as Gemma's
+// `<start_of_turn>`), and the normal piece `x<` with the best score of all —
+// the merge the dependency makes in `x<a>` when nothing freezes `<a>`.
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dart_sentencepiece_tokenizer/dart_sentencepiece_tokenizer.dart';
 import 'package:flutter_edge_ai_embeddings/src/embedding_tokenizer.dart';
@@ -42,26 +44,36 @@ final _toyPieces = [
   ('x', 1, -6.0), // 13
   ('x<', 1, -0.5), // 14
   ('ab', 1, -0.7), // 15
+  ('<sot>', userDefinedPieceType, 0.0), // 16
 ];
 
 List<int> _toyModel({
   int modelType = bpeModelType,
   bool dummyPrefix = false,
+  bool removeExtraWhitespaces = false,
+  List<int>? charsmap,
+  bool userDefined = true,
 }) => [
   for (final (text, type, score) in _toyPieces)
-    ...piece(text, score: score, type: type),
+    ...piece(
+      text,
+      score: score,
+      type: !userDefined && type == userDefinedPieceType ? 1 : type,
+    ),
   ...trainerSpec(modelType: modelType, unkId: 3, bosId: 2, eosId: 1, padId: 0),
   ...normalizerSpec(
     name: 'identity',
+    charsmap: charsmap,
     addDummyPrefix: dummyPrefix,
-    removeExtraWhitespaces: false,
+    removeExtraWhitespaces: removeExtraWhitespaces,
     escapeWhitespaces: true,
   ),
 ];
 
 /// The toy vocabulary as a HuggingFace `tokenizer.json`, the way the converter
-/// writes one: every user-defined piece and the four specials as added tokens,
-/// plus `<img>`, an added token outside the vocabulary.
+/// writes one: every user-defined piece and the four specials as added tokens
+/// — `<sot>` marked `special` like Gemma's `<start_of_turn>` — plus `<img>`,
+/// an added token outside the vocabulary.
 Map<String, dynamic> _toyHfJson() => {
   'version': '1.0',
   'truncation': null,
@@ -76,7 +88,8 @@ Map<String, dynamic> _toyHfJson() => {
       (5, '<ab>', false),
       (6, '$_space$_space', false),
       (7, _emoji, false),
-      (16, '<img>', true),
+      (16, '<sot>', true),
+      (17, '<img>', true),
     ])
       {
         'id': id,
@@ -152,7 +165,12 @@ void main() {
     // A piece that is not complete is ordinary text.
     expect(_content(tokenizer, '<a'), [10, 8]);
     expect(_content(tokenizer, ''), isEmpty);
+    // A user-defined piece a tokenizer.json marks `special` is still one.
+    expect(_content(tokenizer, 'x<sot>'), [13, 16]);
   }
+
+  Future<String> writeJson(String name, Map<String, dynamic> json) =>
+      _write(name, utf8.encode(jsonEncode(json)));
 
   group('a SentencePiece .model', () {
     test('BPE with only spaces escaped: user-defined pieces are matched as '
@@ -173,6 +191,7 @@ void main() {
         expect(
           UserDefinedPieces.fromModelProto(
             SentencePieceModelProto.parse(File(path).readAsBytesSync()),
+            source: path,
           ),
           isNull,
         );
@@ -182,48 +201,167 @@ void main() {
       },
     );
 
-    test('a model with a dummy prefix gets no pass either', () async {
-      final path = await _write('dummy.model', _toyModel(dummyPrefix: true));
-      expect(
-        UserDefinedPieces.fromModelProto(
-          SentencePieceModelProto.parse(File(path).readAsBytesSync()),
-        ),
-        isNull,
+    for (final (name, model) in [
+      ('a dummy prefix', _toyModel(dummyPrefix: true)),
+      ('whitespace collapsing', _toyModel(removeExtraWhitespaces: true)),
+      ('a precompiled character map', _toyModel(charsmap: [1, 2, 3])),
+    ]) {
+      test('BPE with user-defined pieces and $name is refused at load: the '
+          'dependency would split the pieces, and this package cannot '
+          'reproduce SentencePiece under that normalizer', () async {
+        final path = await _write('refused.model', model);
+        await expectLater(
+          loadEmbeddingTokenizer(path),
+          throwsA(
+            isA<UnsupportedError>().having(
+              (e) => e.message,
+              'message',
+              allOf(contains('user-defined'), contains(path)),
+            ),
+          ),
+        );
+      });
+    }
+
+    test('BPE with a dummy prefix but no user-defined piece loads: there is '
+        'nothing to match', () async {
+      final path = await _write(
+        'plain.model',
+        _toyModel(dummyPrefix: true, userDefined: false),
       );
+      final tokenizer = await loadEmbeddingTokenizer(path);
+      expect(_content(tokenizer, 'x<a>'), tokenizer.encode('x<a>').ids);
     });
+
+    test(
+      'a Unigram model with a dummy prefix still loads, unchanged',
+      () async {
+        final path = await _write(
+          'unigram_dummy.model',
+          _toyModel(modelType: 1, dummyPrefix: true),
+        );
+        final tokenizer = await loadEmbeddingTokenizer(path);
+        expect(_content(tokenizer, 'x<a>'), tokenizer.encode('x<a>').ids);
+      },
+    );
   });
 
   group('a HuggingFace tokenizer.json in Gemma\'s shape', () {
-    test('matches the same pieces, and turns no literal special token or '
+    test('matches the same pieces, and turns no literal control token or '
         'out-of-vocabulary added token into its id', () async {
       final tokenizer = await loadEmbeddingTokenizer(
-        await _write('tokenizer.json', utf8.encode(jsonEncode(_toyHfJson()))),
+        await writeJson('tokenizer.json', _toyHfJson()),
       );
       expectSentencePieceIds(tokenizer);
       for (final text in ['<bos>', '<eos>', '<pad>', '<unk>', 'x<img>']) {
         final content = _content(tokenizer, text);
-        expect(content, isNot(contains(anyOf(0, 1, 2, 16))), reason: text);
+        expect(content, isNot(contains(anyOf(0, 1, 2, 17))), reason: text);
       }
     });
 
-    test('the returned tokenizer keeps Gemma\'s special-token ids', () async {
+    test('the returned tokenizer\'s own encode() is what the dependency gives '
+        'for the file, added tokens and special ids included', () async {
+      final json = _toyHfJson();
       final tokenizer = await loadEmbeddingTokenizer(
-        await _write('tokenizer.json', utf8.encode(jsonEncode(_toyHfJson()))),
+        await writeJson('tokenizer.json', json),
       );
+      final plain = HuggingFaceTokenizerLoader.fromMap(
+        json,
+        config: const SentencePieceConfig(),
+      );
+      expect(tokenizer.encode('<a>').ids, [4]);
+      expect(tokenizer.encode('<bos>x<img>').ids, [2, 13, 17]);
       expect(tokenizer.encode('a', addSpecialTokens: true).ids, [2, 8, 1]);
+      for (final text in [
+        '<a>',
+        'x<a>',
+        '<bos>',
+        '<img>',
+        'a  <ab>',
+        '<sot>',
+      ]) {
+        expect(
+          tokenizer.encode(text).ids,
+          plain.encode(text).ids,
+          reason: text,
+        );
+      }
     });
 
-    test('the pieces are the added tokens minus the four specials and what '
-        'is not in the vocabulary; the map to load has no added tokens, and '
-        'the input map is untouched', () {
+    test('the pieces are every added token in the vocabulary but <pad>, '
+        '<eos>, <bos> and <unk>, `special` or not; the map for the stretches '
+        'has no added tokens, and the input map is untouched', () {
       final json = _toyHfJson();
-      final read = UserDefinedPieces.fromHuggingFaceJson(json)!;
-      expect(read.pieces.length, 4);
+      final read = UserDefinedPieces.fromHuggingFaceJson(json, source: 't')!;
+      expect(read.pieces.length, 5, reason: '<a> <ab> ▁▁ emoji <sot>');
       expect(read.pieces.escapesSpaces, isTrue);
-      expect(read.tokenizerJson['added_tokens'], isEmpty);
-      expect(read.tokenizerJson['model'], same(json['model']));
-      expect(json['added_tokens'], hasLength(9));
+      expect(read.stretchJson['added_tokens'], isEmpty);
+      expect(read.stretchJson['model'], same(json['model']));
+      expect(json['added_tokens'], hasLength(10));
     });
+
+    for (final (name, change, token)
+        in <(String, void Function(Map<String, dynamic>), String)>[
+          (
+            'a control token not marked special',
+            (j) => ((j['added_tokens'] as List)[0] as Map)['special'] = false,
+            '<pad>',
+          ),
+          (
+            'an added token whose text the vocabulary gives another id',
+            (j) => (j['added_tokens'] as List).add(_added(9, '<a>')),
+            '<a>',
+          ),
+          (
+            'an added token at a vocabulary id that holds other text',
+            (j) => (j['added_tokens'] as List).add(_added(12, '<zz>')),
+            '<zz>',
+          ),
+          (
+            'a post-processor that uses another token as a sequence special',
+            (j) => j['post_processor'] = {
+              'type': 'TemplateProcessing',
+              'single': [
+                {
+                  'SpecialToken': {'id': '<sot>', 'type_id': 0},
+                },
+                {
+                  'Sequence': {'id': 'A', 'type_id': 0},
+                },
+              ],
+              'pair': <Object>[],
+              'special_tokens': {
+                '<sot>': {
+                  'id': '<sot>',
+                  'ids': [16],
+                  'tokens': ['<sot>'],
+                },
+              },
+            },
+            '<sot>',
+          ),
+        ]) {
+      test('$name cannot be typed from the file alone: refused, naming '
+          'the token and the file', () async {
+        final json = _toyHfJson();
+        change(json);
+        final path = await writeJson('ambiguous.json', json);
+        await expectLater(
+          loadEmbeddingTokenizer(path),
+          throwsA(
+            isFormatException.having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains(token),
+                contains(path),
+                contains('tokenizer.model'),
+              ),
+            ),
+          ),
+        );
+      });
+    }
 
     for (final (name, change)
         in <(String, void Function(Map<String, dynamic>))>[
@@ -249,10 +387,14 @@ void main() {
             (j) => ((j['added_tokens'] as List)[4] as Map)['lstrip'] = true,
           ),
         ]) {
-      test('is not Gemma\'s shape with $name: no pass', () {
+      test('is not Gemma\'s shape with $name: no pass — the dependency\'s '
+          'own HuggingFace added-token matching applies', () {
         final json = _toyHfJson();
         change(json);
-        expect(UserDefinedPieces.fromHuggingFaceJson(json), isNull);
+        expect(
+          UserDefinedPieces.fromHuggingFaceJson(json, source: 't'),
+          isNull,
+        );
       });
     }
   });
@@ -270,5 +412,24 @@ void main() {
         expectSentencePieceIds(tokenizer);
       },
     );
+
+    test('BPE with user-defined pieces and a dummy prefix is refused, as the '
+        '.model is', () async {
+      final library = SentencePieceTokenizer.fromBytes(
+        Uint8List.fromList(_toyModel(dummyPrefix: true)),
+      ).toJson();
+      final path = await _write('library.json', utf8.encode(library));
+      await expectLater(loadEmbeddingTokenizer(path), throwsUnsupportedError);
+    });
   });
 }
+
+Map<String, Object> _added(int id, String content) => {
+  'id': id,
+  'content': content,
+  'single_word': false,
+  'lstrip': false,
+  'rstrip': false,
+  'normalized': false,
+  'special': false,
+};

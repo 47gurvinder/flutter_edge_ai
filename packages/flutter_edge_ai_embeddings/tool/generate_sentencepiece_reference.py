@@ -167,6 +167,23 @@ def corpus(w1_strings):
         '#include <stdio.h>\nint main(void) { return 0; }',
         '    four-space indented\n\tand a tab',
     ])
+    # Gemma's chat and image markers and its CONTROL pieces as literal text.
+    # In the Gemma 3 vocabularies <start_of_turn>, <end_of_turn>,
+    # <start_of_image> and <end_of_image> are USER_DEFINED — a tokenizer.json
+    # marks them `special`, yet SentencePiece keeps them whole in text — while
+    # <pad>, <eos>, <bos> are CONTROL and <unk> UNKNOWN, which SentencePiece
+    # never produces from text. Both loaders must agree with it on each.
+    add('turns', [
+        '<start_of_turn>', '<end_of_turn>', '<start_of_turn>user',
+        '<start_of_turn>model\nHello!<end_of_turn>\n',
+        '<start_of_turn>user\nWhat is RAG?<end_of_turn>\n<start_of_turn>model\n',
+        ' <start_of_turn> ', 'x<end_of_turn>y', '<start_of_turn><end_of_turn>',
+        '<end_of_turn><eos>', '<bos><start_of_turn>user\nhi<end_of_turn><eos>',
+        '<start_of_image><image_soft_token><end_of_image>',
+        '<pad><pad>', '<eos><eos>', '<bos> <bos>', '<unk><unk>',
+        '<start_of_turn', 'start_of_turn>', '<START_OF_TURN>',
+        '<mask><start_of_turn><bos>',
+    ])
     return rows
 
 
@@ -180,6 +197,7 @@ PREFIXED = [
     'special/0', 'special/3', 'special/8', 'special/21',
     'whitespace/1', 'whitespace/31', 'whitespace/2',
     'unicode/21', 'code/1', 'code/10',
+    'turns/2', 'turns/9', 'turns/12',
 ]
 
 

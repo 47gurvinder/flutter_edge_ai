@@ -46,16 +46,21 @@ const int eosId = 1;
 /// [encodeForSiglipEmbedding], and the embedding pass that owns `seqLen`. (A raw
 /// `.model` carries no such blocks, so there the guarantee is free.)
 ///
-/// [encodeForEmbedding] and [encodeForSiglipEmbedding] tokenize with what this
-/// function read from the file as SentencePiece does: the model's
-/// user-defined pieces (Gemma's `</div>`, `<mask>`, `[multimodal]`, …) are
-/// matched first and kept whole, which the returned tokenizer's own `encode()`
-/// does not do. For a HuggingFace `tokenizer.json` in Gemma's shape the file's
-/// `added_tokens` are therefore NOT registered with the returned tokenizer:
-/// its user-defined pieces are matched by those two functions, and `<pad>`,
-/// `<eos>`, `<bos>` and `<unk>` are — as in SentencePiece — never produced
-/// from text (`<pad>`/`<eos>`/`<bos>` keep their special-token ids for
-/// `encode(addSpecialTokens: true)`).
+/// The returned tokenizer is the dependency's, loaded from the file as it
+/// always was: its own `encode()` is unchanged. [encodeForEmbedding] and
+/// [encodeForSiglipEmbedding] add what this function read from the file, and
+/// tokenize as SentencePiece does: the model's user-defined pieces (Gemma's
+/// `</div>`, `<mask>`, `<start_of_turn>`, …) matched first and kept whole, and
+/// `<pad>`, `<eos>`, `<bos>` and `<unk>` never produced from text. For a
+/// HuggingFace `tokenizer.json` in Gemma's shape the text between two pieces
+/// is encoded by a second tokenizer loaded from the same file without its
+/// `added_tokens`, so that file costs two tokenizers in memory.
+///
+/// Throws [UnsupportedError] for a BPE model with user-defined pieces whose
+/// normalizer this package cannot reproduce them under, and
+/// [FormatException] for a `tokenizer.json` whose added tokens the file alone
+/// cannot type (`user_defined_pieces.dart` says which) — both rather than
+/// return ids that differ from SentencePiece's without a sign.
 ///
 /// Throws [StateError] if the resolved `dart_sentencepiece_tokenizer` accepts
 /// the calls that disable those settings and leaves them set anyway. That is a
@@ -81,13 +86,23 @@ Future<SentencePieceTokenizer> loadEmbeddingTokenizer(
   // `_applyTokenizerSettings` is HF-JSON-only, so on the `.model` arm the two
   // calls are a no-op today. They stay because the contract above is one
   // sentence for both arms, and it should not quietly depend on which ran.
-  final (tokenizer, pieces) = tokenizerPath.endsWith('.json')
-      ? _loadJson(await File(tokenizerPath).readAsString())
-      : _loadModel(await File(tokenizerPath).readAsBytes());
+  final (tokenizer, pass) = tokenizerPath.endsWith('.json')
+      ? _loadJson(await File(tokenizerPath).readAsString(), tokenizerPath)
+      : _loadModel(await File(tokenizerPath).readAsBytes(), tokenizerPath);
   tokenizer
     ..noPadding()
     ..noTruncation();
-  if (pieces != null) _userDefinedPieces[tokenizer] = pieces;
+  if (pass != null) {
+    // The second tokenizer of a tokenizer.json is held to the same contract:
+    // it encodes the content between two pieces, which must come back bare.
+    if (!identical(pass.stretches, tokenizer)) {
+      pass.stretches
+        ..noPadding()
+        ..noTruncation();
+      requireBareContent(pass.stretches, tokenizerPath);
+    }
+    _userDefinedPass[tokenizer] = pass;
+  }
 
   // The cascade above is the mechanism; `requireBareContent` is the
   // enforcement, and it is separate because `^1.4.1` is open-topped. See its
@@ -96,17 +111,32 @@ Future<SentencePieceTokenizer> loadEmbeddingTokenizer(
   return requireBareContent(tokenizer, tokenizerPath);
 }
 
-/// What [loadEmbeddingTokenizer] read about each tokenizer it returned: the
-/// user-defined pieces its file declares, when the pipeline is one where
-/// SentencePiece's treatment of them can be reproduced (see
-/// `user_defined_pieces.dart`). Absent for any other tokenizer, which then
+/// SentencePiece's user-defined pass for one loaded file: its pieces, and the
+/// tokenizer that encodes the text between two of them — one that matches no
+/// added token of its own. For a `.model` and the dependency's own JSON that is
+/// the returned tokenizer itself; for a HuggingFace `tokenizer.json`, a second
+/// one loaded without the file's `added_tokens`.
+typedef _UserDefinedPass = ({
+  UserDefinedPieces pieces,
+  SentencePieceTokenizer stretches,
+});
+
+/// What [loadEmbeddingTokenizer] read about each tokenizer it returned, when
+/// the file has user-defined pieces SentencePiece's way can be reproduced for
+/// (see `user_defined_pieces.dart`). Absent for any other tokenizer, which then
 /// encodes exactly as the dependency does.
-final _userDefinedPieces = Expando<UserDefinedPieces>(
-  'SentencePiece user-defined pieces',
+final _userDefinedPass = Expando<_UserDefinedPass>(
+  'SentencePiece user-defined pass',
 );
 
-(SentencePieceTokenizer, UserDefinedPieces?) _loadModel(Uint8List bytes) {
+(SentencePieceTokenizer, _UserDefinedPass?) _loadModel(
+  Uint8List bytes,
+  String path,
+) {
   final model = SentencePieceModelProto.parse(bytes);
+  // Read first: a model this package refuses fails before the dependency
+  // spends a load on it.
+  final pieces = UserDefinedPieces.fromModelProto(model, source: path);
   // The dependency drops a leading U+FEFF from every piece it decodes, which
   // gives Gemma's `<?` and `//` the ids of `\ufeff<?` and `\ufeff//`. Hand it
   // a file it reads right, and check that it did.
@@ -128,7 +158,10 @@ final _userDefinedPieces = Expando<UserDefinedPieces>(
       );
     }
   }
-  return (tokenizer, UserDefinedPieces.fromModelProto(model));
+  return (
+    tokenizer,
+    pieces == null ? null : (pieces: pieces, stretches: tokenizer),
+  );
 }
 
 /// Whether `dart_sentencepiece_tokenizer` drops ONE leading U+FEFF from a
@@ -155,54 +188,45 @@ final bool _dependencyDropsLeadingBom = () {
   );
 }();
 
-(SentencePieceTokenizer, UserDefinedPieces?) _loadJson(String raw) {
+(SentencePieceTokenizer, _UserDefinedPass?) _loadJson(String raw, String path) {
   final json = jsonDecode(raw);
   if (json is! Map<String, dynamic>) {
-    throw const FormatException('tokenizer JSON is not an object');
+    throw FormatException('$path is not a JSON object');
   }
   if (!TokenizerJsonLoader.isHuggingFaceFormat(json)) {
     // The package's own format: it registers no added tokens, so the pieces
     // read from its types are the only thing to add.
+    final tokenizer = TokenizerJsonLoader.fromJsonString(
+      raw,
+      config: const SentencePieceConfig(),
+    );
+    final pieces = UserDefinedPieces.fromLibraryJson(json, source: path);
     return (
-      TokenizerJsonLoader.fromJsonString(
-        raw,
-        config: const SentencePieceConfig(),
-      ),
-      UserDefinedPieces.fromLibraryJson(json),
+      tokenizer,
+      pieces == null ? null : (pieces: pieces, stretches: tokenizer),
     );
   }
-  final gemma = UserDefinedPieces.fromHuggingFaceJson(json);
-  if (gemma == null) {
-    return (
-      HuggingFaceTokenizerLoader.fromMap(
-        json,
-        config: const SentencePieceConfig(),
-      ),
-      null,
-    );
-  }
+  // Read first: a file this package refuses fails before the expensive load.
+  final gemma = UserDefinedPieces.fromHuggingFaceJson(json, source: path);
   final tokenizer = HuggingFaceTokenizerLoader.fromMap(
-    gemma.tokenizerJson,
+    json,
     config: const SentencePieceConfig(),
   );
-  // With `added_tokens` emptied the loader no longer knows the special tokens
-  // by name. Their ids are Gemma's — fromHuggingFaceJson checked the vocab —
-  // and are given back for `encode(addSpecialTokens: true)`.
-  tokenizer.addSpecialTokens(const {
-    'pad_token': '<pad>',
-    'eos_token': '<eos>',
-    'bos_token': '<bos>',
-  });
-  return (tokenizer, gemma.pieces);
+  if (gemma == null) return (tokenizer, null);
+  final stretches = HuggingFaceTokenizerLoader.fromMap(
+    gemma.stretchJson,
+    config: const SentencePieceConfig(),
+  );
+  return (tokenizer, (pieces: gemma.pieces, stretches: stretches));
 }
 
 /// The content ids of [text]: SentencePiece's user-defined pass when
 /// [loadEmbeddingTokenizer] read one for [tokenizer], else its own `encode()`.
 List<int> _contentIds(SentencePieceTokenizer tokenizer, String text) {
-  final pieces = _userDefinedPieces[tokenizer];
-  return pieces == null
+  final pass = _userDefinedPass[tokenizer];
+  return pass == null
       ? tokenizer.encode(text).ids
-      : pieces.encode(tokenizer, text);
+      : pass.pieces.encode(pass.stretches, text);
 }
 
 /// Tokenizes ([prefix] + [text]) with Gemma BOS/EOS:

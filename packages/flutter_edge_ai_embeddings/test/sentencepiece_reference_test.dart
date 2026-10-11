@@ -7,8 +7,9 @@ library;
 // test/fixtures/eg1_sentencepiece_reference.json holds a corpus (the 40 W1
 // strings, HTML / markdown / code with Gemma's user-defined tag pieces in
 // every position, tag-like strings that are not pieces, the special and
-// control pieces, whitespace runs, CJK, emoji, combining marks — 234 strings,
-// 28 of them also under the eight non-empty TaskType prefixes) and the ids the
+// control pieces, Gemma's chat and image markers as literal text, whitespace
+// runs, CJK, emoji, combining marks — 253 strings, 31 of them also under the
+// eight non-empty TaskType prefixes) and the ids the
 // Python `sentencepiece` package returns for each, from the catalog's
 // EmbeddingGemma 1 `sentencepiece.model`. Every row must come out of
 // `encodeForEmbedding` — and out of the registry route the `.tflite` pass
