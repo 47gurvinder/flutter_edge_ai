@@ -7,8 +7,11 @@
 //
 // "Native" is the path the `.tflite` pass takes: core's tokenizer registry
 // hands it `GemmaEmbeddingTokenizers().factory`, which routes a SentencePiece
-// `.model` file to the Gemma adapter — `[2, ...encode(prefix + text).ids, 1]`
-// (`encodeForEmbedding`) — and the pass runs those ids. The tokenizer is the
+// `.model` file to the Gemma adapter — `[2, ...ids(prefix + text), 1]`, the
+// ids SentencePiece produces, user-defined pieces such as `</div>` kept whole
+// (`encodeForEmbedding`; flutter_edge_ai_embeddings'
+// test/sentencepiece_reference_test.dart holds it to the Python reference) —
+// and the pass runs those ids. The tokenizer is the
 // example's `assets/models/sentencepiece.model`, byte-identical to
 // litert-community/embeddinggemma-300m@29888fce's `sentencepiece.model` (the
 // catalog's EG1 tokenizer): its SHA-256 below is the oid in that file's Git LFS
@@ -212,8 +215,8 @@ String _render(Map<TaskType, List<List<int>>> ids, int overflowCount) {
     ..writeln('  "huggingFace": ${_json(_huggingFaceFile)},')
     ..writeln(
       '  "ids": ${_json('GemmaEmbeddingTokenizers -> Gemma SentencePiece '
-      '(dart_sentencepiece_tokenizer 1.4.1): [2, ...encode(prefix + '
-      'text).ids, 1]')}',
+      '(dart_sentencepiece_tokenizer 1.4.1 + the user-defined pass of '
+      'flutter_edge_ai_embeddings): [2, ...ids(prefix + text), 1]')}',
     )
     ..writeln('},')
     ..writeln('"prefixes": {');
