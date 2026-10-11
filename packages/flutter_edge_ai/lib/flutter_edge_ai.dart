@@ -55,8 +55,8 @@ export 'src/domain/platform_types.dart'
     show ActivationDataType, PreferredBackend;
 export 'src/message.dart' show Message, MessageType;
 export 'src/model.dart' show ModelFileType, ModelType;
-// Sampling a session asks for; engines resolve the unset fields.
-export 'src/sampling.dart' show SamplingParams;
+// Sampling a session asks for, and the fully resolved set an engine sends.
+export 'src/sampling.dart' show ResolvedSampling, SamplingParams;
 export 'src/model_response.dart'
     show
         FunctionCallResponse,

@@ -1,5 +1,4 @@
-// engine.dart: ResolvedSampling is engine SPI; it re-exports the app library.
-import 'package:flutter_edge_ai/engine.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
