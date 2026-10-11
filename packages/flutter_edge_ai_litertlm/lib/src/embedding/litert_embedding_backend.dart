@@ -84,7 +84,9 @@ Future<EmbeddingPassDescriptor<LiteRtLmEmbeddingConfig>> _describeBundle(
     factory: buildLiteRtLmEmbeddingPass,
     config: LiteRtLmEmbeddingConfig(
       modelPath: config.modelPath,
-      cacheBase: '$cache${sep}flutter_edge_ai${sep}embedding_cache',
+      // Short on purpose: the engine's cache file name repeats the model's
+      // name below it, and Windows paths must stay under MAX_PATH.
+      cacheBase: '$cache${sep}flutter_edge_ai${sep}emb',
       declaredMedia: {
         if (config.supportImage) EmbeddingModality.image,
         if (config.supportAudio) EmbeddingModality.audio,

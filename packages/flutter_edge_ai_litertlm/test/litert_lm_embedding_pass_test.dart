@@ -39,7 +39,7 @@ void main() {
     File(modelPath)
       ..createSync(recursive: true)
       ..writeAsBytesSync(List.filled(37, 7));
-    cacheBase = '${root.path}/cache/flutter_edge_ai/embedding_cache';
+    cacheBase = '${root.path}/cache/flutter_edge_ai/emb';
     native = _FakeLiteRtLm();
     allocator = _CountingAllocator();
   });
@@ -72,8 +72,9 @@ void main() {
 
   String expectedCacheDir() {
     final stat = File(modelPath).statSync();
-    return '$cacheBase/${liteRtLmCacheDirPrefix(_file)}-${stat.size}-'
-        '${stat.modified.millisecondsSinceEpoch}';
+    return '$cacheBase/${liteRtLmCacheDirPrefix(_file)}-'
+        '${stat.size.toRadixString(36)}-'
+        '${stat.modified.millisecondsSinceEpoch.toRadixString(36)}';
   }
 
   /// Every native object created was deleted, and every Dart allocation freed.
@@ -438,7 +439,9 @@ void main() {
           final size = File(modelPath).lengthSync();
           final staleDirs = [
             Directory('$cacheBase/$ours-1-2'), // other size and time
-            Directory('$cacheBase/$ours-$size-2'), // same size, older time
+            Directory('$cacheBase/$ours-2q0ikg-mv4esplh'), // base 36 letters
+            // Same size, older time.
+            Directory('$cacheBase/$ours-${size.toRadixString(36)}-2'),
           ];
           for (final stale in staleDirs) {
             stale.createSync(recursive: true);
@@ -448,7 +451,8 @@ void main() {
             Directory(
               '$cacheBase/${liteRtLmCacheDirPrefix('other.litertlm')}-1-2',
             ),
-            Directory('$cacheBase/$ours-abc-2'),
+            Directory('$cacheBase/$ours-ABC-2'),
+            Directory('$cacheBase/$ours-a_b-2'),
             Directory('$cacheBase/$ours-1-2-3'),
             Directory('$cacheBase/x$ours-1-2'),
             Directory('$cacheBase/$_file-1-2'),
@@ -525,16 +529,16 @@ void main() {
         expect(other.existsSync(), isFalse);
       }, skip: Platform.isWindows ? 'chmod' : null);
 
-      test('is named <12-hex hash of the file name>-<size>-<mtime ms>', () {
+      test('is named <8-hex hash of the file name>-<base36 size>-<base36 '
+          'mtime ms>', () {
         final name = liteRtLmCacheDirName(
           _file,
           size: 164626432,
           modified: DateTime.fromMillisecondsSinceEpoch(1791758581397),
         );
-        expect(
-          name,
-          matches(RegExp(r'^[0-9a-f]{12}-164626432-1791758581397$')),
-        );
+        // 164626432 = 2q0ikg, 1791758581397 = mv4esplh in base 36.
+        expect(name, matches(RegExp(r'^[0-9a-f]{8}-2q0ikg-mv4esplh$')));
+        expect(name, hasLength(24));
         expect(name, startsWith(liteRtLmCacheDirPrefix(_file)));
         expect(
           liteRtLmCacheDirPrefix('a.litertlm'),
@@ -542,8 +546,8 @@ void main() {
         );
       });
 
-      test('keeps the engine\'s cache file under Windows MAX_PATH for the '
-          'example app', () {
+      test('keeps the engine\'s cache file well under Windows MAX_PATH for '
+          'the example app', () {
         // The engine names its file `<model>_<mtime s>_<size>.<graph>.xnnpack_cache`
         // inside the directory; spelling the model's name in the directory
         // too put this path at about 284 characters.
@@ -552,14 +556,18 @@ void main() {
         // \<product>.
         const base =
             r'C:\Users\a-twenty-char-user-x\AppData\Local\dev.flutterberlin'
-            r'\flutter_edge_ai_example\flutter_edge_ai\embedding_cache';
+            r'\flutter_edge_ai_example\flutter_edge_ai\emb';
         final dir = liteRtLmCacheDirName(
           model,
           size: 164626432,
           modified: DateTime.fromMillisecondsSinceEpoch(1791758581397),
         );
         final file = '${model}_1791758581_164626432.text_encoder.xnnpack_cache';
-        expect('$base\\$dir\\$file'.length, lessThan(260));
+        final path = '$base\\$dir\\$file';
+        // 232 characters: 28 to spare for a longer user, company or app
+        // folder (the 12-hex / decimal / embedding_cache form left 4).
+        expect(path.length, 232);
+        expect(260 - path.length, greaterThanOrEqualTo(25));
       });
 
       test('an empty directory after create is reported, a filled one is '

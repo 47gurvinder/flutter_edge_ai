@@ -147,7 +147,7 @@ void main() {
         // The platform cache directory, never application support: iOS backs
         // that up to iCloud and Android Auto Backup caps it at 25 MB per app,
         // while a purged cache is rebuilt at the next engine create.
-        expect(config.cacheBase, '/cache/flutter_edge_ai/embedding_cache');
+        expect(config.cacheBase, '/cache/flutter_edge_ai/emb');
         expect(config.declaredMedia, isEmpty);
         expect(config.numThreads, isNull);
         expect(descriptor.build(), isA<LiteRtLmEmbeddingPass>());

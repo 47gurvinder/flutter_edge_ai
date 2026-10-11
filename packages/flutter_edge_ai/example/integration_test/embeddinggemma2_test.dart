@@ -6,8 +6,8 @@
 // What it holds the device to:
 // - 768 dimensions, unit norm, finite, not all zero; maxInputTokens 1024;
 // - the engine's weight cache lands in the pass-owned directory under
-//   <appCache>/flutter_edge_ai/embedding_cache/ — the platform cache
-//   directory, never backed up (under MAX_PATH on Windows);
+//   <appCache>/flutter_edge_ai/emb/ — the platform cache directory, never
+//   backed up (well under MAX_PATH on Windows);
 // - the golden (integration_test/goldens/eg2_text_golden.json, through its
 //   generated .dart twin): cos >= 0.9999 against `vector` on macOS arm64 (the
 //   build and platform the golden came from), >= 0.998 anywhere else, and
@@ -205,7 +205,7 @@ void main() {
     final sep = Platform.pathSeparator;
     final base = Directory(
       '${(await getApplicationCacheDirectory()).path}'
-      '${sep}flutter_edge_ai${sep}embedding_cache',
+      '${sep}flutter_edge_ai${sep}emb',
     );
     final caches = [
       for (final dir in base.listSync().whereType<Directory>())
@@ -230,6 +230,7 @@ void main() {
       reason: 'no .xnnpack_cache for ${_eg2.filename} under ${base.path}',
     );
     if (Platform.isWindows) {
+      // 232 for the example app with a 20-character user name.
       expect(longest, lessThan(260), reason: 'past MAX_PATH');
     }
   });

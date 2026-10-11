@@ -22,9 +22,9 @@
 // - The engine always gets an existing, writable cache directory that this
 //   pass owns (D22), under the platform cache directory (never backed up):
 //   without one it runs with no weight cache (+290 MB) or writes
-//   `.xnnpack_cache` files next to the model. The directory is named by
-//   a short hash of the file name (see `liteRtLmCacheDirName`: Windows
-//   MAX_PATH), and a load that leaves it empty is reported. Caches of earlier
+//   `.xnnpack_cache` files next to the model. Our part of the path is kept
+//   short — `flutter_edge_ai/emb/<8-hex hash>-<base36 size>-<base36 mtime>`
+//   (see `liteRtLmCacheDirName`: Windows MAX_PATH), and a load that leaves it empty is reported. Caches of earlier
 //   copies of the same file name are deleted only after the engine exists,
 //   and not while they were touched in the last 10 minutes.
 // - Overflow (§4.8): options use kError; a NULL response with status 3
@@ -78,7 +78,7 @@ final class LiteRtLmEmbeddingConfig {
   /// The `.litertlm` bundle core resolved for the active spec.
   final String modelPath;
 
-  /// `<applicationCache>/flutter_edge_ai/embedding_cache` (path_provider's
+  /// `<applicationCache>/flutter_edge_ai/emb` (path_provider's
   /// `getApplicationCacheDirectory()`), resolved in `describe()` — the worker
   /// isolate has no platform channels. The pass keeps one directory per bundle
   /// copy under it. A cache directory, so it is never backed up (iOS iCloud,
@@ -510,7 +510,9 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
   /// the rest are still tried.
   void _deleteStaleSiblings(String cacheDir) {
     final keep = _fileName(cacheDir);
-    final ours = RegExp('^${liteRtLmCacheDirPrefix(_file)}-\\d+-\\d+\$');
+    final ours = RegExp(
+      '^${liteRtLmCacheDirPrefix(_file)}-[0-9a-z]+-[0-9a-z]+\$',
+    );
     final List<FileSystemEntity> entries;
     try {
       // Sorted, so the order is the same everywhere (listing order is not).
@@ -697,28 +699,29 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
 }
 
 /// The cache directory name for one copy of a bundle:
-/// `<liteRtLmCacheDirPrefix(file)>-<size>-<mtime ms>`, so a re-downloaded or
-/// replaced file never reads the weight cache of another (the engine's own
-/// cache file names carry the same pair).
+/// `<liteRtLmCacheDirPrefix(file)>-<size>-<mtime ms>`, both numbers in base 36,
+/// so a re-downloaded or replaced file never reads the weight cache of another
+/// (the engine's own cache file names carry the same pair).
 ///
-/// The file is named by a 12-hex hash, not spelled out (R5 D22 spells it): the
-/// engine names its cache file `<model file name>_<mtime>_<size>.<graph>.xnnpack_cache`
-/// inside this directory, so a spelled-out name would put the model's name in
-/// the path twice — about 284 characters for the example app on Windows, past
-/// MAX_PATH, where the engine would run without a weight cache.
+/// Short on purpose (R5 D22 spells the file name out): the engine names its
+/// cache file `<model file name>_<mtime>_<size>.<graph>.xnnpack_cache` inside
+/// this directory, and on Windows the whole path must stay under MAX_PATH or
+/// the engine runs without a weight cache. With `<cache>/flutter_edge_ai/emb/`
+/// and this 24-character name the example app's path is 232 characters for a
+/// 20-character user name; spelling the file name out made it about 284.
 String liteRtLmCacheDirName(
   String modelFileName, {
   required int size,
   required DateTime modified,
 }) =>
-    '${liteRtLmCacheDirPrefix(modelFileName)}-$size-'
-    '${modified.millisecondsSinceEpoch}';
+    '${liteRtLmCacheDirPrefix(modelFileName)}-${size.toRadixString(36)}-'
+    '${modified.millisecondsSinceEpoch.toRadixString(36)}';
 
-/// The part of [liteRtLmCacheDirName] that names the file: the first 12 hex
+/// The part of [liteRtLmCacheDirName] that names the file: the first 8 hex
 /// digits of the SHA-256 of its name. Directories with this prefix and another
 /// size or time are stale copies of the same file.
 String liteRtLmCacheDirPrefix(String modelFileName) =>
-    sha256.convert(utf8.encode(modelFileName)).toString().substring(0, 12);
+    sha256.convert(utf8.encode(modelFileName)).toString().substring(0, 8);
 
 typedef _ModelInfo = ({
   LiteRtLmModelType? type,
