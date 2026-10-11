@@ -1,26 +1,26 @@
 import 'package:pigeon/pigeon.dart';
+
 // Command to generate: dart run pigeon --input pigeon.dart
 
 /// Hardware backend for model inference. Redeclared here (pigeon generates
 /// self-contained code per package and cannot import core's generated enum).
 /// Same values/order as core's PreferredBackend → identical wire index. The
 /// Dart MediaPipeEngine maps core.PreferredBackend → this enum at the boundary.
-enum PreferredBackend {
-  cpu,
-  gpu,
-  npu,
-}
+enum PreferredBackend { cpu, gpu, npu }
 
-@ConfigurePigeon(PigeonOptions(
-  dartOut: 'lib/pigeon.g.dart',
-  kotlinOut:
-      'android/src/main/kotlin/dev/flutterberlin/flutter_gemma_mediapipe/PigeonInterface.g.kt',
-  kotlinOptions:
-      KotlinOptions(package: 'dev.flutterberlin.flutter_gemma_mediapipe'),
-  swiftOut: 'ios/Classes/PigeonInterface.g.swift',
-  swiftOptions: SwiftOptions(),
-  dartPackageName: 'flutter_gemma_mediapipe',
-))
+@ConfigurePigeon(
+  PigeonOptions(
+    dartOut: 'lib/pigeon.g.dart',
+    kotlinOut:
+        'android/src/main/kotlin/dev/flutterberlin/flutter_gemma_mediapipe/PigeonInterface.g.kt',
+    kotlinOptions: KotlinOptions(
+      package: 'dev.flutterberlin.flutter_gemma_mediapipe',
+    ),
+    swiftOut: 'ios/Classes/PigeonInterface.g.swift',
+    swiftOptions: SwiftOptions(),
+    dartPackageName: 'flutter_gemma_mediapipe',
+  ),
+)
 @HostApi()
 abstract class PlatformService {
   @async
