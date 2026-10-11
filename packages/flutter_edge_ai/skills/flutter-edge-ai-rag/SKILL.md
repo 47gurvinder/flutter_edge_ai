@@ -155,7 +155,15 @@ await index.flush();
 
 `addText` uses the document embedding path; `searchText` uses the query path.
 For precomputed batches, generate with `TaskType.retrievalDocument`, then use
-`addVector`. Use `searchVector` for precomputed queries. `remove`, `stats`,
+`addVector`.
+
+Chunk text below the embedder's input limit,
+`(await FlutterEdgeAi.getActiveEmbedder()).maxInputTokens` — 256 tokens for the
+EmbeddingGemma seq256 file above, task prefix, BOS and EOS included. A longer
+chunk or query is never truncated: `addText` and `searchText` throw
+`EmbeddingInputTooLongException`, whose `maxInputTokens` and `actualTokens`
+say by how much. A null `maxInputTokens` means the model file declares no
+limit. Use `searchVector` for precomputed queries. `remove`, `stats`,
 `clear`, and `flush` operate on the owned index. Flush after a write batch:
 it is required for qdrant durability, a Web SQLite durability fence, and a
 no-op on native SQLite.
@@ -373,6 +381,9 @@ location.
   location was opened. Do not bypass it; choose the correct profile/location.
 - A first `addVector` on an empty store needs `embeddingProfile`; raw numbers
   cannot identify their embedding space.
+- `EmbeddingInputTooLongException` from `addText` or `searchText`: the text is
+  longer than the embedder's `maxInputTokens`. Split it into smaller chunks;
+  older releases truncated it silently.
 - A text operation using the default embedder needs `activeEmbedderProfileId`
   on `open()`. `open()` pins the embedder that is active at that moment:
   install the embedder before opening the index, and after switching embedders
