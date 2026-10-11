@@ -6,6 +6,8 @@
 
 import 'package:flutter_edge_ai/src/domain/platform_types.dart'
     show PreferredBackend;
+import 'package:flutter_edge_ai/src/model_management/active_embedding_identity.dart'
+    show noActiveEmbedderError;
 import 'package:flutter_edge_ai/src/model_file_manager_interface.dart'
     show ModelFileManager;
 import 'package:flutter_edge_ai/src/model_management/constants/preferences_keys.dart';
@@ -47,12 +49,7 @@ Future<EmbeddingModel> loadActiveEmbedder({
   bool verifyInstalled = false,
 }) async {
   final active = manager.activeEmbeddingModel;
-  if (active == null) {
-    throw StateError(
-      'No active embedding model set. Use `FlutterEdgeAi.installEmbedder()` '
-      'first.',
-    );
-  }
+  if (active == null) throw noActiveEmbedderError();
   if (active is! EmbeddingModelSpec) {
     throw StateError(
       'The active embedding slot holds a ${active.runtimeType}, not an '

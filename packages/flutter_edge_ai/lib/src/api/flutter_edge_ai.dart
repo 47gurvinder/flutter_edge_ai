@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart'
     show kIsWeb, defaultTargetPlatform, TargetPlatform, visibleForTesting;
 import 'package:flutter_edge_ai/src/api/inference_installation_builder.dart';
 import 'package:flutter_edge_ai/src/api/embedding_installation_builder.dart';
+import 'package:flutter_edge_ai/src/model_management/active_embedding_identity.dart'
+    show noActiveEmbedderError;
 import 'package:flutter_edge_ai/src/api/stt_installation_builder.dart';
 import 'package:flutter_edge_ai/src/api/tts_installation_builder.dart';
 import 'package:flutter_edge_ai/src/di/service_registry.dart';
@@ -690,11 +692,7 @@ class FlutterEdgeAi {
     final manager = FlutterEdgeAiPlugin.instance.modelManager;
     final activeSpec = manager.activeEmbeddingModel;
 
-    if (activeSpec == null) {
-      throw StateError(
-        'No active embedding model set. Use FlutterEdgeAi.installEmbedder() first.',
-      );
-    }
+    if (activeSpec == null) throw noActiveEmbedderError();
 
     if (activeSpec is! EmbeddingModelSpec) {
       throw StateError(

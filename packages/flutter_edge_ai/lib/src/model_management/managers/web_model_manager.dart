@@ -227,7 +227,8 @@ class WebModelManager extends ModelFileManager
     if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
     final encodedRecord = lease.encodedRecord;
     if (encodedRecord != null) {
-      final record = ActiveEmbeddingIdentityRecord.tryDecode(encodedRecord);
+      final decoded = ActiveEmbeddingIdentityRecord.decode(encodedRecord);
+      final record = decoded.record;
       if (record != null) {
         if (!record.active) return;
         final repository = ServiceRegistry.instance.modelRepository;
@@ -259,6 +260,9 @@ class WebModelManager extends ModelFileManager
       edgeAiLog(
         '[WebModelManager] active embedding record malformed or unsupported — '
         'failing closed',
+      );
+      reportRejectedActiveEmbeddingIdentity(
+        decoded.rejection ?? 'it could not be decoded',
       );
       return;
     }

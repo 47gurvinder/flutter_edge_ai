@@ -4,6 +4,7 @@ import 'package:flutter_edge_ai/src/domain/model_source.dart';
 import 'package:flutter_edge_ai/src/model_management/constants/preferences_keys.dart';
 import 'package:flutter_edge_ai/src/model_management/model_specs.dart';
 import 'package:flutter_edge_ai/src/utils/file_name_utils.dart';
+import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// One complete, versioned active-embedder pointer.
@@ -104,28 +105,52 @@ final class ActiveEmbeddingIdentityRecord {
     },
   });
 
-  /// Returns null for malformed, partial, or unsupported records.
+  /// Returns null for malformed, partial, or unsupported records — see
+  /// [decode] for why.
+  static ActiveEmbeddingIdentityRecord? tryDecode(String? encoded) =>
+      decode(encoded).record;
+
+  /// The record [encoded] stands for, or — when it is refused — why.
   ///
   /// Active records are also checked for internal compatibility: they are
   /// rebuilt through the `EmbeddingModelSpec` constructor (so its invariants
   /// apply), and their source descriptors and explicitness flags must resolve
   /// back to the exact stored filenames. This prevents a partial/mixed record
-  /// from relabeling files.
-  static ActiveEmbeddingIdentityRecord? tryDecode(String? encoded) {
-    if (encoded == null) return null;
+  /// from relabeling files. Nothing stored ([encoded] null) is neither a
+  /// record nor a rejection.
+  static ({ActiveEmbeddingIdentityRecord? record, String? rejection}) decode(
+    String? encoded,
+  ) {
+    ({ActiveEmbeddingIdentityRecord? record, String? rejection}) refuse(
+      String why,
+    ) => (record: null, rejection: why);
+
+    if (encoded == null) return (record: null, rejection: null);
     try {
       final value = jsonDecode(encoded);
       if (value is! Map<String, dynamic> || value['active'] is! bool) {
-        return null;
+        return refuse('it is not a JSON object with an "active" flag');
       }
       final schemaVersion = value['schemaVersion'];
       final active = value['active'] as bool;
       if (schemaVersion == selfContainedSchemaVersion) {
-        return active ? _decodeSelfContained(value) : null;
+        return active
+            ? _decodeSelfContained(value)
+            : refuse(
+                'it is an inactive schema-2 record, which is never written',
+              );
       }
-      if (schemaVersion != currentSchemaVersion) return null;
+      if (schemaVersion != currentSchemaVersion) {
+        return refuse(
+          'its schema version $schemaVersion is not one this version reads '
+          '($currentSchemaVersion or $selfContainedSchemaVersion)',
+        );
+      }
       if (!active) {
-        return const ActiveEmbeddingIdentityRecord.cleared();
+        return (
+          record: const ActiveEmbeddingIdentityRecord.cleared(),
+          rejection: null,
+        );
       }
 
       final name = value['name'];
@@ -143,7 +168,7 @@ final class ActiveEmbeddingIdentityRecord {
           tokenizerFilename is! String ||
           modelFilenameExplicit is! bool ||
           tokenizerFilenameExplicit is! bool) {
-        return null;
+        return refuse('it is missing fields, or has fields of the wrong type');
       }
 
       FileNameUtils.validatePortableFileNameSegment(
@@ -157,7 +182,7 @@ final class ActiveEmbeddingIdentityRecord {
       final decodedModelSource = ModelSource.tryDecode(modelSource);
       final decodedTokenizerSource = ModelSource.tryDecode(tokenizerSource);
       if (decodedModelSource == null || decodedTokenizerSource == null) {
-        return null;
+        return refuse('it names a model source this version cannot decode');
       }
       final reconstructed = EmbeddingModelSpec(
         name: name,
@@ -170,30 +195,34 @@ final class ActiveEmbeddingIdentityRecord {
       if (resolved.length != 2 ||
           resolved[0].filename != modelFilename ||
           resolved[1].filename != tokenizerFilename) {
-        return null;
+        return refuse('its file names do not resolve from its sources');
       }
 
-      return ActiveEmbeddingIdentityRecord._(
-        schemaVersion: currentSchemaVersion,
-        active: true,
-        name: name,
-        modelSource: modelSource,
-        tokenizerSource: tokenizerSource,
-        modelFilename: modelFilename,
-        tokenizerFilename: tokenizerFilename,
-        modelFilenameExplicit: modelFilenameExplicit,
-        tokenizerFilenameExplicit: tokenizerFilenameExplicit,
+      return (
+        record: ActiveEmbeddingIdentityRecord._(
+          schemaVersion: currentSchemaVersion,
+          active: true,
+          name: name,
+          modelSource: modelSource,
+          tokenizerSource: tokenizerSource,
+          modelFilename: modelFilename,
+          tokenizerFilename: tokenizerFilename,
+          modelFilenameExplicit: modelFilenameExplicit,
+          tokenizerFilenameExplicit: tokenizerFilenameExplicit,
+        ),
+        rejection: null,
       );
-    } catch (_) {
-      return null;
+    } on ArgumentError catch (e) {
+      return refuse('${e.message}');
+    } catch (e) {
+      return refuse('$e');
     }
   }
 
   /// A v2 record: name, model source and model filename, no tokenizer. Only
   /// ever active — a clear is written as v1.
-  static ActiveEmbeddingIdentityRecord? _decodeSelfContained(
-    Map<String, dynamic> value,
-  ) {
+  static ({ActiveEmbeddingIdentityRecord? record, String? rejection})
+  _decodeSelfContained(Map<String, dynamic> value) {
     final name = value['name'];
     final modelSource = value['modelSource'];
     final modelFilename = value['modelFilename'];
@@ -203,14 +232,22 @@ final class ActiveEmbeddingIdentityRecord {
         modelSource is! String ||
         modelFilename is! String ||
         modelFilenameExplicit is! bool) {
-      return null;
+      return (
+        record: null,
+        rejection: 'it is missing fields, or has fields of the wrong type',
+      );
     }
     FileNameUtils.validatePortableFileNameSegment(
       modelFilename,
       parameterName: 'modelFilename',
     );
     final decodedModelSource = ModelSource.tryDecode(modelSource);
-    if (decodedModelSource == null) return null;
+    if (decodedModelSource == null) {
+      return (
+        record: null,
+        rejection: 'it names a model source this version cannot decode',
+      );
+    }
     // The constructor refuses anything but a self-contained bundle here.
     final reconstructed = EmbeddingModelSpec(
       name: name,
@@ -219,15 +256,21 @@ final class ActiveEmbeddingIdentityRecord {
     );
     final resolved = reconstructed.files;
     if (resolved.length != 1 || resolved[0].filename != modelFilename) {
-      return null;
+      return (
+        record: null,
+        rejection: 'its file name does not resolve from its source',
+      );
     }
-    return ActiveEmbeddingIdentityRecord._(
-      schemaVersion: selfContainedSchemaVersion,
-      active: true,
-      name: name,
-      modelSource: modelSource,
-      modelFilename: modelFilename,
-      modelFilenameExplicit: modelFilenameExplicit,
+    return (
+      record: ActiveEmbeddingIdentityRecord._(
+        schemaVersion: selfContainedSchemaVersion,
+        active: true,
+        name: name,
+        modelSource: modelSource,
+        modelFilename: modelFilename,
+        modelFilenameExplicit: modelFilenameExplicit,
+      ),
+      rejection: null,
     );
   }
 
@@ -260,6 +303,52 @@ final class ActiveEmbeddingIdentityRecord {
       tokenizerFilename: tokenizerFilenameExplicit! ? tokenizerFilename : null,
     );
   }
+}
+
+/// Why the persisted active-embedder record was refused at the last restore
+/// in this isolate, or null. The restore fails closed (no embedder is
+/// active); this lets `getActiveEmbedder` say why instead of "No active
+/// embedding model set". Cleared whenever a new identity is written.
+String? _rejectedActiveEmbeddingIdentity;
+bool _rejectionPrinted = false;
+
+/// See [_rejectedActiveEmbeddingIdentity].
+String? get rejectedActiveEmbeddingIdentity => _rejectedActiveEmbeddingIdentity;
+
+/// Records that the persisted record was refused, and says so once per
+/// isolate — with `print`, because `edgeAiLog` is silent in release builds,
+/// where an app that "forgot" its embedder after an update gets debugged.
+void reportRejectedActiveEmbeddingIdentity(String reason) {
+  _rejectedActiveEmbeddingIdentity = reason;
+  if (_rejectionPrinted) return;
+  _rejectionPrinted = true;
+  // ignore: avoid_print
+  print(
+    '[flutter_edge_ai] WARNING: the persisted active embedding model could '
+    'not be read ($reason), so no embedder is active. Install it again with '
+    'FlutterEdgeAi.installEmbedder().',
+  );
+}
+
+/// Forgets a rejection and the one-shot notice. For tests.
+@visibleForTesting
+void resetRejectedActiveEmbeddingIdentity() {
+  _rejectedActiveEmbeddingIdentity = null;
+  _rejectionPrinted = false;
+}
+
+/// What asking for the active embedder answers when none is active: the
+/// reason a persisted record was refused, when one was.
+StateError noActiveEmbedderError() {
+  final rejected = _rejectedActiveEmbeddingIdentity;
+  return StateError(
+    rejected == null
+        ? 'No active embedding model set. Use FlutterEdgeAi.installEmbedder() '
+              'first.'
+        : 'The persisted active embedding model could not be read '
+              '($rejected), so none is active. Install it again with '
+              'FlutterEdgeAi.installEmbedder().',
+  );
 }
 
 /// Storage seam used to test delayed/out-of-order platform persistence.
@@ -475,6 +564,8 @@ final class ActiveEmbeddingIdentityCoordinator {
     ActiveEmbeddingIdentityRecord record,
   ) {
     if (_poisonedBy != null) return null;
+    // A new identity (activation or clear) supersedes a refused old record.
+    _rejectedActiveEmbeddingIdentity = null;
     final generation = ++_generation;
     _notifyEnqueued(generation);
     final previous = _writeTail;
