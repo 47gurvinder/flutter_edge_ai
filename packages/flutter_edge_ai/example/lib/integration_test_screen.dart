@@ -1136,7 +1136,8 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
     _log('  1. Cleanup all downloaded models');
     _log('  2. Download tests (with cleanup after each): 8 tests');
     _log('  3. Assets tests (with cleanup after each): 8 tests');
-    _log('  4. Bundled tests (NO cleanup): 4 tests');
+    _log('  4. Bundled tests (NO cleanup): 8 tests');
+    _log('  5. FileSource tests (pre-placed files, NO cleanup): 6 tests');
     _log('');
 
     try {
