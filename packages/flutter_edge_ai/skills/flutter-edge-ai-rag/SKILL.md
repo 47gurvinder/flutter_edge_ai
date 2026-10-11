@@ -374,7 +374,9 @@ location.
 
 - Copy `web/rag/sqlite3.wasm` from `flutter_edge_ai_sqlite` to the same path in
   the app. Copy the four matching LiteRT embedding files from
-  `flutter_edge_ai_litertlm/web/` when that runtime is used.
+  `flutter_edge_ai_litertlm/web/` when that runtime is used, and copy them
+  again after upgrading it: a stale `litert_embeddings.js` fails
+  `getActiveEmbedder()` with an `EmbeddingLoadException` that names the file.
 - A filter with no effect usually names a field omitted from `filterSchema`.
   SQLite names must match `^[A-Za-z][A-Za-z0-9_]*$` and avoid reserved columns.
 - A profile mismatch means model/preprocessing bytes changed or the wrong
