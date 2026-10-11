@@ -22,10 +22,10 @@ library;
 
 import 'dart:io';
 
-import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
-import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'surface_analysis.dart';
 
 const _libraries = [
   'flutter_edge_ai.dart',
@@ -38,37 +38,20 @@ const _libraries = [
 const _ownPackage = 'package:flutter_edge_ai/';
 
 void main() {
-  final update = Platform.environment['UPDATE_GOLDENS'] == '1';
-  // Regenerating on CI would make the check pass by definition.
-  final onCi = (Platform.environment['CI'] ?? '').isNotEmpty;
-
   for (final library in _libraries) {
     test('$library export namespace matches its golden', () async {
-      final namespace = await _exportNamespace(library);
-      final actual = _render(library, namespace);
-      final golden = File(
-        'test/public_surface/${library.replaceAll('.dart', '')}.golden.txt',
+      final namespace = await exportNamespace(library);
+      expectGolden(
+        File(
+          'test/public_surface/${library.replaceAll('.dart', '')}.golden.txt',
+        ),
+        _render(library, namespace),
+        (expected, actual) => describeLineDrift(
+          'The export namespace of package:flutter_edge_ai/$library',
+          expected,
+          actual,
+        ),
       );
-      if (update) {
-        if (onCi) {
-          fail(
-            'UPDATE_GOLDENS=1 is refused while CI is set: a regenerated golden '
-            'always matches. Regenerate locally and commit the reviewed diff.',
-          );
-        }
-        golden.writeAsStringSync(actual);
-        return;
-      }
-      expect(
-        golden.existsSync(),
-        isTrue,
-        reason:
-            'Missing ${golden.path}. Run with UPDATE_GOLDENS=1 to create it.',
-      );
-      final expected = golden.readAsStringSync();
-      if (actual != expected) {
-        fail(_describeDrift(library, expected, actual));
-      }
     }, timeout: const Timeout(Duration(minutes: 5)));
   }
 
@@ -78,7 +61,7 @@ void main() {
       // pubspec.yaml registers `dartPluginClass: FlutterEdgeAiDesktop` for
       // macOS/Windows/Linux without a `dartFileName`, so Flutter's generated
       // registrant resolves it through package:flutter_edge_ai/flutter_edge_ai.dart.
-      final namespace = await _exportNamespace('flutter_edge_ai.dart');
+      final namespace = await exportNamespace('flutter_edge_ai.dart');
       final element = namespace['FlutterEdgeAiDesktop'];
       expect(element, isA<ClassElement>());
       final registerWith = (element! as ClassElement).getMethod('registerWith');
@@ -87,33 +70,6 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 5)),
   );
-}
-
-AnalysisContextCollection? _collection;
-
-AnalysisContextCollection _contexts() =>
-    _collection ??= AnalysisContextCollection(
-      includedPaths: [Directory.current.absolute.path],
-      sdkPath: _dartSdkPath(),
-    );
-
-Future<Map<String, Element>> _exportNamespace(String library) async {
-  final path = File('lib/$library').absolute.path;
-  final result = await _contexts()
-      .contextFor(path)
-      .currentSession
-      .getResolvedLibrary(path);
-  if (result is! ResolvedLibraryResult) {
-    throw StateError('Cannot resolve $path: $result');
-  }
-  final errors = result.units
-      .expand((unit) => unit.diagnostics)
-      .where((d) => d.severity.name == 'error')
-      .toList();
-  if (errors.isNotEmpty) {
-    throw StateError('$library does not analyze cleanly: $errors');
-  }
-  return result.element.exportNamespace.definedNames2;
 }
 
 String _render(String library, Map<String, Element> namespace) {
@@ -180,47 +136,4 @@ String _describe(Element element) {
   }
   if (element.metadata.hasDeprecated) modifiers.add('deprecated');
   return modifiers.isEmpty ? kind : '$kind ${modifiers.join(' ')}';
-}
-
-String _describeDrift(String library, String expected, String actual) {
-  Set<String> body(String text) =>
-      text.split('\n').where((l) => l.isNotEmpty && !l.startsWith('#')).toSet();
-  final before = body(expected);
-  final after = body(actual);
-  final added = after.difference(before).toList()..sort();
-  final removed = before.difference(after).toList()..sort();
-  return [
-    'The export namespace of package:flutter_edge_ai/$library changed.',
-    if (added.isNotEmpty) 'Added:\n${added.map((l) => '  + $l').join('\n')}',
-    if (removed.isNotEmpty)
-      'Removed:\n${removed.map((l) => '  - $l').join('\n')}',
-    'If this is intended, regenerate the golden with UPDATE_GOLDENS=1 and '
-        'review the diff.',
-  ].join('\n');
-}
-
-/// The Dart SDK the analyzer should use. `flutter test` runs this file in
-/// flutter_tester, whose executable is not inside a Dart SDK, so find the SDK
-/// Flutter ships in `<flutter>/bin/cache/dart-sdk`.
-String _dartSdkPath() {
-  final candidates = <String>[
-    if (Platform.environment['FLUTTER_ROOT'] case final root?)
-      '$root/bin/cache/dart-sdk',
-  ];
-  var dir = File(Platform.resolvedExecutable).parent;
-  for (var i = 0; i < 8; i++) {
-    candidates
-      ..add('${dir.path}/dart-sdk')
-      ..add(dir.path);
-    dir = dir.parent;
-  }
-  for (final candidate in candidates) {
-    if (File('$candidate/version').existsSync() &&
-        Directory('$candidate/lib/core').existsSync()) {
-      return candidate;
-    }
-  }
-  throw StateError(
-    'No Dart SDK found near ${Platform.resolvedExecutable}; set FLUTTER_ROOT.',
-  );
 }
