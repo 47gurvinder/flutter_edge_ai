@@ -30,10 +30,9 @@ final class QdrantVectorStore extends VectorStoreRepository {
       );
 
   @override
-  Future<VectorStoreBinding?> readBinding() async =>
-      throw UnimplementedError(
-        'QdrantVectorStore is native-only; qdrant-edge cannot run on web',
-      );
+  Future<VectorStoreBinding?> readBinding() async => throw UnimplementedError(
+    'QdrantVectorStore is native-only; qdrant-edge cannot run on web',
+  );
 
   @override
   Future<void> bind(VectorStoreBinding binding) async =>

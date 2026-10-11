@@ -109,8 +109,8 @@ final class VectorStoreBinding {
   /// `'${profile.id}\u001F${documents.name}'`.
   String get v1RecordId => switch (documents) {
     EmbeddingModality.text => profile.id,
-    EmbeddingModality.image ||
-    EmbeddingModality.audio => '${profile.id}$_qualifierSeparator${documents.name}',
+    EmbeddingModality.image || EmbeddingModality.audio =>
+      '${profile.id}$_qualifierSeparator${documents.name}',
   };
 
   /// For store implementations: the inverse of [v1RecordId]. An unqualified

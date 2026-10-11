@@ -34,10 +34,9 @@ final class SqliteVectorStore extends VectorStoreRepository {
       );
 
   @override
-  Future<VectorStoreBinding?> readBinding() async =>
-      throw UnimplementedError(
-        'SqliteVectorStore is not available on web; use WebSqliteVectorStore',
-      );
+  Future<VectorStoreBinding?> readBinding() async => throw UnimplementedError(
+    'SqliteVectorStore is not available on web; use WebSqliteVectorStore',
+  );
 
   @override
   Future<void> bind(VectorStoreBinding binding) async =>
