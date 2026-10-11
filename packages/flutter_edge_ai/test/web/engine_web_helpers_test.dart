@@ -6,8 +6,13 @@
 // up. Browser runs belong on the GCE VM (never a local browser):
 //   flutter test test/web/engine_web_helpers_test.dart --platform chrome
 //
-// The OPFS → blob: branch of resolveWebModelUrl needs a real streamed install;
-// it is exercised by the ONNX web embedding suites under WebStorageMode.streaming.
+// NOT covered by any automated test yet: resolveWebModelUrl's success path for
+// an `opfs://` path (`opfs.getStream` → `Response.blob()` →
+// `URL.createObjectURL`) and its `opfs == null` refusal. Both need a real
+// streaming-mode (OPFS) install. The logic is token-identical to the
+// flutter_edge_ai_onnx resolver it replaced (`resolveOnnxWebPath`), and the
+// web drive suite of the embedding-API PR adds an embedder run under
+// WebStorageMode.streaming that exercises it end to end.
 @TestOn('browser')
 library;
 
@@ -18,12 +23,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  setUp(ServiceRegistry.reset);
+  // The web test entrypoint registers no plugins: bind the test binding and
+  // mock SharedPreferences before anything touches them.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    ServiceRegistry.reset();
+  });
+
   tearDown(ServiceRegistry.reset);
 
   group('resolveWebModelUrl', () {
     test('returns blob:, https: and relative paths unchanged', () async {
-      await ServiceRegistry.initialize();
+      // Anything that is not `opfs://` returns before the registry is read.
       for (final path in [
         'blob:https://example.com/0a1b2c',
         'https://huggingface.co/org/repo/resolve/main/model.onnx',
@@ -50,7 +63,6 @@ void main() {
 
   group('WebModelSourceResolver.activeInferenceSpec', () {
     test('throws StateError when no inference model is active', () async {
-      SharedPreferences.setMockInitialValues({});
       await ServiceRegistry.initialize();
       await expectLater(
         WebModelSourceResolver.forActiveModel().activeInferenceSpec(),
@@ -67,22 +79,26 @@ void main() {
     test(
       'returns the restored active spec after awaiting the restore',
       () async {
-        // A builtIn identity restores without an installed file, which keeps
-        // this test free of downloads (see web_builtin_restore_test.dart).
+        // The case onnx's TransformersWebResolver depends on: an ONNX web
+        // inference identity is fileless (Transformers.js resolves the repo
+        // itself), so it restores from prefs without an installed file.
+        const repoUrl =
+            'https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct';
         SharedPreferences.setMockInitialValues({
-          'active_inference_model_type': 'general',
-          'active_inference_file_type': 'builtIn',
-          'active_inference_filename': 'gemini-nano',
-          'active_inference_source': 'bundled|gemini-nano',
+          'active_inference_model_type': 'qwen',
+          'active_inference_file_type': 'onnx',
+          'active_inference_filename': 'Qwen2.5-0.5B-Instruct',
+          'active_inference_source': 'network|$repoUrl',
         });
         await ServiceRegistry.initialize();
 
         final spec = await WebModelSourceResolver.forActiveModel()
             .activeInferenceSpec();
 
-        expect(spec.name, 'gemini-nano');
-        expect(spec.fileType, ModelFileType.builtIn);
-        expect(spec.modelSource, BundledSource('gemini-nano'));
+        expect(spec.name, 'Qwen2.5-0.5B-Instruct');
+        expect(spec.fileType, ModelFileType.onnx);
+        expect(spec.modelType, ModelType.qwen);
+        expect(spec.modelSource, NetworkSource(repoUrl));
       },
     );
   });
