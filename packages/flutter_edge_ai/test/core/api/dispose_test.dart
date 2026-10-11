@@ -35,7 +35,7 @@ void main() {
 
   test('dispose clears every provider registry', () async {
     EngineRegistry.instance.registerAll([_MockInferenceEngine()]);
-    EmbeddingRegistry.instance.registerAll([_MockEmbeddingBackend()]);
+    EmbeddingRegistry.instance.registerAll([const _FakeEmbeddingBackend()]);
     EmbeddingTokenizerRegistry.instance.registerAll([_MockTokenizer()]);
     SttRegistry.instance.registerAll([_MockSttBackend()]);
     TtsRegistry.instance.registerAll([_MockTtsBackend()]);
@@ -67,10 +67,24 @@ void _resetAll() {
 
 class _MockInferenceEngine extends Mock implements InferenceEngineProvider {}
 
-// TRANSITIONAL(C stage 2): `implements` stops compiling once
-// EmbeddingBackendProvider is `abstract base` (stage 3); rewrite as a
-// `final class … extends EmbeddingBackendProvider` fake.
-class _MockEmbeddingBackend extends Mock implements EmbeddingBackendProvider {}
+/// Only registered and cleared. A fake that extends, not a mock:
+/// `EmbeddingBackendProvider` becomes `abstract base` in 2.2.0, which no mock
+/// can implement.
+final class _FakeEmbeddingBackend extends EmbeddingBackendProvider {
+  const _FakeEmbeddingBackend();
+
+  @override
+  String get name => 'FakeEmbedding';
+
+  @override
+  bool canHandle(EmbeddingModelSpec spec) => false;
+
+  @override
+  Future<EmbeddingPassDescriptor<Object>> describe(
+    EmbeddingModelSpec spec,
+    RuntimeConfig config,
+  ) => Future.error(UnimplementedError('dispose tests never build'));
+}
 
 class _MockTokenizer extends Mock implements EmbeddingTokenizerProvider {}
 

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_edge_ai/src/domain/platform_types.dart';
 import 'package:flutter_edge_ai/src/embedding/embedder_backend_notice.dart';
+import 'package:flutter_edge_ai/src/embedding/embedding_input.dart';
 import 'package:flutter_edge_ai/src/utils/edge_ai_log.dart';
 // TRANSITIONAL(C stage 3): the old-seam cases below (CommonEmbeddingModel.create
 // over a ForwardPassDescriptor) go with the seam.
@@ -12,27 +13,21 @@ import 'package:flutter_edge_ai/src/registry/runtime_config.dart';
 import 'package:flutter_edge_ai/src/interface.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Nothing but the defaults, to pin what an implementation gets for free.
-// TRANSITIONAL(C stage 2): old-shape fake (generate*/getDimension). Rewrite
-// as `final class … extends EmbeddingModel` over `embed`/`dimension`;
-// stage 3 makes those abstract.
-class _BareEmbedder extends EmbeddingModel {
+/// Nothing but what a fake must implement, to pin what it gets for free.
+final class _BareEmbedder extends EmbeddingModel {
+  @override
+  int get dimension => 1;
+  @override
+  bool get isClosed => false;
+  @override
+  Future<List<double>> embed(
+    EmbeddingInput input, {
+    required TaskType taskType,
+  }) async => const [0.0];
   @override
   void addCloseListener(void Function() listener) {}
   @override
   Future<void> close() async {}
-  @override
-  Future<List<double>> generateEmbedding(
-    String text, {
-    TaskType taskType = TaskType.retrievalQuery,
-  }) async => const [];
-  @override
-  Future<List<List<double>>> generateEmbeddings(
-    List<String> texts, {
-    TaskType taskType = TaskType.retrievalQuery,
-  }) async => const [];
-  @override
-  Future<int> getDimension() async => 0;
 }
 
 void main() {

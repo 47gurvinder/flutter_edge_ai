@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_edge_ai/src/embedding/embedder_cache.dart';
 import 'package:flutter_edge_ai/src/embedding/embedding_exceptions.dart';
+import 'package:flutter_edge_ai/src/embedding/embedding_input.dart';
 import 'package:flutter_edge_ai/src/embedding/embedding_modality.dart';
 import 'package:flutter_edge_ai/src/lifecycle/close_notifier.dart';
 import 'package:flutter_edge_ai/src/registry/runtime_config.dart';
@@ -743,7 +744,7 @@ void main() {
 
 /// Closes without telling anyone, the way a third-party implementation that
 /// does not mix in `CloseNotifier` might.
-class _SilentCloseEmbedder extends _FakeEmbedder {
+final class _SilentCloseEmbedder extends _FakeEmbedder {
   bool _closed = false;
 
   @override
@@ -757,7 +758,7 @@ class _SilentCloseEmbedder extends _FakeEmbedder {
 
 /// Refuses to register a close listener, the way a third-party implementation
 /// that does not mix in `CloseNotifier` might.
-class _HostileListenerEmbedder extends _FakeEmbedder {
+final class _HostileListenerEmbedder extends _FakeEmbedder {
   _HostileListenerEmbedder({super.throwOnClose});
 
   @override
@@ -765,10 +766,10 @@ class _HostileListenerEmbedder extends _FakeEmbedder {
       throw StateError('this model does not support close listeners');
 }
 
-// TRANSITIONAL(C stage 2): old-shape fake (generate*/getDimension). Rewrite
-// as `final class … extends EmbeddingModel` over `embed`/`dimension`;
-// stage 3 makes those abstract.
-class _FakeEmbedder extends EmbeddingModel with CloseNotifier {
+/// The fake embedder, and the base of the others in this file (`base`, so
+/// they can refine it; each of them is `final`). It never reports itself closed — the cache must learn of a
+/// close from the listener — unless a subclass says otherwise.
+base class _FakeEmbedder extends EmbeddingModel with CloseNotifier {
   _FakeEmbedder({this.closeGate, this.throwOnClose = false});
 
   final Completer<void>? closeGate;
@@ -779,21 +780,16 @@ class _FakeEmbedder extends EmbeddingModel with CloseNotifier {
   bool closed = false;
 
   @override
-  Future<List<double>> generateEmbedding(
-    String text, {
-    TaskType taskType = TaskType.retrievalQuery,
+  int get dimension => 1;
+
+  @override
+  bool get isClosed => false;
+
+  @override
+  Future<List<double>> embed(
+    EmbeddingInput input, {
+    required TaskType taskType,
   }) async => const [0.0];
-
-  @override
-  Future<List<List<double>>> generateEmbeddings(
-    List<String> texts, {
-    TaskType taskType = TaskType.retrievalQuery,
-  }) async => const [
-    [0.0],
-  ];
-
-  @override
-  Future<int> getDimension() async => 1;
 
   @override
   Future<void> close() async {
@@ -808,7 +804,7 @@ class _FakeEmbedder extends EmbeddingModel with CloseNotifier {
 /// Closes the way `CommonEmbeddingModel` does: `isClosed` turns true at once,
 /// the teardown takes as long as [_gate], and every `close()` call returns that
 /// same teardown.
-class _JoiningCloseEmbedder extends _FakeEmbedder {
+final class _JoiningCloseEmbedder extends _FakeEmbedder {
   _JoiningCloseEmbedder(this._gate);
 
   final Completer<void> _gate;
