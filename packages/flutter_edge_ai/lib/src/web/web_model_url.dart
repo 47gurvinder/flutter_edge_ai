@@ -34,6 +34,12 @@ external JSString _createObjectUrlJs(JSAny blob);
 /// file; any other path is returned unchanged. Throws [StateError] when an
 /// `opfs://` path arrives while streaming storage is not enabled or OPFS is not
 /// available.
+///
+/// Ownership: the `blob:` URL made for an `opfs://` path is a NEW object URL
+/// that belongs to the caller. Revoke it (`URL.revokeObjectURL`) once its
+/// consumer has read the file — on success and on failure alike — or it pins a
+/// model-sized Blob until the page unloads. Any other path is returned as it
+/// came and is not the caller's: never revoke it (core may own it).
 Future<String> resolveWebModelUrl(String rawPath) async {
   if (!rawPath.startsWith('opfs://')) return rawPath;
 

@@ -17,7 +17,11 @@ final class FakeOrtClient implements OrtClient {
     RunResult? runResult,
     this.loadError,
     this.closeError,
+    this.onLoad,
   }) : runResult = runResult ?? pooled([1, 0]);
+
+  /// Called with the path as `load()` starts, before it can fail.
+  final void Function(String modelPath)? onLoad;
 
   final OrtIoSpec ioSpec;
   final RunResult runResult;
@@ -39,6 +43,7 @@ final class FakeOrtClient implements OrtClient {
   @override
   Future<OrtIoSpec> load(String modelPath) async {
     loadedPaths.add(modelPath);
+    onLoad?.call(modelPath);
     final error = loadError;
     if (error != null) throw error;
     return ioSpec;

@@ -78,11 +78,16 @@ LiteRtJsEmbeddingPass _pass() => LiteRtJsEmbeddingPass(
     tokenizerPath: 't',
     bundle: WindowLiteRtJsBundle(),
     resolveUrl: _unchanged,
+    revokeUrl: _neverCalled,
   ),
 );
 
 /// These stubs need no resolving; the resolution is the backend suite's.
 Future<String> _unchanged(String path) async => path;
+
+/// Nothing here is resolved from `opfs://`, so nothing may be revoked.
+void _neverCalled(String url) =>
+    fail('revoked $url, which the pass did not create');
 
 void main() {
   test('a pass closing while its replacement loads leaves the replacement '

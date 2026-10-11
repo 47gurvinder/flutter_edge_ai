@@ -34,6 +34,8 @@ OnnxWebEmbeddingPass _pass(
   FakeOrtClient client, {
   CharTokenizer? tokenizer,
   List<String>? tokenizerPaths,
+  List<String>? revoked,
+  Object? tokenizerError,
   String modelPath = 'blob:model',
   String tokenizerPath = 'blob:tokenizer',
 }) {
@@ -44,9 +46,15 @@ OnnxWebEmbeddingPass _pass(
       tokenizerPath: tokenizerPath,
       tokenizerFactory: (path) async {
         tokenizerPaths?.add(path);
+        // The tokenizer reads its file during the factory call: its URL must
+        // still be live here.
+        expect(revoked ?? const <String>[], isNot(contains(path)));
+        final error = tokenizerError;
+        if (error != null) throw error;
         return t;
       },
       resolveUrl: _fakeResolve,
+      revokeUrl: (url) => revoked?.add(url),
       clientFactory: () => client,
     ),
   );
@@ -90,6 +98,78 @@ void main() {
       await _pass(client, tokenizerPaths: tokenizerPaths).load();
       expect(tokenizerPaths, ['blob:tokenizer']);
       expect(client.loadedPaths, ['blob:model']);
+    });
+  });
+
+  group('object URLs the pass created', () {
+    const sentenceGraph = OrtIoSpec(
+      inputNames: ['input_ids'],
+      outputName: 'sentence_embedding',
+      hasLastHiddenStateOutput: false,
+      staticDim: 2,
+    );
+
+    test('the blob: URLs made for opfs:// paths are revoked once read — not '
+        'before', () async {
+      final revoked = <String>[];
+      final client = FakeOrtClient(
+        ioSpec: sentenceGraph,
+        // The session reads its URL during load: still live here.
+        onLoad: (url) => expect(revoked, isNot(contains(url))),
+      );
+      await _pass(
+        client,
+        revoked: revoked,
+        modelPath: 'opfs://minilm.onnx',
+        tokenizerPath: 'opfs://tokenizer.json',
+      ).load();
+
+      expect(
+        revoked,
+        unorderedEquals([
+          'blob:resolved/tokenizer.json',
+          'blob:resolved/minilm.onnx',
+        ]),
+      );
+    });
+
+    test('a URL core owns (not opfs://) is never revoked', () async {
+      final revoked = <String>[];
+      await _pass(
+        FakeOrtClient(ioSpec: sentenceGraph),
+        revoked: revoked,
+      ).load();
+      expect(revoked, isEmpty);
+    });
+
+    test('a session that fails to load still releases its URL', () async {
+      final revoked = <String>[];
+      final pass = _pass(
+        FakeOrtClient(
+          ioSpec: sentenceGraph,
+          loadError: StateError('CreateSession failed'),
+        ),
+        revoked: revoked,
+        modelPath: 'opfs://minilm.onnx',
+        tokenizerPath: 'opfs://tokenizer.json',
+      );
+      await expectLater(pass.load(), throwsStateError);
+      expect(revoked, contains('blob:resolved/minilm.onnx'));
+      await pass.close();
+    });
+
+    test('a tokenizer that fails to load still releases its URL', () async {
+      final revoked = <String>[];
+      final pass = _pass(
+        FakeOrtClient(ioSpec: sentenceGraph),
+        revoked: revoked,
+        tokenizerError: StateError('not a tokenizer'),
+        modelPath: 'opfs://minilm.onnx',
+        tokenizerPath: 'opfs://tokenizer.json',
+      );
+      await expectLater(pass.load(), throwsStateError);
+      expect(revoked, ['blob:resolved/tokenizer.json']);
+      await pass.close();
     });
   });
 

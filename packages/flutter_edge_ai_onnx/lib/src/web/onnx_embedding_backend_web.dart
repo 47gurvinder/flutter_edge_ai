@@ -8,7 +8,7 @@ import 'package:flutter_edge_ai/engine_web.dart' show resolveWebModelUrl;
 
 import '../embedding/ort_token_graph.dart';
 import 'onnx_web_embedding_pass.dart';
-import 'ort_web_client.dart';
+import 'ort_web_client.dart' show OrtWebClient, revokeObjectUrl;
 
 /// ONNX Runtime embedding backend — web arm (`onnxruntime-web`). The
 /// tokenizer comes from core's tokenizer registry, whose web arm is
@@ -60,6 +60,7 @@ final class OnnxEmbeddingBackend extends EmbeddingBackendProvider {
         // resolves each (model AND tokenizer) to a `blob:` URL before it is
         // fetched.
         resolveUrl: resolveWebModelUrl,
+        revokeUrl: revokeObjectUrl,
         clientFactory: OrtWebClient.new,
       ),
       // onnxruntime-web resolves `['webgpu', 'wasm']` in order and keeps the

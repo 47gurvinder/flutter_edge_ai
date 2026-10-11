@@ -10,7 +10,8 @@ import 'package:flutter_edge_ai/engine.dart';
 import 'package:flutter_edge_ai/engine_web.dart' show resolveWebModelUrl;
 
 import 'web/litert_js_embedding_pass.dart';
-import 'web/litert_web_embeddings.dart' show WindowLiteRtJsBundle;
+import 'web/litert_web_embeddings.dart'
+    show WindowLiteRtJsBundle, revokeObjectUrl;
 
 /// LiteRT embedding backend, web: EmbeddingGemma `.tflite` through LiteRT.js.
 final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
@@ -55,6 +56,7 @@ final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
         // Under WebStorageMode.streaming both paths are `opfs://`; the pass
         // resolves each to a `blob:` URL before the bundle fetches it.
         resolveUrl: resolveWebModelUrl,
+        revokeUrl: revokeObjectUrl,
       ),
       // The runtime picks the accelerator itself and the answer does not
       // exist until it has run; the bundle reports it through

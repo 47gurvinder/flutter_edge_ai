@@ -61,6 +61,7 @@ void main() {
     expect(config.modelPath, 'opfs://gemma.tflite');
     expect(config.tokenizerPath, 'opfs://t.model');
     expect(config.resolveUrl == resolveWebModelUrl, isTrue);
+    expect(config.revokeUrl == revokeObjectUrl, isTrue);
     expect(config.bundle, isA<WindowLiteRtJsBundle>());
     expect(descriptor.activeBackend, isNull, reason: 'unknown, never CPU');
     expect(descriptor.build(), isA<LiteRtJsEmbeddingPass>());
@@ -69,6 +70,7 @@ void main() {
   test('the bundle\'s loadLiteRtEmbeddings receives resolved URLs for both '
       'opfs:// paths', () async {
     final received = <String>[];
+    final revoked = <String>[];
     globalContext['loadLiteRtEmbeddings'] =
         ((JSString model, JSString tokenizer, JSAny? wasm) {
           received
@@ -93,11 +95,17 @@ void main() {
         bundle: described.bundle,
         resolveUrl: (path) async =>
             'blob:resolved/${path.substring('opfs://'.length)}',
+        revokeUrl: revoked.add,
       ),
     );
 
     await pass.load();
     expect(received, ['blob:resolved/gemma.tflite', 'blob:resolved/t.model']);
+    expect(
+      revoked,
+      unorderedEquals(received),
+      reason: 'the pass created both URLs, so it releases both',
+    );
     await pass.close();
   });
 

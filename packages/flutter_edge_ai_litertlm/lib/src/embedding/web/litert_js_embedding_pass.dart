@@ -52,6 +52,7 @@ final class LiteRtJsEmbeddingConfig {
     required this.tokenizerPath,
     required this.bundle,
     required this.resolveUrl,
+    required this.revokeUrl,
   });
 
   /// The paths core registered for the installed files — under
@@ -64,6 +65,12 @@ final class LiteRtJsEmbeddingConfig {
 
   /// `resolveWebModelUrl`: `opfs://` → `blob:`, anything else unchanged.
   final Future<String> Function(String path) resolveUrl;
+
+  /// `URL.revokeObjectURL`: releases a URL [resolveUrl] created. The pass
+  /// owns those (the `blob:` URL of an `opfs://` path) and revokes them once
+  /// the bundle has read them; a path it did not resolve from `opfs://` is
+  /// never revoked.
+  final void Function(String url) revokeUrl;
 }
 
 /// The descriptor factory.
@@ -132,14 +139,30 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
     // Under WebStorageMode.streaming both are `opfs://`, which the bundle's
     // fetch() rejects: every LiteRT.js embedder failed to load there.
     final tokenizerUrl = await _config.resolveUrl(_config.tokenizerPath);
-    final modelUrl = await _config.resolveUrl(_config.modelPath);
-    await _bundle.load(modelUrl, tokenizerUrl, wasmPath);
+    try {
+      final modelUrl = await _config.resolveUrl(_config.modelPath);
+      try {
+        await _bundle.load(modelUrl, tokenizerUrl, wasmPath);
+      } finally {
+        // The bundle has read the model by now (or failed to).
+        _releaseIfCreated(_config.modelPath, modelUrl);
+      }
+    } finally {
+      _releaseIfCreated(_config.tokenizerPath, tokenizerUrl);
+    }
     _loadedWasmPath ??= wasmPath;
     _loaded = true;
     if (kDebugMode) edgeAiLog('LiteRT.js embeddings loaded');
     // v1 cannot report the model's input length.
     return EmbeddingPassInfo(dimension: _bundle.dimension);
   });
+
+  /// Revokes [url] when this pass created it — the `blob:` URL of an
+  /// `opfs://` [rawPath] — and never a URL core owns. Each holds a
+  /// model-sized Blob until the page unloads otherwise.
+  void _releaseIfCreated(String rawPath, String url) {
+    if (rawPath.startsWith('opfs://')) _config.revokeUrl(url);
+  }
 
   @override
   Future<List<double>> embed(EmbeddingInput input, TaskType taskType) async {

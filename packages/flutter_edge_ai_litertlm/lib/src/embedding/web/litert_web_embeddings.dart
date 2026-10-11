@@ -264,3 +264,9 @@ final class WindowLiteRtJsBundle implements LiteRtJsBundle {
   @override
   Future<void> dispose() => LiteRTWebEmbeddings.dispose();
 }
+
+@JS('URL.revokeObjectURL')
+external void _revokeObjectUrlJs(JSString url);
+
+/// Releases an object URL the pass created through `resolveWebModelUrl`.
+void revokeObjectUrl(String url) => _revokeObjectUrlJs(url.toJS);

@@ -59,6 +59,7 @@ void main() {
     expect(config.modelPath, 'opfs://model.onnx');
     expect(config.tokenizerPath, 'opfs://tokenizer.json');
     expect(config.resolveUrl == resolveWebModelUrl, isTrue);
+    expect(config.revokeUrl == revokeObjectUrl, isTrue);
     expect(config.clientFactory(), isA<OrtWebClient>());
     expect(config.tokenizerFactory == _unused, isTrue);
     expect(descriptor.activeBackend, isNull, reason: 'unknown, never CPU');

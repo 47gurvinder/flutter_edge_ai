@@ -22,6 +22,9 @@ final class _FakePage implements LiteRtJsBundle {
   /// does when the model fails to compile.
   bool failNextLoad = false;
 
+  /// Called as a load starts, while the bundle is reading its URLs.
+  void Function()? onLoad;
+
   bool modelLoaded = false;
   bool tokenizerLoaded = false;
   final loads = <({String model, String tokenizer})>[];
@@ -35,6 +38,7 @@ final class _FakePage implements LiteRtJsBundle {
     String wasmPath,
   ) async {
     loads.add((model: modelUrl, tokenizer: tokenizerUrl));
+    onLoad?.call();
     await Future<void>.delayed(
       loadDelays[(loads.length - 1).clamp(0, loadDelays.length - 1)],
     );
@@ -79,12 +83,14 @@ LiteRtJsEmbeddingPass _pass(
   _FakePage page, {
   String modelPath = 'blob:model',
   String tokenizerPath = 'blob:tokenizer',
+  List<String>? revoked,
 }) => LiteRtJsEmbeddingPass(
   LiteRtJsEmbeddingConfig(
     modelPath: modelPath,
     tokenizerPath: tokenizerPath,
     bundle: page,
     resolveUrl: _fakeResolve,
+    revokeUrl: (url) => revoked?.add(url),
   ),
 );
 
@@ -121,6 +127,55 @@ void main() {
         await pass.close();
       },
     );
+  });
+
+  group('object URLs the pass created', () {
+    test('the blob: URLs made for opfs:// paths are revoked once the bundle '
+        'has read them — not before', () async {
+      final revoked = <String>[];
+      final page = _FakePage()
+        ..onLoad = () => expect(revoked, isEmpty, reason: 'still being read');
+      final pass = _pass(
+        page,
+        modelPath: 'opfs://gemma.tflite',
+        tokenizerPath: 'opfs://sentencepiece.model',
+        revoked: revoked,
+      );
+
+      await pass.load();
+
+      expect(
+        revoked,
+        unorderedEquals([
+          'blob:resolved/gemma.tflite',
+          'blob:resolved/sentencepiece.model',
+        ]),
+      );
+      await pass.close();
+    });
+
+    test('a load that fails still releases both', () async {
+      final revoked = <String>[];
+      final page = _FakePage()..failNextLoad = true;
+      final pass = _pass(
+        page,
+        modelPath: 'opfs://gemma.tflite',
+        tokenizerPath: 'opfs://sentencepiece.model',
+        revoked: revoked,
+      );
+
+      await expectLater(pass.load(), throwsStateError);
+      expect(revoked, hasLength(2));
+      await pass.close();
+    });
+
+    test('a URL core owns (not opfs://) is never revoked', () async {
+      final revoked = <String>[];
+      final pass = _pass(_FakePage(), revoked: revoked);
+      await pass.load();
+      await pass.close();
+      expect(revoked, isEmpty);
+    });
   });
 
   group('bundle API v1', () {

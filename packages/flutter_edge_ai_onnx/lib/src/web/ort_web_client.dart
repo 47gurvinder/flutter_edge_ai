@@ -161,3 +161,10 @@ class OrtWebClient implements OrtClient {
     }
   }
 }
+
+@JS('URL.revokeObjectURL')
+external void _revokeObjectUrlJs(JSString url);
+
+/// Releases an object URL the web embedding pass created through
+/// `resolveWebModelUrl`.
+void revokeObjectUrl(String url) => _revokeObjectUrlJs(url.toJS);

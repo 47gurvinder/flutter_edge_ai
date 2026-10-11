@@ -25,6 +25,7 @@ final class OnnxWebEmbeddingConfig {
     required this.tokenizerPath,
     required this.tokenizerFactory,
     required this.resolveUrl,
+    required this.revokeUrl,
     required this.clientFactory,
   });
 
@@ -40,6 +41,11 @@ final class OnnxWebEmbeddingConfig {
   /// Turns [modelPath] / [tokenizerPath] into a URL the page can fetch
   /// (`resolveWebModelUrl`: `opfs://` → `blob:`, anything else unchanged).
   final Future<String> Function(String path) resolveUrl;
+
+  /// `URL.revokeObjectURL`: releases a URL [resolveUrl] created. The pass
+  /// owns those (the `blob:` URL of an `opfs://` path) and revokes them once
+  /// consumed; a path it did not resolve from `opfs://` is never revoked.
+  final void Function(String url) revokeUrl;
 
   /// The ORT session (`OrtWebClient` on the page).
   final OrtClient Function() clientFactory;
@@ -64,20 +70,45 @@ final class OnnxWebEmbeddingPass extends TokenEmbeddingPass {
   OrtIoSpec? _spec;
 
   /// The registry's tokenizer factory, handed the RESOLVED tokenizer URL: it
-  /// fetches the file, and an `opfs://` path is not fetchable.
+  /// fetches the file, and an `opfs://` path is not fetchable. The URL is
+  /// released once the factory has read it.
   static EmbeddingTokenizerFactory _resolvingFirst(
     OnnxWebEmbeddingConfig config,
-  ) =>
-      (path) async => config.tokenizerFactory(await config.resolveUrl(path));
+  ) => (path) async {
+    final url = await config.resolveUrl(path);
+    try {
+      return await config.tokenizerFactory(url);
+    } finally {
+      _releaseIfCreated(config, path, url);
+    }
+  };
+
+  /// Revokes [url] when this pass created it — the `blob:` URL of an
+  /// `opfs://` [rawPath] — and never a URL core owns. Each holds a
+  /// model-sized Blob until the page unloads otherwise.
+  static void _releaseIfCreated(
+    OnnxWebEmbeddingConfig config,
+    String rawPath,
+    String url,
+  ) {
+    if (rawPath.startsWith('opfs://')) config.revokeUrl(url);
+  }
 
   @override
   Future<TokenPassGraph> openGraph() async {
     final modelUrl = await _config.resolveUrl(_config.modelPath);
-    final client = _config.clientFactory();
-    // Held before the session opens, so closeGraph releases it whatever
-    // fails after this — the load itself, or the dimension probe after it.
-    _client = client;
-    final spec = await client.load(modelUrl);
+    final OrtClient client;
+    final OrtIoSpec spec;
+    try {
+      client = _config.clientFactory();
+      // Held before the session opens, so closeGraph releases it whatever
+      // fails after this — the load itself, or the dimension probe after it.
+      _client = client;
+      spec = await client.load(modelUrl);
+    } finally {
+      // The session has read the model by now (or failed to).
+      _releaseIfCreated(_config, _config.modelPath, modelUrl);
+    }
     _spec = spec;
     return describeOrtGraph(client, spec, _config.modelPath);
   }
