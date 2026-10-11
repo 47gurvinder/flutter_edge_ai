@@ -17,6 +17,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutter_edge_ai/src/infrastructure/platform_file_system_service.dart';
 import 'package:flutter_edge_ai/src/di/service_registry.dart';
+import 'package:flutter_edge_ai/src/mobile/flutter_edge_ai_mobile.dart'
+    show ModelFileSystemManager;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -148,16 +150,43 @@ void main() {
         await ServiceRegistry.initialize(
           fileSystemService: PlatformFileSystemService(),
         );
-
         final service = ServiceRegistry.instance.fileSystemService;
-        final expectedPath = await service.getReadTargetPath('roundtrip.bin');
 
-        // ModelFileSystemManager.getModelFilePath must return the same value.
-        // It is defined in a `part` file of flutter_edge_ai_mobile, so we call
-        // the service directly (same underlying implementation).
+        final resolved = await ModelFileSystemManager.getModelFilePath(
+          'roundtrip.bin',
+        );
+
+        expect(resolved, await service.getReadTargetPath('roundtrip.bin'));
         final storageDir = await service.getModelStorageDirectory();
-        expect(expectedPath, startsWith(storageDir));
-        expect(p.basename(expectedPath), 'roundtrip.bin');
+        expect(resolved, startsWith(storageDir));
+        expect(p.basename(resolved), 'roundtrip.bin');
+      },
+    );
+
+    test(
+      'getModelFilePath resolves the read path, not the write path',
+      () async {
+        // Only desktop platforms probe the legacy Documents location.
+        if (Platform.isAndroid || Platform.isIOS) return;
+
+        // A pre-0.15.1 install left in Documents: the read path finds it there,
+        // while the write path stays in the canonical storage directory. That
+        // is the one case where the two differ, so it tells them apart.
+        final legacyFile = File(p.join(fakeDocuments.path, 'legacy.litertlm'));
+        legacyFile.writeAsStringSync('placeholder');
+        await ServiceRegistry.initialize(
+          fileSystemService: PlatformFileSystemService(),
+        );
+        final service = ServiceRegistry.instance.fileSystemService;
+        expect(
+          await service.getWriteTargetPath('legacy.litertlm'),
+          isNot(legacyFile.path),
+        );
+
+        expect(
+          await ModelFileSystemManager.getModelFilePath('legacy.litertlm'),
+          legacyFile.path,
+        );
       },
     );
   });
