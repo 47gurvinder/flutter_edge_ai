@@ -3,15 +3,21 @@
 // in its embedding worker, hosts it, checks every request and closes it.
 //
 // Routing is by the file core actually opens (`config.modelPath`): a
-// `.litertlm` bundle (EmbeddingGemma 2) or a `.tflite` graph with a separate
-// tokenizer (EmbeddingGemma 1, Gecko).
+// `.litertlm` bundle (EmbeddingGemma 2, through LiteRT-LM's EmbeddingEngine)
+// or a `.tflite` graph with a separate tokenizer (EmbeddingGemma 1, Gecko,
+// through the LiteRT C API).
+
+import 'dart:io' show Platform;
 
 import 'package:flutter_edge_ai/engine.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'litert_embedding_pass.dart';
+import 'litert_lm_embedding_pass.dart';
 
 /// LiteRT embedding backend: `.tflite` embedders (EmbeddingGemma 1, Gecko)
-/// over the LiteRT C API, and `.litertlm` embedding bundles.
+/// over the LiteRT C API, and `.litertlm` embedding bundles (EmbeddingGemma 2,
+/// text) over LiteRT-LM's EmbeddingEngine.
 final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
   const LiteRtEmbeddingBackend();
 
@@ -45,30 +51,44 @@ final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
         engine: opensBundle ? _liteRtLm : _liteRt,
       );
     }
-    if (opensBundle) return _describeBundle(file, config);
+    if (opensBundle) return _describeBundle(config);
     return _describeTflite(spec, file, config);
   }
 }
 
 const _liteRt = 'LiteRT';
-const _liteRtLm = 'LiteRT-LM';
+const _liteRtLm = liteRtLmEngineTag;
 
-/// A `.litertlm` embedding bundle never asks the tokenizer registry: the
-/// bundle carries its own.
-Never _describeBundle(String file, RuntimeConfig config) {
+/// A `.litertlm` embedding bundle (EmbeddingGemma 2) never asks the tokenizer
+/// registry: the bundle carries its own. Declared media are refused here, before
+/// any isolate exists (text only in 1.13.0); whether the bundle has a tower is
+/// the pass's question, answered from the bundle itself at load.
+Future<EmbeddingPassDescriptor<LiteRtLmEmbeddingConfig>> _describeBundle(
+  RuntimeConfig config,
+) async {
   if (config.supportImage || config.supportAudio) {
     throw const EmbeddingLoadException(
-      'flutter_edge_ai_litertlm 1.13.0 embeds text only; images arrive in '
-      '1.14.0, audio in 1.16.0',
+      liteRtLmTextOnlyRefusal,
       engine: _liteRtLm,
     );
   }
-  // Until the EmbeddingGemma 2 pass lands (the next PR of the 2.3.0 train),
-  // a .litertlm embedder is refused here, before any isolate exists.
-  throw EmbeddingLoadException(
-    '$file is a .litertlm embedding bundle, which this build of '
-    'flutter_edge_ai_litertlm cannot run yet.',
-    engine: _liteRtLm,
+  // Resolved here: the pass runs in core's worker isolate, which has no
+  // platform channels. The LLM engine keeps its cache under the same root.
+  final support = (await getApplicationSupportDirectory()).path;
+  final sep = Platform.pathSeparator;
+  return EmbeddingPassDescriptor<LiteRtLmEmbeddingConfig>(
+    engineTag: _liteRtLm,
+    factory: buildLiteRtLmEmbeddingPass,
+    config: LiteRtLmEmbeddingConfig(
+      modelPath: config.modelPath,
+      cacheBase: '$support${sep}flutter_edge_ai${sep}embedding_cache',
+      declaredMedia: {
+        if (config.supportImage) EmbeddingModality.image,
+        if (config.supportAudio) EmbeddingModality.audio,
+      },
+    ),
+    // `settings_create(path, "cpu", NULL, NULL)`: the text tower on CPU.
+    activeBackend: PreferredBackend.cpu,
   );
 }
 
