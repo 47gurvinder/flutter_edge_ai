@@ -63,8 +63,8 @@ Future<EmbeddingHost> startInlineEmbeddingHost(
   final EmbeddingPass pass;
   try {
     pass = descriptor.build();
-  } catch (e) {
-    throw _loadFailure(e, engine);
+  } catch (e, st) {
+    Error.throwWithStackTrace(_loadFailure(e, engine), st);
   }
   final notice = Timer(
     slowLoadNotice,
@@ -90,9 +90,9 @@ Future<EmbeddingHost> startInlineEmbeddingHost(
       slowCloseNotice: slowCloseNotice,
       passDied: passDied,
     );
-  } catch (e) {
+  } catch (e, st) {
     unawaited(_closeAfterFailedLoad(pass, engine, label));
-    throw _loadFailure(e, engine);
+    Error.throwWithStackTrace(_loadFailure(e, engine), st);
   } finally {
     notice.cancel();
   }
@@ -188,13 +188,14 @@ final class _InlineEmbeddingHost implements EmbeddingHost {
       request.completer.complete(
         await _pass.embed(request.input, request.taskType),
       );
-    } catch (e) {
+    } catch (e, st) {
       request.completer.completeError(
         EmbeddingFailure.fromError(
           e,
           engine: _engine,
           causeInMessage: false,
         ).toException(cause: e is EmbeddingException ? e.cause : null),
+        st,
       );
     }
   }

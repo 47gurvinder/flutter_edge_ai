@@ -32,6 +32,7 @@ final class EmbeddingFailure {
     this.nativeCode,
     this.maxInputTokens,
     this.actualTokens,
+    this.stack,
   });
 
   /// The host's own "this request never ran": the model closed before the
@@ -42,7 +43,8 @@ final class EmbeddingFailure {
       message = 'The embedding model was closed before this request ran.',
       nativeCode = null,
       maxInputTokens = null,
-      actualTokens = null;
+      actualTokens = null,
+      stack = null;
 
   /// Encodes [error] thrown by an engine's pass.
   ///
@@ -66,7 +68,9 @@ final class EmbeddingFailure {
     required String engine,
     bool loading = false,
     bool causeInMessage = true,
+    StackTrace? stack,
   }) {
+    final stackText = stack?.toString();
     String described(EmbeddingException e) {
       final cause = e.cause;
       return causeInMessage && cause != null
@@ -81,6 +85,7 @@ final class EmbeddingFailure {
         engine: engine,
         maxInputTokens: error.maxInputTokens,
         actualTokens: error.actualTokens,
+        stack: stackText,
       );
     }
     final kind = loading
@@ -93,6 +98,7 @@ final class EmbeddingFailure {
           message: described(error),
           engine: reported,
           nativeCode: nativeCode,
+          stack: stackText,
         ),
       EmbeddingLoadException(engine: final reported, :final nativeCode) =>
         EmbeddingFailure(
@@ -100,13 +106,20 @@ final class EmbeddingFailure {
           message: described(error),
           engine: reported,
           nativeCode: nativeCode,
+          stack: stackText,
         ),
       EmbeddingException() => EmbeddingFailure(
         kind: kind,
         message: '${error.runtimeType}: ${described(error)}',
         engine: engine,
+        stack: stackText,
       ),
-      _ => EmbeddingFailure(kind: kind, message: '$error', engine: engine),
+      _ => EmbeddingFailure(
+        kind: kind,
+        message: '$error',
+        engine: engine,
+        stack: stackText,
+      ),
     };
   }
 
@@ -116,6 +129,17 @@ final class EmbeddingFailure {
   final int? nativeCode;
   final int? maxInputTokens;
   final int? actualTokens;
+
+  /// The pass's stack where it threw, as text (a `StackTrace` is not
+  /// sendable). The host completes the request with it, so the caller sees
+  /// where the engine failed, not where the reply arrived.
+  final String? stack;
+
+  /// [stack] as a `StackTrace`, or null.
+  StackTrace? get stackTrace {
+    final text = stack;
+    return text == null ? null : StackTrace.fromString(text);
+  }
 
   /// The typed exception this failure stands for. [cause] is attached where
   /// the original error is still at hand (the inline host); across the

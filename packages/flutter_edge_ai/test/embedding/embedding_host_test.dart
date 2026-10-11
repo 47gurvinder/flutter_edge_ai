@@ -69,7 +69,7 @@ final class _FakePass extends EmbeddingPass {
     _log('load');
     switch (_config.mode) {
       case _Mode.failLoad:
-        throw StateError('fake pass refused to load');
+        _refuseToLoadInThePass();
       case _Mode.failLoadTyped:
         throw const EmbeddingLoadException(
           'bad model',
@@ -134,7 +134,7 @@ final class _FakePass extends EmbeddingPass {
           cause: 'native detail',
         );
       case _Mode.otherError:
-        throw StateError('kaput');
+        _throwKaputFromThePass();
       case _Mode.dieOnEmbed:
         scheduleMicrotask(() => throw StateError('fake died mid-request'));
         return Completer<List<double>>().future;
@@ -149,6 +149,11 @@ final class _FakePass extends EmbeddingPass {
     if (_config.mode == _Mode.closeThrows) throw StateError('close refused');
   }
 }
+
+/// Named so a test can find the frame in the stack the caller receives.
+Never _throwKaputFromThePass() => throw StateError('kaput');
+
+Never _refuseToLoadInThePass() => throw StateError('fake pass refused to load');
 
 typedef _Start =
     Future<EmbeddingHost> Function(
@@ -434,6 +439,25 @@ void main() {
           );
         },
       );
+
+      test('a failure keeps the stack of the pass that threw', () async {
+        final host = await _start(start, _Mode.otherError, _newLog());
+        StackTrace? stack;
+        try {
+          await host.embed(EmbeddingInput.text('x'), TaskType.none);
+        } on EmbeddingEngineException catch (_, st) {
+          stack = st;
+        }
+        expect('$stack', contains('_throwKaputFromThePass'));
+
+        StackTrace? loadStack;
+        try {
+          await _start(start, _Mode.failLoad, _newLog());
+        } on EmbeddingLoadException catch (_, st) {
+          loadStack = st;
+        }
+        expect('$loadStack', contains('_refuseToLoadInThePass'));
+      });
 
       test('any other error becomes an EmbeddingEngineException', () async {
         final host = await _start(start, _Mode.otherError, _newLog());

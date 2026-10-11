@@ -162,7 +162,9 @@ Future<EmbeddingHost> startEmbeddingHost(
       ready.complete(msg);
     } else if (msg is _LoadFailed) {
       loadFailureReported = true;
-      if (!ready.isCompleted) ready.completeError(msg.failure.toException());
+      if (!ready.isCompleted) {
+        ready.completeError(msg.failure.toException(), msg.failure.stackTrace);
+      }
     } else if (msg is List) {
       uncaughtDuringLoad = _describeUncaught(msg);
     } else if (msg == null && !ready.isCompleted) {
@@ -347,7 +349,9 @@ final class _IsolateEmbeddingHost implements EmbeddingHost {
     if (msg is _Reply) {
       _pending.remove(msg.id)?.complete(msg.vector);
     } else if (msg is _Failure) {
-      _pending.remove(msg.id)?.completeError(msg.failure.toException());
+      _pending
+          .remove(msg.id)
+          ?.completeError(msg.failure.toException(), msg.failure.stackTrace);
     } else if (msg is _CloseAck) {
       final error = msg.error;
       if (error != null) {
@@ -466,7 +470,9 @@ Future<void> _workerEntry(_Init init) async {
     // close. EmbeddingPass.close() must not throw for a pass that never
     // loaded, so it is always called once the pass exists (W5).
     init.replyTo.send(
-      _LoadFailed(EmbeddingFailure.fromError(e, engine: engine, loading: true)),
+      _LoadFailed(
+        EmbeddingFailure.fromError(e, engine: engine, loading: true, stack: st),
+      ),
     );
     final closeError = built == null
         ? null
@@ -533,9 +539,12 @@ Future<void> _serve(
   try {
     final vector = await pass.embed(request.input, request.taskType);
     replyTo.send(_Reply(request.id, vector));
-  } catch (e) {
+  } catch (e, st) {
     replyTo.send(
-      _Failure(request.id, EmbeddingFailure.fromError(e, engine: engine)),
+      _Failure(
+        request.id,
+        EmbeddingFailure.fromError(e, engine: engine, stack: st),
+      ),
     );
   }
 }
