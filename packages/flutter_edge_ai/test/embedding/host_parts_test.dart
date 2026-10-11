@@ -201,11 +201,80 @@ void main() {
           loading: loading,
         ).toException();
 
-    test('closed', () {
-      final e = roundTrip(const EmbedderClosedException('gone'));
+    test('only the host says "closed before it ran"', () {
+      final e = EmbeddingFailure.closedBeforeRun(engine: 'Fake').toException();
       expect(e, isA<EmbedderClosedException>());
-      expect(e.message, 'gone');
+      expect(e.message, contains('before this request ran'));
     });
+
+    test(
+      'a pass that throws EmbedderClosedException did run: engine failure',
+      () {
+        // EmbedderClosedException promises the request never ran. A pass
+        // throwing it mid-embed ran; reporting it as "closed" would invite a
+        // retry of work that may have had effects, and hide the engine bug.
+        expect(
+          roundTrip(const EmbedderClosedException('pass said closed')),
+          isA<EmbeddingEngineException>()
+              .having((e) => e.engine, 'engine', 'Fake')
+              .having(
+                (e) => e.message,
+                'message',
+                contains('pass said closed'),
+              ),
+        );
+      },
+    );
+
+    test(
+      'a pass that throws EmbeddingLoadException mid-embed: engine failure',
+      () {
+        expect(
+          roundTrip(
+            const EmbeddingLoadException(
+              'late',
+              engine: 'Native',
+              nativeCode: 7,
+            ),
+          ),
+          isA<EmbeddingEngineException>()
+              .having((e) => e.engine, 'engine', 'Native')
+              .having((e) => e.nativeCode, 'code', 7),
+        );
+      },
+    );
+
+    test(
+      'while loading, every kind is a load failure, engine and code kept',
+      () {
+        for (final error in <Object>[
+          const EmbedderClosedException('c'),
+          const EmbeddingInputTooLongException('t', maxInputTokens: 4),
+          const EmbeddingEngineException('e', engine: 'Native', nativeCode: 3),
+          const EmbeddingLoadException('l', engine: 'Native', nativeCode: 5),
+          StateError('s'),
+        ]) {
+          expect(
+            roundTrip(error, loading: true),
+            isA<EmbeddingLoadException>(),
+            reason: '$error',
+          );
+        }
+        expect(
+          roundTrip(
+            const EmbeddingEngineException(
+              'e',
+              engine: 'Native',
+              nativeCode: 3,
+            ),
+            loading: true,
+          ),
+          isA<EmbeddingLoadException>()
+              .having((e) => e.engine, 'engine', 'Native')
+              .having((e) => e.nativeCode, 'code', 3),
+        );
+      },
+    );
 
     test('too long keeps both counts', () {
       expect(
@@ -244,10 +313,11 @@ void main() {
       );
     });
 
-    test('load keeps its engine name and native code', () {
+    test('a load failure keeps its engine name and native code', () {
       expect(
         roundTrip(
           const EmbeddingLoadException('x', engine: 'Native', nativeCode: 5),
+          loading: true,
         ),
         isA<EmbeddingLoadException>()
             .having((e) => e.engine, 'engine', 'Native')

@@ -520,7 +520,7 @@ Future<void> _workerEntry(_Init init) async {
 }
 
 EmbeddingFailure _encodeClosed(String engine) =>
-    EmbeddingFailure.fromError(closedBeforeRun, engine: engine);
+    EmbeddingFailure.closedBeforeRun(engine: engine);
 
 /// Runs one request and replies — with the vector, or with the failure. Never
 /// throws (W7), so one bad input cannot stop the loop that serves the rest.

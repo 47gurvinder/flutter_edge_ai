@@ -34,68 +34,74 @@ final class EmbeddingFailure {
     this.actualTokens,
   });
 
+  /// The host's own "this request never ran": the model closed before the
+  /// request started. The only way to the `closed` kind — a pass that throws
+  /// `EmbedderClosedException` ran, and is reported as an engine failure.
+  const EmbeddingFailure.closedBeforeRun({required this.engine})
+    : kind = EmbeddingFailureKind.closed,
+      message = 'The embedding model was closed before this request ran.',
+      nativeCode = null,
+      maxInputTokens = null,
+      actualTokens = null;
+
   /// Encodes [error] thrown by an engine's pass.
   ///
-  /// Typed embedding exceptions keep their kind, code and counts. Anything
-  /// else — a `StateError`, a native wrapper's exception, another
-  /// `EmbeddingException` subtype a pass has no business throwing — becomes an
-  /// engine failure ([loading]: a load failure) whose message is the error's
-  /// text.
+  /// While [loading], every error is a `load` failure (an engine's own code
+  /// and name kept). While embedding: `EmbeddingInputTooLongException` stays
+  /// `tooLong` with its counts; everything else — `EmbeddingEngineException`,
+  /// and also an `EmbedderClosedException` or `EmbeddingLoadException` a pass
+  /// throws mid-request (the request did run), any other
+  /// `EmbeddingException` subtype, and any non-embedding error — is an
+  /// `engine` failure. The `closed` kind is the host's alone
+  /// ([EmbeddingFailure.closedBeforeRun]).
   factory EmbeddingFailure.fromError(
     Object error, {
     required String engine,
     bool loading = false,
-  }) => switch (error) {
-    EmbedderClosedException(:final message) => EmbeddingFailure(
-      kind: EmbeddingFailureKind.closed,
-      message: message,
-      engine: engine,
-    ),
-    EmbeddingInputTooLongException(
-      :final message,
-      :final maxInputTokens,
-      :final actualTokens,
-    ) =>
-      EmbeddingFailure(
+  }) {
+    if (!loading && error is EmbeddingInputTooLongException) {
+      return EmbeddingFailure(
         kind: EmbeddingFailureKind.tooLong,
+        message: error.message,
+        engine: engine,
+        maxInputTokens: error.maxInputTokens,
+        actualTokens: error.actualTokens,
+      );
+    }
+    final kind = loading
+        ? EmbeddingFailureKind.load
+        : EmbeddingFailureKind.engine;
+    return switch (error) {
+      EmbeddingEngineException(
+        :final message,
+        engine: final reported,
+        :final nativeCode,
+      ) =>
+        EmbeddingFailure(
+          kind: kind,
+          message: message,
+          engine: reported,
+          nativeCode: nativeCode,
+        ),
+      EmbeddingLoadException(
+        :final message,
+        engine: final reported,
+        :final nativeCode,
+      ) =>
+        EmbeddingFailure(
+          kind: kind,
+          message: message,
+          engine: reported,
+          nativeCode: nativeCode,
+        ),
+      EmbeddingException(:final message) => EmbeddingFailure(
+        kind: kind,
         message: message,
         engine: engine,
-        maxInputTokens: maxInputTokens,
-        actualTokens: actualTokens,
       ),
-    EmbeddingLoadException(
-      :final message,
-      engine: final reported,
-      :final nativeCode,
-    ) =>
-      EmbeddingFailure(
-        kind: EmbeddingFailureKind.load,
-        message: message,
-        engine: reported,
-        nativeCode: nativeCode,
-      ),
-    EmbeddingEngineException(
-      :final message,
-      engine: final reported,
-      :final nativeCode,
-    ) =>
-      EmbeddingFailure(
-        kind: loading ? EmbeddingFailureKind.load : EmbeddingFailureKind.engine,
-        message: message,
-        engine: reported,
-        nativeCode: nativeCode,
-      ),
-    EmbeddingException(:final message) => EmbeddingFailure(
-      kind: loading ? EmbeddingFailureKind.load : EmbeddingFailureKind.engine,
-      message: message,
-      engine: engine,
-    ),
-    _ => EmbeddingFailure(
-      kind: loading ? EmbeddingFailureKind.load : EmbeddingFailureKind.engine,
-      message: '$error',
-      engine: engine,
-    ),
-  };
+      _ => EmbeddingFailure(kind: kind, message: '$error', engine: engine),
+    };
+  }
 
   final EmbeddingFailureKind kind;
   final String message;
