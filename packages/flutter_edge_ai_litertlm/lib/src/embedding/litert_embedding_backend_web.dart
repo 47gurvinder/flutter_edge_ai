@@ -7,6 +7,7 @@
 // `installEmbedder()` refuses such a spec before any download.
 
 import 'package:flutter_edge_ai/engine.dart';
+import 'package:flutter_edge_ai/engine_web.dart' show resolveWebModelUrl;
 
 import 'web/litert_js_embedding_pass.dart';
 import 'web/litert_web_embeddings.dart' show WindowLiteRtJsBundle;
@@ -51,6 +52,9 @@ final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
         modelPath: config.modelPath,
         tokenizerPath: tokenizerPath,
         bundle: const WindowLiteRtJsBundle(),
+        // Under WebStorageMode.streaming both paths are `opfs://`; the pass
+        // resolves each to a `blob:` URL before the bundle fetches it.
+        resolveUrl: resolveWebModelUrl,
       ),
       // The runtime picks the accelerator itself and the answer does not
       // exist until it has run; the bundle reports it through

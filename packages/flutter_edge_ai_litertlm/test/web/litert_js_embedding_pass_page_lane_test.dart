@@ -73,12 +73,16 @@ void _installStubs({required List<Duration> loadDelays}) {
 }
 
 LiteRtJsEmbeddingPass _pass() => LiteRtJsEmbeddingPass(
-  const LiteRtJsEmbeddingConfig(
+  LiteRtJsEmbeddingConfig(
     modelPath: 'm',
     tokenizerPath: 't',
     bundle: WindowLiteRtJsBundle(),
+    resolveUrl: _unchanged,
   ),
 );
+
+/// These stubs need no resolving; the resolution is the backend suite's.
+Future<String> _unchanged(String path) async => path;
 
 void main() {
   test('a pass closing while its replacement loads leaves the replacement '

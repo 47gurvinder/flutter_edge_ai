@@ -42,7 +42,8 @@ abstract interface class LiteRtJsBundle {
 }
 
 /// What the web `LiteRtEmbeddingBackend.describe` hands core: the model and
-/// tokenizer paths core resolved for the active spec, and the bundle.
+/// tokenizer paths core registered for the active spec, the bundle, and how to
+/// turn those paths into URLs the bundle can fetch.
 ///
 /// Hosted inline, never sent across an isolate.
 final class LiteRtJsEmbeddingConfig {
@@ -50,11 +51,19 @@ final class LiteRtJsEmbeddingConfig {
     required this.modelPath,
     required this.tokenizerPath,
     required this.bundle,
+    required this.resolveUrl,
   });
 
+  /// The paths core registered for the installed files — under
+  /// `WebStorageMode.streaming` an `opfs://` path the bundle's `fetch()`
+  /// cannot open.
   final String modelPath;
   final String tokenizerPath;
+
   final LiteRtJsBundle bundle;
+
+  /// `resolveWebModelUrl`: `opfs://` → `blob:`, anything else unchanged.
+  final Future<String> Function(String path) resolveUrl;
 }
 
 /// The descriptor factory.
@@ -120,7 +129,11 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
         'before the first embedder loads.',
       );
     }
-    await _bundle.load(_config.modelPath, _config.tokenizerPath, wasmPath);
+    // Under WebStorageMode.streaming both are `opfs://`, which the bundle's
+    // fetch() rejects: every LiteRT.js embedder failed to load there.
+    final tokenizerUrl = await _config.resolveUrl(_config.tokenizerPath);
+    final modelUrl = await _config.resolveUrl(_config.modelPath);
+    await _bundle.load(modelUrl, tokenizerUrl, wasmPath);
     _loadedWasmPath ??= wasmPath;
     _loaded = true;
     if (kDebugMode) edgeAiLog('LiteRT.js embeddings loaded');

@@ -69,6 +69,12 @@ final class _FakePage implements LiteRtJsBundle {
   }
 }
 
+/// What `resolveWebModelUrl` does: `opfs://x` becomes a `blob:` URL,
+/// anything else is returned unchanged.
+Future<String> _fakeResolve(String path) async => path.startsWith('opfs://')
+    ? 'blob:resolved/${path.substring('opfs://'.length)}'
+    : path;
+
 LiteRtJsEmbeddingPass _pass(
   _FakePage page, {
   String modelPath = 'blob:model',
@@ -78,10 +84,45 @@ LiteRtJsEmbeddingPass _pass(
     modelPath: modelPath,
     tokenizerPath: tokenizerPath,
     bundle: page,
+    resolveUrl: _fakeResolve,
   ),
 );
 
 void main() {
+  group('opfs:// paths (WebStorageMode.streaming)', () {
+    test('the bundle gets RESOLVED URLs for the model and the tokenizer, never '
+        'an opfs:// path its fetch() would reject', () async {
+      final page = _FakePage();
+      final pass = _pass(
+        page,
+        modelPath: 'opfs://gemma.tflite',
+        tokenizerPath: 'opfs://sentencepiece.model',
+      );
+
+      await pass.load();
+
+      expect(page.loads.single, (
+        model: 'blob:resolved/gemma.tflite',
+        tokenizer: 'blob:resolved/sentencepiece.model',
+      ));
+      await pass.close();
+    });
+
+    test(
+      'a URL that needs no resolving reaches the bundle unchanged',
+      () async {
+        final page = _FakePage();
+        final pass = _pass(page);
+        await pass.load();
+        expect(page.loads.single, (
+          model: 'blob:model',
+          tokenizer: 'blob:tokenizer',
+        ));
+        await pass.close();
+      },
+    );
+  });
+
   group('bundle API v1', () {
     test('the query and document prompts get the RAW text — the bundle adds '
         'the prefix, so the pass must not', () async {
