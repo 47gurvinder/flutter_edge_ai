@@ -23,6 +23,7 @@ import 'embedder_cache.dart';
 import 'embedding_exceptions.dart';
 import 'embedding_modality.dart';
 import 'embedding_model.dart';
+import 'embedding_pass.dart' show EmbeddingPassDescriptor;
 
 /// Returns the embedder for [manager]'s active embedding spec — the cached one
 /// when it serves the request, else a new one built through the registered
@@ -39,7 +40,10 @@ import 'embedding_model.dart';
 /// resolved, or when no registered backend can run it;
 /// [EmbeddingLoadException] when the backend refuses the request or the model
 /// fails to load; [EmbedderCloseTimeoutException] when the embedder it
-/// replaces is still closing after the cache's bound.
+/// replaces is still closing after the cache's bound. A failure before the
+/// build (the files gone, no backend, `describe()` refusing) leaves the cached
+/// embedder open and cached; a failure of the new pass's load comes after the
+/// cached embedder was closed.
 Future<EmbeddingModel> loadActiveEmbedder({
   required ModelFileManager manager,
   required EmbedderCache cache,
@@ -84,7 +88,14 @@ Future<EmbeddingModel> loadActiveEmbedder({
     '${tokenizerPath == null ? '' : ', tokenizer: $tokenizerPath'}',
   );
 
-  // Step 2: the cache decides — reuse, or what to build (widened media).
+  // Steps 2–3: the cache decides — reuse, or what to build (widened media) —
+  // and, for a build, the backend describes the pass BEFORE the cached
+  // embedder is closed. A request the backend refuses (media an engine has no
+  // tower for, a model it cannot run) therefore costs the app nothing: the
+  // cached embedder stays and keeps serving what it served. A refusal only
+  // the pass's load() can make (a `.litertlm` bundle with no tower for a
+  // declared medium, read from the bundle itself) still costs a reload — by
+  // then the cached embedder is closed.
   final requested = ActiveEmbedderParams(
     modelPath: modelPath,
     tokenizerPath: tokenizerPath,
@@ -94,49 +105,31 @@ Future<EmbeddingModel> loadActiveEmbedder({
       if (supportAudio) EmbeddingModality.audio,
     },
   );
-  final decision = await cache.reuseOrInvalidate(requested, label: active.name);
+  _Described? described;
+  final decision = await cache.reuseOrInvalidate(
+    requested,
+    label: active.name,
+    prepare: (build) async {
+      if (verifyInstalled && !await manager.isModelInstalled(active)) {
+        throw StateError(
+          'The active embedding model (${active.name}) is no longer '
+          'installed. Install it again with `FlutterEdgeAi.installEmbedder()`.',
+        );
+      }
+      described = await _describe(active, build, preferredBackend);
+    },
+  );
   final reused = decision.reuse;
   if (reused != null) return reused;
   final build = decision.build;
-
-  if (verifyInstalled && !await manager.isModelInstalled(active)) {
-    throw StateError(
-      'The active embedding model (${active.name}) is no longer installed. '
-      'Install it again with `FlutterEdgeAi.installEmbedder()`.',
-    );
-  }
+  final (:backend, :config, :descriptor) =
+      described ??
+      (throw StateError(
+        'The embedder cache decided a build it never let the '
+        'loader prepare.',
+      ));
 
   try {
-    // Step 3: the backend describes the pass; refusals surface here, before
-    // any isolate exists.
-    final backends = EmbeddingRegistry.instance;
-    final backend = backends.findFor(active);
-    if (backend == null) {
-      throw StateError(
-        backends.hasAny
-            ? 'No registered embedding backend can run '
-                  '${active.files.first.filename}. Registered backends: '
-                  '${backends.registered.map((b) => b.name).join(', ')}.'
-            : 'No embedding backend registered. Add flutter_edge_ai_litertlm '
-                  'to pubspec.yaml and pass LiteRtEmbeddingBackend() in '
-                  'embeddingBackends: of FlutterEdgeAi.initialize(...).',
-      );
-    }
-    final config = RuntimeConfig(
-      maxTokens: 0,
-      modelPath: modelPath,
-      tokenizerPath: tokenizerPath,
-      preferredBackend: preferredBackend,
-      supportImage: build.media.contains(EmbeddingModality.image),
-      supportAudio: build.media.contains(EmbeddingModality.audio),
-    );
-    final descriptor = await _asLoadFailure(
-      backend.name,
-      'could not describe a pass for',
-      modelPath,
-      () => backend.describe(active, config),
-    );
-
     // Step 4: core builds, hosts and checks the pass.
     // A pass whose load fails is closed behind the error; the cache holds
     // the next build until that close has ended (never two engines).
@@ -155,7 +148,6 @@ Future<EmbeddingModel> loadActiveEmbedder({
         backend,
         active,
         config,
-        build.media,
         modelPath,
         holdNextBuild,
       );
@@ -173,24 +165,71 @@ Future<EmbeddingModel> loadActiveEmbedder({
   }
 }
 
+/// What the backend said it would build, before anything was closed.
+typedef _Described = ({
+  EmbeddingBackendProvider backend,
+  RuntimeConfig config,
+  EmbeddingPassDescriptor<Object>? descriptor,
+});
+
+/// Finds the backend for [spec] and has it describe the pass for [build]
+/// ([preferredBackend] is the raw request, which [build] does not keep):
+/// nothing loaded, nothing closed. Refusals surface here, before any isolate
+/// exists.
+Future<_Described> _describe(
+  EmbeddingModelSpec spec,
+  ActiveEmbedderParams build,
+  PreferredBackend? preferredBackend,
+) async {
+  final backends = EmbeddingRegistry.instance;
+  final backend = backends.findFor(spec);
+  if (backend == null) {
+    throw StateError(
+      backends.hasAny
+          ? 'No registered embedding backend can run '
+                '${spec.files.first.filename}. Registered backends: '
+                '${backends.registered.map((b) => b.name).join(', ')}.'
+          : 'No embedding backend registered. Add flutter_edge_ai_litertlm '
+                'to pubspec.yaml and pass LiteRtEmbeddingBackend() in '
+                'embeddingBackends: of FlutterEdgeAi.initialize(...).',
+    );
+  }
+  final config = RuntimeConfig(
+    maxTokens: 0,
+    modelPath: build.modelPath,
+    tokenizerPath: build.tokenizerPath,
+    preferredBackend: preferredBackend,
+    supportImage: build.media.contains(EmbeddingModality.image),
+    supportAudio: build.media.contains(EmbeddingModality.audio),
+  );
+  final descriptor = await _asLoadFailure(
+    backend.name,
+    'could not describe a pass for',
+    build.modelPath,
+    () => backend.describe(spec, config),
+  );
+  // TRANSITIONAL(C stage 3): remove — a backend that predates describe()
+  // embeds text only; refused here, before anything is closed.
+  if (descriptor == null && build.media.isNotEmpty) {
+    throw EmbeddingLoadException(
+      '${backend.name} predates the embedding pass API and embeds text '
+      'only; it cannot load ${build.media.map((m) => m.name).join(' and ')} '
+      'for ${build.modelPath}.',
+      engine: backend.name,
+    );
+  }
+  return (backend: backend, config: config, descriptor: descriptor);
+}
+
 /// A backend that predates `describe()` builds its own model; core hosts it.
 // TRANSITIONAL(C stage 3): remove — every engine describe()s in 2.2.0.
 Future<EmbeddingModel> _buildThroughCreateModel(
   EmbeddingBackendProvider backend,
   EmbeddingModelSpec spec,
   RuntimeConfig config,
-  Set<EmbeddingModality> media,
   String label,
   void Function(Future<void> cleanup) onFailedLoadCleanup,
 ) async {
-  if (media.isNotEmpty) {
-    throw EmbeddingLoadException(
-      '${backend.name} predates the embedding pass API and embeds text '
-      'only; it cannot load ${media.map((m) => m.name).join(' and ')} for '
-      '$label.',
-      engine: backend.name,
-    );
-  }
   final legacy = await _asLoadFailure(
     backend.name,
     'could not build its model for',

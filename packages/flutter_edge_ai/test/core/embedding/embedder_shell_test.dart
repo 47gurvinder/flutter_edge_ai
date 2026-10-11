@@ -120,7 +120,59 @@ void main() {
         expect(image.isClosed, isTrue, reason: 'one engine at a time');
       });
     }
+  });
 
+  group('describe() runs before the cached embedder is closed', () {
+    for (final shell in shells) {
+      test('${shell.name}: a refused wider rebuild keeps the text embedder, '
+          'which then serves text without a rebuild', () async {
+        final backend = _DescribingBackend(
+          refuseWhen: (config) => config.supportImage,
+        );
+        EmbeddingRegistry.instance.registerAll([backend]);
+        final plugin = shell.create();
+        await fixture.activate(plugin, model: 'eg2.litertlm');
+
+        final text = await plugin.createEmbeddingModel();
+        await expectLater(
+          plugin.createEmbeddingModel(supportImage: true),
+          throwsA(isA<EmbeddingLoadException>()),
+        );
+        expect(
+          text.isClosed,
+          isFalse,
+          reason: 'describe() refused before anything was closed',
+        );
+        expect(plugin.initializedEmbeddingModel, same(text));
+
+        final again = await plugin.createEmbeddingModel();
+        expect(again, same(text), reason: 'no rebuild');
+        expect(backend.configs, hasLength(2), reason: 'not described again');
+        await text.close();
+      });
+
+      test(
+        '${shell.name}: a refused new identity keeps the old embedder',
+        () async {
+          final backend = _DescribingBackend(
+            refuseWhen: (config) => config.modelPath.endsWith('b.litertlm'),
+          );
+          EmbeddingRegistry.instance.registerAll([backend]);
+          final plugin = shell.create();
+          await fixture.activate(plugin, model: 'a.litertlm');
+          final old = await plugin.createEmbeddingModel();
+
+          await fixture.activate(plugin, model: 'b.litertlm');
+          await expectLater(
+            plugin.createEmbeddingModel(),
+            throwsA(isA<EmbeddingLoadException>()),
+          );
+          expect(old.isClosed, isFalse);
+          expect(plugin.initializedEmbeddingModel, same(old));
+          await old.close();
+        },
+      );
+    }
     test('the union keeps media the request did not repeat, and the cache '
         'remembers it', () async {
       final backend = _DescribingBackend(
@@ -420,10 +472,14 @@ final class _DescribingBackend extends EmbeddingBackendProvider {
     this.handles = true,
     this.failLoadGate,
     this.describeThrows,
+    this.refuseWhen,
   });
 
   /// When set, describe() throws it — not an EmbeddingLoadException.
   final Object? describeThrows;
+
+  /// describe() refuses (EmbeddingLoadException) the configs this matches.
+  final bool Function(RuntimeConfig config)? refuseWhen;
 
   /// When set, the pass fails its load and its close waits until this file
   /// exists (the pass runs in the worker isolate, so a file is the gate).
@@ -449,7 +505,7 @@ final class _DescribingBackend extends EmbeddingBackendProvider {
     configs.add(config);
     final error = describeThrows;
     if (error != null) throw error;
-    if (refuse) {
+    if (refuse || (refuseWhen?.call(config) ?? false)) {
       throw const EmbeddingLoadException(
         'this engine refuses media',
         engine: 'Describing',

@@ -140,6 +140,15 @@ class EmbedderCache {
   /// A mismatch closes the cached model before returning, so the caller only
   /// ever has to handle "reuse this" or "build that".
   ///
+  /// [prepare], when given, runs once a build is decided, with what will be
+  /// built, and BEFORE the cached model is closed for it. If it throws,
+  /// nothing is closed: the cached model stays cached and keeps serving what
+  /// it served, and the error reaches the caller. The loader has the backend
+  /// describe the pass there, so a request the backend refuses costs the app
+  /// nothing it had. What only the pass's own load can refuse (a `.litertlm`
+  /// pass reading from the bundle that a declared medium has no tower, for
+  /// one) still costs a reload — by then the old model is closed.
+  ///
   /// "Build one" is never answered while a close the cache started or joined
   /// is still running, so a replacement never shares memory with the model it
   /// replaces while that model is being torn down. That holds for models whose
@@ -159,6 +168,7 @@ class EmbedderCache {
   Future<EmbedderCacheDecision> reuseOrInvalidate(
     ActiveEmbedderParams requested, {
     required String label,
+    Future<void> Function(ActiveEmbedderParams build)? prepare,
   }) async {
     // A close that outlived an earlier caller's wait is still running. With it
     // pending there is no cached model, so this caller would build — and must
@@ -166,7 +176,10 @@ class EmbedderCache {
     await _awaitPendingClose(label);
 
     final cached = _cached;
-    if (cached == null) return EmbedderCacheDecision._(null, requested);
+    if (cached == null) {
+      await prepare?.call(requested);
+      return EmbedderCacheDecision._(null, requested);
+    }
 
     // Checked, not trusted. Eviction rides the close listener, so a model that
     // never fires one — or that was already closed when it was recorded, after
@@ -180,8 +193,10 @@ class EmbedderCache {
       // Closed by someone else — the app, often without awaiting, or a worker
       // that died — so its teardown may still be running. `close()` again
       // joins it (CommonEmbeddingModel hands every caller the same teardown),
-      // and the rebuild waits for it like any other.
+      // and the rebuild waits for it like any other. Nothing is left to keep,
+      // so [prepare] runs after.
       await _closeAndWait(cached, label);
+      await prepare?.call(requested);
       return EmbedderCacheDecision._(null, requested);
     }
 
@@ -208,6 +223,9 @@ class EmbedderCache {
         '⚠️  Embedder config changed ($changedParam) for $label — rebuilding',
       );
     }
+    // Before anything is closed: if the build cannot happen, the cached model
+    // is still the best answer there is.
+    await prepare?.call(build);
     // Dropped BEFORE the await, not after: while a close is in flight the
     // cached model is no longer a valid answer to anybody.
     _cached = null;
