@@ -227,6 +227,99 @@ void main() {
     },
   );
 
+  group('a self-contained (.litertlm) catalog entry', () {
+    // No such entry ships yet (EmbeddingGemma 2 adds it); provenance must
+    // already take one, or it would always resolve to null.
+    const EmbeddingCatalogEntry entry = (
+      profileId: 'eg2-test-profile-v1',
+      sourceType: ModelSourceType.network,
+      url: 'https://h/resolve/abc/eg2.litertlm',
+      filename: 'eg2__rev-abc.litertlm',
+      tokenizerUrl: null,
+      tokenizerFilename: null,
+    );
+    EmbeddingModelSpec networkSpec() => EmbeddingModelSpec(
+      name: 'eg2',
+      modelSource: ModelSource.network(entry.url),
+      modelFilename: entry.filename,
+    );
+    EmbeddingModelSpec restoredSpec([String? filename]) => EmbeddingModelSpec(
+      name: 'eg2',
+      modelSource: ModelSource.file('/managed/${filename ?? entry.filename}'),
+      modelFilename: filename ?? entry.filename,
+    );
+
+    test('matches the spec installed from it, and no other', () {
+      expect(
+        embeddingCatalogProfileForSpec(networkSpec(), catalogEntries: [entry]),
+        entry.profileId,
+      );
+      expect(
+        embeddingCatalogProfileForSpec(
+          EmbeddingModelSpec(
+            name: 'eg2',
+            modelSource: ModelSource.network('https://h/other.litertlm'),
+            modelFilename: entry.filename,
+          ),
+          catalogEntries: [entry],
+        ),
+        isNull,
+      );
+    });
+
+    test('restores its profile from the native FileSource', () async {
+      expect(
+        await resolveActiveEmbeddingCatalogProfile(
+          spec: networkSpec(),
+          catalogEntries: [entry],
+        ),
+        entry.profileId,
+      );
+      expect(
+        await resolveActiveEmbeddingCatalogProfile(
+          spec: restoredSpec(),
+          catalogEntries: [entry],
+        ),
+        entry.profileId,
+      );
+      // Another bundle's file under the same record gets nothing.
+      expect(
+        await resolveActiveEmbeddingCatalogProfile(
+          spec: restoredSpec('other__rev-abc.litertlm'),
+          catalogEntries: [entry],
+        ),
+        isNull,
+      );
+    });
+
+    test('a record with half a tokenizer is cleared, not adopted', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        EmbeddingCatalogPreferencesKeys.activeProfileProvenance,
+        jsonEncode({
+          'schemaVersion': 1,
+          'profileId': entry.profileId,
+          'modelFilename': entry.filename,
+          'modelSource': ModelSource.network(entry.url).encode(),
+          'tokenizerFilename': 'stray.model',
+        }),
+      );
+      expect(
+        await resolveActiveEmbeddingCatalogProfile(
+          spec: restoredSpec(),
+          catalogEntries: [entry],
+        ),
+        isNull,
+      );
+      expect(
+        prefs.getString(
+          EmbeddingCatalogPreferencesKeys.activeProfileProvenance,
+        ),
+        isNull,
+      );
+    });
+  });
+
   test('backend locations are isolated by backend and embedding profile', () {
     const first = 'embedding-profile-v1';
     const second = 'embedding-profile-v2';
