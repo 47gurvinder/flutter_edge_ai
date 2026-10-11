@@ -1198,49 +1198,46 @@ class MobileModelManager extends ModelFileManager
   Future<Map<String, String>?> getModelFilePaths(ModelSpec spec) async {
     await _ensureInitialized();
 
-    try {
-      if (!await isModelInstalled(spec)) {
-        return null;
-      }
-
-      final filePaths = <String, String>{};
-
-      final registry = ServiceRegistry.instance;
-      final fileSystem = registry.fileSystemService;
-
-      for (final file in spec.files) {
-        // Get path based on source type
-        final String path;
-        if (file is DirectoryBundleFile) {
-          // Directory (ORT-GenAI) member: its identity is the explicit subpath
-          // `<modelId>/<bareLeaf>` under the model storage dir — resolve by
-          // filename regardless of the carrier source type (a restored bundle
-          // may carry a network/file source, but the on-disk location is always
-          // the subdir).
-          path = await ModelFileSystemManager.getModelFilePath(file.filename);
-        } else if (file.source is FileSource) {
-          // External file - use path from source
-          path = (file.source as FileSource).path;
-        } else if (file.source is BundledSource) {
-          // Bundled source - get platform-specific bundled path
-          final bundledSource = file.source as BundledSource;
-          path = await fileSystem.getBundledResourcePath(
-            bundledSource.resourceName,
-          );
-        } else {
-          // Downloaded/Asset file - use standard app directory
-          path = await ModelFileSystemManager.getModelFilePath(file.filename);
-        }
-        filePaths[file.prefsKey] = path;
-      }
-
-      return filePaths;
-    } catch (e) {
-      edgeAiLog(
-        'UnifiedModelManager: Failed to get file paths for ${spec.name}: $e',
-      );
+    // Null means "not installed" and nothing else. A lookup that FAILS — the
+    // repository or the file system throwing — surfaces its own error: turned
+    // into null it read as a missing model, and the caller was told to
+    // install something that was installed all along.
+    if (!await _isModelInstalled(spec)) {
       return null;
     }
+
+    final filePaths = <String, String>{};
+
+    final registry = ServiceRegistry.instance;
+    final fileSystem = registry.fileSystemService;
+
+    for (final file in spec.files) {
+      // Get path based on source type
+      final String path;
+      if (file is DirectoryBundleFile) {
+        // Directory (ORT-GenAI) member: its identity is the explicit subpath
+        // `<modelId>/<bareLeaf>` under the model storage dir — resolve by
+        // filename regardless of the carrier source type (a restored bundle
+        // may carry a network/file source, but the on-disk location is always
+        // the subdir).
+        path = await ModelFileSystemManager.getModelFilePath(file.filename);
+      } else if (file.source is FileSource) {
+        // External file - use path from source
+        path = (file.source as FileSource).path;
+      } else if (file.source is BundledSource) {
+        // Bundled source - get platform-specific bundled path
+        final bundledSource = file.source as BundledSource;
+        path = await fileSystem.getBundledResourcePath(
+          bundledSource.resourceName,
+        );
+      } else {
+        // Downloaded/Asset file - use standard app directory
+        path = await ModelFileSystemManager.getModelFilePath(file.filename);
+      }
+      filePaths[file.prefsKey] = path;
+    }
+
+    return filePaths;
   }
 
   /// Creates a bundled inference model specification (for production builds)

@@ -130,7 +130,12 @@ Future<EmbeddingModel> loadActiveEmbedder({
       supportImage: build.media.contains(EmbeddingModality.image),
       supportAudio: build.media.contains(EmbeddingModality.audio),
     );
-    final descriptor = await backend.describe(active, config);
+    final descriptor = await _asLoadFailure(
+      backend.name,
+      'could not describe a pass for',
+      modelPath,
+      () => backend.describe(active, config),
+    );
 
     // Step 4: core builds, hosts and checks the pass.
     // A pass whose load fails is closed behind the error; the cache holds
@@ -186,11 +191,41 @@ Future<EmbeddingModel> _buildThroughCreateModel(
       engine: backend.name,
     );
   }
-  final legacy = await backend.createModel(spec, config);
+  final legacy = await _asLoadFailure(
+    backend.name,
+    'could not build its model for',
+    label,
+    () => backend.createModel(spec, config),
+  );
   return CommonEmbeddingModel.hostLegacyModel(
     legacy,
     engineTag: backend.name,
     label: label,
     onFailedLoadCleanup: onFailedLoadCleanup,
   );
+}
+
+/// Runs a backend's [step]; anything it throws other than an
+/// `EmbeddingLoadException` reaches the app as one — as `getActiveEmbedder`
+/// documents — with the original error as its cause and its stack kept.
+Future<T> _asLoadFailure<T>(
+  String engine,
+  String doing,
+  String label,
+  Future<T> Function() step,
+) async {
+  try {
+    return await step();
+  } on EmbeddingLoadException {
+    rethrow;
+  } catch (e, st) {
+    Error.throwWithStackTrace(
+      EmbeddingLoadException(
+        '$engine $doing $label: $e',
+        engine: engine,
+        cause: e,
+      ),
+      st,
+    );
+  }
 }

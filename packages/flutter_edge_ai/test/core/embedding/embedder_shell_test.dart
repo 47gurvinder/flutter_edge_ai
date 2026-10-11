@@ -228,6 +228,48 @@ void main() {
       expect(plugin.initializedEmbeddingModel, isNull);
     });
 
+    test('whatever describe() throws reaches the app as a load failure, its '
+        'cause kept', () async {
+      final boom = StateError('describe blew up');
+      EmbeddingRegistry.instance.registerAll([
+        _DescribingBackend(describeThrows: boom),
+      ]);
+      final plugin = FlutterEdgeAiMobile();
+      await fixture.activate(plugin, model: 'eg2.litertlm');
+      await expectLater(
+        plugin.createEmbeddingModel(),
+        throwsA(
+          isA<EmbeddingLoadException>()
+              .having((e) => e.engine, 'engine', 'Describing')
+              .having((e) => e.cause, 'cause', same(boom))
+              .having(
+                (e) => e.message,
+                'message',
+                contains('describe blew up'),
+              ),
+        ),
+      );
+    });
+
+    test(
+      'whatever a pre-2.2 createModel throws is a load failure too',
+      () async {
+        // TRANSITIONAL(C stage 3): remove with the createModel path.
+        final backend = _LegacyBackend()..failNext = true;
+        EmbeddingRegistry.instance.registerAll([backend]);
+        final plugin = FlutterEdgeAiMobile();
+        await fixture.activate(plugin, model: 'm.tflite', tokenizer: 't.json');
+        await expectLater(
+          plugin.createEmbeddingModel(),
+          throwsA(
+            isA<EmbeddingLoadException>()
+                .having((e) => e.engine, 'engine', 'Legacy')
+                .having((e) => e.cause, 'cause', isA<StateError>()),
+          ),
+        );
+      },
+    );
+
     test('a backend that predates describe() cannot take media', () async {
       // TRANSITIONAL(C stage 3): remove with the createModel path.
       final backend = _LegacyBackend();
@@ -357,7 +399,10 @@ void main() {
         await fixture.activate(plugin, model: 'a.tflite', tokenizer: 'a.json');
         backend.failNext = true;
 
-        await expectLater(plugin.createEmbeddingModel(), throwsStateError);
+        await expectLater(
+          plugin.createEmbeddingModel(),
+          throwsA(isA<EmbeddingLoadException>()),
+        );
         // The retry is a fresh decision, not a replay of the failure.
         await plugin.createEmbeddingModel();
         expect(backend.paths, hasLength(2));
@@ -374,7 +419,11 @@ final class _DescribingBackend extends EmbeddingBackendProvider {
     this.refuse = false,
     this.handles = true,
     this.failLoadGate,
+    this.describeThrows,
   });
+
+  /// When set, describe() throws it — not an EmbeddingLoadException.
+  final Object? describeThrows;
 
   /// When set, the pass fails its load and its close waits until this file
   /// exists (the pass runs in the worker isolate, so a file is the gate).
@@ -398,6 +447,8 @@ final class _DescribingBackend extends EmbeddingBackendProvider {
     RuntimeConfig config,
   ) async {
     configs.add(config);
+    final error = describeThrows;
+    if (error != null) throw error;
     if (refuse) {
       throw const EmbeddingLoadException(
         'this engine refuses media',
