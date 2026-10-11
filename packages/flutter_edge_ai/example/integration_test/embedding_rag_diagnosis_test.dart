@@ -57,10 +57,16 @@ void main() {
         print('\n\n========== RAW embeddings ==========');
         final docEmbRaw = <String, List<double>>{};
         for (final entry in _documents.entries) {
-          docEmbRaw[entry.key] = await model.generateEmbedding(entry.value);
+          docEmbRaw[entry.key] = await model.embed(
+            EmbeddingInput.text(entry.value),
+            taskType: TaskType.retrievalQuery,
+          );
         }
         for (final query in _queries) {
-          final queryEmb = await model.generateEmbedding(query);
+          final queryEmb = await model.embed(
+            EmbeddingInput.text(query),
+            taskType: TaskType.retrievalQuery,
+          );
           _printRanking(query, queryEmb, docEmbRaw);
         }
 
@@ -70,7 +76,12 @@ void main() {
           docEmbNorm[entry.key] = _l2Normalize(entry.value);
         }
         for (final query in _queries) {
-          final queryEmb = _l2Normalize(await model.generateEmbedding(query));
+          final queryEmb = _l2Normalize(
+            await model.embed(
+              EmbeddingInput.text(query),
+              taskType: TaskType.retrievalQuery,
+            ),
+          );
           _printRanking(query, queryEmb, docEmbNorm);
         }
       } finally {

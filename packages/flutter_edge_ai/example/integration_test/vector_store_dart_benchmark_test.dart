@@ -177,7 +177,12 @@ void main() {
         final sw = Stopwatch()..start();
         final vectors = <List<double>>[];
         for (var i = 0; i < texts.length; i++) {
-          vectors.add(await embedder.generateEmbedding(texts[i]));
+          vectors.add(
+            await embedder.embed(
+              EmbeddingInput.text(texts[i]),
+              taskType: TaskType.retrievalQuery,
+            ),
+          );
           if ((i + 1) % 500 == 0) {
             // ignore: avoid_print
             print(

@@ -438,7 +438,10 @@ class _EmbeddingTestScreenState extends State<EmbeddingTestScreen> {
       if (_embeddingModel == null) {
         throw Exception('Embedding model not initialized');
       }
-      final embedding = await _embeddingModel!.generateEmbedding(text);
+      final embedding = await _embeddingModel!.embed(
+        EmbeddingInput.text(text),
+        taskType: TaskType.retrievalQuery,
+      );
 
       setState(() {
         _embeddingResult = embedding;

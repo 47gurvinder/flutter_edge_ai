@@ -1056,7 +1056,10 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
     // Test 1: Simple embedding
     _log('💬 Test 1: Generating embedding for: "Hello, world!"');
     final startTime1 = DateTime.now();
-    final embedding1 = await embeddingModel.generateEmbedding('Hello, world!');
+    final embedding1 = await embeddingModel.embed(
+      EmbeddingInput.text('Hello, world!'),
+      taskType: TaskType.retrievalQuery,
+    );
     final duration1 = DateTime.now().difference(startTime1);
 
     _log('🔢 Embedding dimensions: ${embedding1.length}');
@@ -1067,8 +1070,9 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
     // Test 2: Different text
     _log('💬 Test 2: Generating embedding for: "Artificial Intelligence"');
     final startTime2 = DateTime.now();
-    final embedding2 = await embeddingModel.generateEmbedding(
-      'Artificial Intelligence',
+    final embedding2 = await embeddingModel.embed(
+      EmbeddingInput.text('Artificial Intelligence'),
+      taskType: TaskType.retrievalQuery,
     );
     final duration2 = DateTime.now().difference(startTime2);
 
@@ -1333,7 +1337,10 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
         _log('▶️  [$_currentTestIndex/$_totalTests]   ▶️ Run Embedding');
         final embeddingModel1 = await legacy.FlutterEdgeAiPlugin.instance
             .createEmbeddingModel();
-        final emb1 = await embeddingModel1.generateEmbedding('Hello, world!');
+        final emb1 = await embeddingModel1.embed(
+          EmbeddingInput.text('Hello, world!'),
+          taskType: TaskType.retrievalQuery,
+        );
         _log('  🔢 Dimensions: ${emb1.length}');
         _log('  🔢 First 5 values: ${emb1.take(5).toList()}');
         await embeddingModel1.close();
@@ -1380,7 +1387,10 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
         final embeddingModel2 = await FlutterEdgeAi.getActiveEmbedder();
         _log('  ✅ Model ready');
         _log('  🔧 Generating embedding...');
-        final emb2 = await embeddingModel2.generateEmbedding('Hello, world!');
+        final emb2 = await embeddingModel2.embed(
+          EmbeddingInput.text('Hello, world!'),
+          taskType: TaskType.retrievalQuery,
+        );
         _log('  🔢 Dimensions: ${emb2.length}');
         _log('  🔢 First 5 values: ${emb2.take(5).toList()}');
         await embeddingModel2.close();
@@ -1528,7 +1538,10 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
           _log('▶️  [$_currentTestIndex/$_totalTests]   ▶️ Run Embedding');
           final embeddingModel3 = await legacy.FlutterEdgeAiPlugin.instance
               .createEmbeddingModel();
-          final emb3 = await embeddingModel3.generateEmbedding('Hello, world!');
+          final emb3 = await embeddingModel3.embed(
+            EmbeddingInput.text('Hello, world!'),
+            taskType: TaskType.retrievalQuery,
+          );
           _log('  🔢 Dimensions: ${emb3.length}');
           _log('  🔢 First 5 values: ${emb3.take(5).toList()}');
           await embeddingModel3.close();
@@ -1559,7 +1572,10 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
           final embeddingModel4 = await FlutterEdgeAi.getActiveEmbedder();
           _log('  ✅ Model ready');
           _log('  🔧 Generating embedding...');
-          final emb4 = await embeddingModel4.generateEmbedding('Hello, world!');
+          final emb4 = await embeddingModel4.embed(
+            EmbeddingInput.text('Hello, world!'),
+            taskType: TaskType.retrievalQuery,
+          );
           _log('  🔢 Dimensions: ${emb4.length}');
           _log('  🔢 First 5 values: ${emb4.take(5).toList()}');
           await embeddingModel4.close();
@@ -1685,7 +1701,10 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
         _log('▶️  [$_currentTestIndex/$_totalTests]   ▶️ Run Embedding');
         final embeddingModel5 = await legacy.FlutterEdgeAiPlugin.instance
             .createEmbeddingModel();
-        final emb5 = await embeddingModel5.generateEmbedding('Hello, world!');
+        final emb5 = await embeddingModel5.embed(
+          EmbeddingInput.text('Hello, world!'),
+          taskType: TaskType.retrievalQuery,
+        );
         _log('  🔢 Dimensions: ${emb5.length}');
         _log('  🔢 First 5 values: ${emb5.take(5).toList()}');
         await embeddingModel5.close();
@@ -1715,7 +1734,10 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
         final embeddingModel6 = await FlutterEdgeAi.getActiveEmbedder();
         _log('  ✅ Model ready');
         _log('  🔧 Generating embedding...');
-        final emb6 = await embeddingModel6.generateEmbedding('Hello, world!');
+        final emb6 = await embeddingModel6.embed(
+          EmbeddingInput.text('Hello, world!'),
+          taskType: TaskType.retrievalQuery,
+        );
         _log('  🔢 Dimensions: ${emb6.length}');
         _log('  🔢 First 5 values: ${emb6.take(5).toList()}');
         await embeddingModel6.close();
@@ -1843,7 +1865,10 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
         _log('▶️  [$_currentTestIndex/$_totalTests]   ▶️ Run Embedding');
         final embeddingModel7 = await legacy.FlutterEdgeAiPlugin.instance
             .createEmbeddingModel();
-        final emb7 = await embeddingModel7.generateEmbedding('Hello, world!');
+        final emb7 = await embeddingModel7.embed(
+          EmbeddingInput.text('Hello, world!'),
+          taskType: TaskType.retrievalQuery,
+        );
         _log('  🔢 Dimensions: ${emb7.length}');
         _log('  🔢 First 5 values: ${emb7.take(5).toList()}');
         await embeddingModel7.close();
@@ -1871,7 +1896,10 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
         final embeddingModel8 = await FlutterEdgeAi.getActiveEmbedder();
         _log('  ✅ Model ready');
         _log('  🔧 Generating embedding...');
-        final emb8 = await embeddingModel8.generateEmbedding('Hello, world!');
+        final emb8 = await embeddingModel8.embed(
+          EmbeddingInput.text('Hello, world!'),
+          taskType: TaskType.retrievalQuery,
+        );
         _log('  🔢 Dimensions: ${emb8.length}');
         _log('  🔢 First 5 values: ${emb8.take(5).toList()}');
         await embeddingModel8.close();

@@ -59,10 +59,16 @@ void main() {
         print('\n\n========== SINGLE PREFIX (query for all) ==========');
         final docEmbSingle = <String, List<double>>{};
         for (final entry in _documents.entries) {
-          docEmbSingle[entry.key] = await model.generateEmbedding(entry.value);
+          docEmbSingle[entry.key] = await model.embed(
+            EmbeddingInput.text(entry.value),
+            taskType: TaskType.retrievalQuery,
+          );
         }
         for (final query in _queries) {
-          final queryEmb = await model.generateEmbedding(query);
+          final queryEmb = await model.embed(
+            EmbeddingInput.text(query),
+            taskType: TaskType.retrievalQuery,
+          );
           _printRanking(query, queryEmb, docEmbSingle);
         }
 
@@ -72,13 +78,16 @@ void main() {
         );
         final docEmbDual = <String, List<double>>{};
         for (final entry in _documents.entries) {
-          docEmbDual[entry.key] = await model.generateEmbedding(
-            entry.value,
+          docEmbDual[entry.key] = await model.embed(
+            EmbeddingInput.text(entry.value),
             taskType: TaskType.retrievalDocument,
           );
         }
         for (final query in _queries) {
-          final queryEmb = await model.generateEmbedding(query);
+          final queryEmb = await model.embed(
+            EmbeddingInput.text(query),
+            taskType: TaskType.retrievalQuery,
+          );
           _printRanking(query, queryEmb, docEmbDual);
         }
       } finally {

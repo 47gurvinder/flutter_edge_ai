@@ -44,31 +44,40 @@ void main() {
 
       try {
         // 6a. Generate embedding — should be 768D, non-zero
-        final emb = await model.generateEmbedding('test text');
+        final emb = await model.embed(
+          EmbeddingInput.text('test text'),
+          taskType: TaskType.retrievalQuery,
+        );
         print('Embedding dimension: ${emb.length}');
         expect(emb.length, equals(768));
         expect(emb.any((v) => v != 0), isTrue);
 
-        // 6b. getDimension()
-        final dim = await model.getDimension();
+        // 6b. dimension
+        final dim = model.dimension;
         expect(dim, equals(768));
 
         // 6c. Repeatability — same text produces identical embeddings
-        final emb2 = await model.generateEmbedding('test text');
+        final emb2 = await model.embed(
+          EmbeddingInput.text('test text'),
+          taskType: TaskType.retrievalQuery,
+        );
         expect(emb.length, equals(emb2.length));
         for (int i = 0; i < emb.length; i++) {
           expect(emb[i], closeTo(emb2[i], 1e-6));
         }
 
         // 6d. Semantic similarity — similar texts should be closer
-        final queryEmb = await model.generateEmbedding(
-          'Which planet is known as the Red Planet',
+        final queryEmb = await model.embed(
+          EmbeddingInput.text('Which planet is known as the Red Planet'),
+          taskType: TaskType.retrievalQuery,
         );
-        final similarEmb = await model.generateEmbedding(
-          'Mars is famous for its reddish appearance',
+        final similarEmb = await model.embed(
+          EmbeddingInput.text('Mars is famous for its reddish appearance'),
+          taskType: TaskType.retrievalQuery,
         );
-        final diffEmb = await model.generateEmbedding(
-          'The stock market closed higher today',
+        final diffEmb = await model.embed(
+          EmbeddingInput.text('The stock market closed higher today'),
+          taskType: TaskType.retrievalQuery,
         );
 
         final simScore = _cosineSimilarity(queryEmb, similarEmb);
@@ -80,7 +89,10 @@ void main() {
         expect(diffScore, lessThan(simScore));
 
         // 6e. Batch embeddings
-        final batch = await model.generateEmbeddings(['hello', 'world']);
+        final batch = await model.embedAll([
+          EmbeddingInput.text('hello'),
+          EmbeddingInput.text('world'),
+        ], taskType: TaskType.retrievalQuery);
         expect(batch.length, equals(2));
         expect(batch[0].length, equals(768));
         expect(batch[1].length, equals(768));

@@ -35,11 +35,17 @@ void main() {
     double minSimThreshold = 0.5,
     double maxDiffThreshold = 0.3,
   }) async {
-    final queryEmb = await model.generateEmbedding(queryText);
+    final queryEmb = await model.embed(
+      EmbeddingInput.text(queryText),
+      taskType: TaskType.retrievalQuery,
+    );
     expect(queryEmb, isNotEmpty, reason: '$label: empty embeddings');
     expect(queryEmb.any((v) => v != 0), isTrue, reason: '$label: all zeros');
 
-    final queryEmb2 = await model.generateEmbedding(queryText);
+    final queryEmb2 = await model.embed(
+      EmbeddingInput.text(queryText),
+      taskType: TaskType.retrievalQuery,
+    );
     expect(queryEmb.length, equals(queryEmb2.length));
     for (int i = 0; i < queryEmb.length; i++) {
       expect(
@@ -49,7 +55,10 @@ void main() {
       );
     }
 
-    final similarEmb = await model.generateEmbedding(similarText);
+    final similarEmb = await model.embed(
+      EmbeddingInput.text(similarText),
+      taskType: TaskType.retrievalQuery,
+    );
     final simScore = cosineSimilarity(queryEmb, similarEmb);
     print('$label simSimilarity: $simScore');
     expect(
@@ -58,7 +67,10 @@ void main() {
       reason: '$label: similar texts too different ($simScore)',
     );
 
-    final diffEmb = await model.generateEmbedding(differentText);
+    final diffEmb = await model.embed(
+      EmbeddingInput.text(differentText),
+      taskType: TaskType.retrievalQuery,
+    );
     final diffScore = cosineSimilarity(queryEmb, diffEmb);
     print('$label diffSimilarity: $diffScore');
     expect(

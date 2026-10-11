@@ -199,18 +199,25 @@ class _CosineSimilarityScreenState extends State<CosineSimilarityScreen> {
       if (kDebugMode) {
         debugPrint('Generating query embedding...');
       }
-      _queryEmbedding = await _embeddingModel!.generateEmbedding(queryText);
+      _queryEmbedding = await _embeddingModel!.embed(
+        EmbeddingInput.text(queryText),
+        taskType: TaskType.retrievalQuery,
+      );
 
       if (kDebugMode) {
         debugPrint('Generating similar embedding...');
       }
-      _similarEmbedding = await _embeddingModel!.generateEmbedding(similarText);
+      _similarEmbedding = await _embeddingModel!.embed(
+        EmbeddingInput.text(similarText),
+        taskType: TaskType.retrievalQuery,
+      );
 
       if (kDebugMode) {
         debugPrint('Generating different embedding...');
       }
-      _differentEmbedding = await _embeddingModel!.generateEmbedding(
-        differentText,
+      _differentEmbedding = await _embeddingModel!.embed(
+        EmbeddingInput.text(differentText),
+        taskType: TaskType.retrievalQuery,
       );
 
       // Debug: Print vector info
