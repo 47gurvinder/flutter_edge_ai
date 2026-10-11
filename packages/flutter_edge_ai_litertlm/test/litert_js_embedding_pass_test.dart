@@ -1,0 +1,183 @@
+// `LiteRtJsEmbeddingPass` (web, LiteRT.js bundle v1) on the VM, over a fake
+// bundle that keeps ONE page-global state the way `litert_embeddings.js`
+// does. The real interop is the browser suite's
+// (test/web/litert_js_embedding_pass_page_lane_test.dart); here: what reaches
+// the bundle, the v1 task-type limits, and the page-wide order of loads and
+// disposes across passes.
+
+import 'dart:async';
+
+import 'package:flutter_edge_ai/engine.dart';
+import 'package:flutter_edge_ai_litertlm/src/embedding/web/litert_js_embedding_pass.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// The page-global state of the bundle, shared by every pass on the "page".
+final class _FakePage implements LiteRtJsBundle {
+  _FakePage({this.loadDelays = const [Duration.zero]});
+
+  /// Per load, in order; the last one repeats.
+  final List<Duration> loadDelays;
+
+  /// When set, the next load fails after fetching the tokenizer — as v1
+  /// does when the model fails to compile.
+  bool failNextLoad = false;
+
+  bool modelLoaded = false;
+  bool tokenizerLoaded = false;
+  final loads = <({String model, String tokenizer})>[];
+  int disposes = 0;
+  final prompts = <({String kind, String text})>[];
+
+  @override
+  Future<void> load(
+    String modelUrl,
+    String tokenizerUrl,
+    String wasmPath,
+  ) async {
+    loads.add((model: modelUrl, tokenizer: tokenizerUrl));
+    await Future<void>.delayed(
+      loadDelays[(loads.length - 1).clamp(0, loadDelays.length - 1)],
+    );
+    tokenizerLoaded = true;
+    if (failNextLoad) {
+      failNextLoad = false;
+      throw StateError('Failed to load LiteRT model: compile failed');
+    }
+    modelLoaded = true;
+  }
+
+  @override
+  int get dimension => 4;
+
+  Future<List<double>> _embed(String kind, String text) async {
+    if (!modelLoaded) throw StateError('page state was disposed');
+    prompts.add((kind: kind, text: text));
+    return const [0.5, 0.5, 0.5, 0.5];
+  }
+
+  @override
+  Future<List<double>> embedQuery(String text) => _embed('query', text);
+
+  @override
+  Future<List<double>> embedDocument(String text) => _embed('document', text);
+
+  @override
+  Future<void> dispose() async {
+    disposes++;
+    modelLoaded = false;
+    tokenizerLoaded = false;
+  }
+}
+
+LiteRtJsEmbeddingPass _pass(
+  _FakePage page, {
+  String modelPath = 'blob:model',
+  String tokenizerPath = 'blob:tokenizer',
+}) => LiteRtJsEmbeddingPass(
+  LiteRtJsEmbeddingConfig(
+    modelPath: modelPath,
+    tokenizerPath: tokenizerPath,
+    bundle: page,
+  ),
+);
+
+void main() {
+  group('bundle API v1', () {
+    test('the query and document prompts get the RAW text — the bundle adds '
+        'the prefix, so the pass must not', () async {
+      final page = _FakePage();
+      final pass = _pass(page);
+      await pass.load();
+
+      await pass.embed(EmbeddingInput.text('q'), TaskType.retrievalQuery);
+      await pass.embed(EmbeddingInput.text('d'), TaskType.retrievalDocument);
+
+      expect(page.prompts, [
+        (kind: 'query', text: 'q'),
+        (kind: 'document', text: 'd'),
+      ]);
+      await pass.close();
+    });
+
+    test(
+      'the other seven task types are refused by name and reach nothing',
+      () async {
+        final page = _FakePage();
+        final pass = _pass(page);
+        await pass.load();
+
+        for (final type in TaskType.values.skip(2)) {
+          await expectLater(
+            pass.embed(EmbeddingInput.text('x'), type),
+            throwsA(
+              isA<EmbeddingEngineException>()
+                  .having((e) => e.engine, 'engine', 'LiteRT.js')
+                  .having(
+                    (e) => e.message,
+                    'message',
+                    contains('TaskType.${type.name}'),
+                  ),
+            ),
+          );
+        }
+        expect(page.prompts, isEmpty);
+        await pass.close();
+      },
+    );
+
+    test('load reports the bundle\'s dimension and no input limit (v1 cannot '
+        'tell)', () async {
+      final info = await _pass(_FakePage()).load();
+      expect(info.dimension, 4);
+      expect(info.maxInputTokens, isNull);
+    });
+  });
+
+  group('the page lane', () {
+    test('a pass closing while its replacement loads leaves the replacement '
+        'its page state', () async {
+      // The old pass's load is the SLOW one and its close is queued behind it;
+      // the replacement's load is fast. Without the lane the replacement
+      // loaded first and the old dispose then deleted its state.
+      final page = _FakePage(
+        loadDelays: const [
+          Duration(milliseconds: 100),
+          Duration(milliseconds: 10),
+        ],
+      );
+      final a = _pass(page);
+      final aLoad = a.load();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      final aClose = a.close();
+      final b = _pass(page);
+      final bLoad = b.load();
+
+      await aLoad;
+      await aClose;
+      await bLoad;
+
+      expect(
+        await b.embed(EmbeddingInput.text('z'), TaskType.retrievalQuery),
+        hasLength(4),
+        reason: 'the replacement lost its page state to the old close',
+      );
+      expect(page.disposes, 1);
+      await b.close();
+    });
+
+    test(
+      'a failed load does not block the lane: the next pass loads',
+      () async {
+        final page = _FakePage()..failNextLoad = true;
+        final failed = _pass(page);
+        await expectLater(failed.load(), throwsStateError);
+        await failed.close();
+
+        final next = _pass(page);
+        await next.load();
+        expect(page.loads, hasLength(2));
+        await next.close();
+      },
+    );
+  });
+}

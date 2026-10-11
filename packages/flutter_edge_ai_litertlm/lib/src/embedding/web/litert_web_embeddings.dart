@@ -6,6 +6,8 @@ library;
 
 import 'dart:js_interop';
 
+import 'litert_js_embedding_pass.dart' show LiteRtJsBundle;
+
 /// External JavaScript functions exposed from web/litert_embeddings.js
 @JS('loadLiteRtEmbeddings')
 external JSPromise _loadLiteRtEmbeddingsJS(
@@ -233,4 +235,32 @@ class LiteRTWebEmbeddings {
       throw Exception('Failed to cleanup LiteRT embeddings: $e');
     }
   }
+}
+
+/// The [LiteRtJsBundle] the web backend hands the pass: the window API of
+/// `web/litert_embeddings.js`, through [LiteRTWebEmbeddings].
+final class WindowLiteRtJsBundle implements LiteRtJsBundle {
+  const WindowLiteRtJsBundle();
+
+  @override
+  Future<void> load(String modelUrl, String tokenizerUrl, String wasmPath) =>
+      LiteRTWebEmbeddings.initialize(
+        modelUrl,
+        tokenizerUrl,
+        wasmPath: wasmPath,
+      );
+
+  @override
+  int get dimension => LiteRTWebEmbeddings.getDimension();
+
+  @override
+  Future<List<double>> embedQuery(String text) =>
+      LiteRTWebEmbeddings.generateEmbedding(text);
+
+  @override
+  Future<List<double>> embedDocument(String text) =>
+      LiteRTWebEmbeddings.generateDocumentEmbedding(text);
+
+  @override
+  Future<void> dispose() => LiteRTWebEmbeddings.dispose();
 }

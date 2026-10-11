@@ -3,8 +3,9 @@
 // is one per loaded embedder. These tests stand in for the JS with stubs on
 // `window` that share one flag, the way the real bundle does, and pin the
 // order of loads and disposes across passes, plus what the interim pass on
-// bundle API v1 serves: the query and document prompts, nothing else, and no
-// input limit.
+// bundle API v1 serves through the real interop: the query and document
+// prompts with the raw text, nothing else, and no input limit. The same rules
+// over a fake bundle run on the VM (test/litert_js_embedding_pass_test.dart).
 //
 // Not run by tool/test_all.sh or CI, which run on the VM. Run:
 //   flutter test --platform chrome test/web/litert_js_embedding_pass_page_lane_test.dart
@@ -17,6 +18,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_edge_ai/engine.dart';
 import 'package:flutter_edge_ai_litertlm/src/embedding/web/litert_js_embedding_pass.dart';
+import 'package:flutter_edge_ai_litertlm/src/embedding/web/litert_web_embeddings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The page-global state the real bundle keeps, reduced to the one flag the
@@ -24,7 +26,9 @@ import 'package:flutter_test/flutter_test.dart';
 bool _pageLoaded = false;
 int _loads = 0;
 int _disposes = 0;
-final _prompts = <String>[];
+
+/// What reached the bundle: which prompt, and the text it was given.
+final _prompts = <({String kind, String text})>[];
 
 /// [loadDelays] is per call, in order; the last one repeats.
 void _installStubs({required List<Duration> loadDelays}) {
@@ -33,9 +37,9 @@ void _installStubs({required List<Duration> loadDelays}) {
   _disposes = 0;
   _prompts.clear();
 
-  JSPromise<JSAny?> embed(String prompt) => () async {
+  JSPromise<JSAny?> embed(String kind, JSString text) => () async {
     if (!_pageLoaded) throw StateError('page state was disposed');
-    _prompts.add(prompt);
+    _prompts.add((kind: kind, text: text.toDart));
     return Float32List(4).toJS;
   }().toJS;
 
@@ -57,15 +61,23 @@ void _installStubs({required List<Duration> loadDelays}) {
   }).toJS;
   globalContext['isLiteRtEmbeddingsInitialized'] =
       (() => _pageLoaded.toJS).toJS;
-  globalContext['generateEmbedding'] = ((JSString text) => embed('query')).toJS;
+  globalContext['generateEmbedding'] = ((JSString text) => embed(
+    'query',
+    text,
+  )).toJS;
   globalContext['generateDocumentEmbedding'] = ((JSString text) => embed(
     'document',
+    text,
   )).toJS;
   globalContext['getLiteRtEmbeddingDimension'] = (() => 4.toJS).toJS;
 }
 
 LiteRtJsEmbeddingPass _pass() => LiteRtJsEmbeddingPass(
-  const LiteRtJsEmbeddingConfig(modelPath: 'm', tokenizerPath: 't'),
+  const LiteRtJsEmbeddingConfig(
+    modelPath: 'm',
+    tokenizerPath: 't',
+    bundle: WindowLiteRtJsBundle(),
+  ),
 );
 
 void main() {
@@ -138,7 +150,12 @@ void main() {
 
     await pass.embed(EmbeddingInput.text('q'), TaskType.retrievalQuery);
     await pass.embed(EmbeddingInput.text('d'), TaskType.retrievalDocument);
-    expect(_prompts, ['query', 'document']);
+    // The RAW text: the v1 bundle prepends the prompt itself, so a prefix
+    // added in Dart would be embedded twice.
+    expect(_prompts, [
+      (kind: 'query', text: 'q'),
+      (kind: 'document', text: 'd'),
+    ]);
 
     for (final type in TaskType.values.skip(2)) {
       await expectLater(

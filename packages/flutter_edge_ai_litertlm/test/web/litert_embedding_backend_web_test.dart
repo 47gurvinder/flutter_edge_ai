@@ -10,6 +10,7 @@ library;
 import 'package:flutter_edge_ai/engine.dart';
 import 'package:flutter_edge_ai_litertlm/src/embedding/litert_embedding_backend_web.dart';
 import 'package:flutter_edge_ai_litertlm/src/embedding/web/litert_js_embedding_pass.dart';
+import 'package:flutter_edge_ai_litertlm/src/embedding/web/litert_web_embeddings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 final _tflite = EmbeddingModelSpec(
@@ -51,6 +52,7 @@ void main() {
     expect(descriptor.engineTag, 'LiteRT.js');
     expect(config.modelPath, 'blob:model');
     expect(config.tokenizerPath, 'blob:tokenizer');
+    expect(config.bundle, isA<WindowLiteRtJsBundle>());
     expect(descriptor.activeBackend, isNull, reason: 'unknown, never CPU');
     expect(descriptor.build(), isA<LiteRtJsEmbeddingPass>());
   });

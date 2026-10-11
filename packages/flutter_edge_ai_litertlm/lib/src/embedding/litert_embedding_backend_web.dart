@@ -9,6 +9,7 @@
 import 'package:flutter_edge_ai/engine.dart';
 
 import 'web/litert_js_embedding_pass.dart';
+import 'web/litert_web_embeddings.dart' show WindowLiteRtJsBundle;
 
 /// LiteRT embedding backend, web: EmbeddingGemma `.tflite` through LiteRT.js.
 final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
@@ -49,6 +50,7 @@ final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
       config: LiteRtJsEmbeddingConfig(
         modelPath: config.modelPath,
         tokenizerPath: tokenizerPath,
+        bundle: const WindowLiteRtJsBundle(),
       ),
       // The runtime picks the accelerator itself and the answer does not
       // exist until it has run; the bundle reports it through

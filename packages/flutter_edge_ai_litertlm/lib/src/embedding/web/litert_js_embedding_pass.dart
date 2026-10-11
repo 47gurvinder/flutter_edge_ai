@@ -3,6 +3,10 @@
 // `LiteRtEmbeddingBackend.describe` hands core. Core hosts it inline on the
 // page, checks every request and closes it.
 //
+// Pure Dart: the bundle's window API arrives in the config as a
+// [LiteRtJsBundle] (the `dart:js_interop` one from the web backend, a fake in
+// the VM tests), so nothing here imports `dart:js_interop`.
+//
 // Interim, on bundle API v1: the bundle tokenizes and prefixes inside the JS,
 // and knows two prompts — `generateEmbedding` (the query prompt, which it uses
 // for every type but a document) and `generateDocumentEmbedding`. So this pass
@@ -16,19 +20,41 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_edge_ai/engine.dart';
 
-import 'litert_web_embeddings.dart';
 import 'web_runtime.dart';
 
+/// The `web/litert_embeddings.js` window API (bundle v1), as the pass uses it.
+abstract interface class LiteRtJsBundle {
+  /// `loadLiteRtEmbeddings`: fetches the tokenizer, then fetches and compiles
+  /// the model. Page-global state.
+  Future<void> load(String modelUrl, String tokenizerUrl, String wasmPath);
+
+  /// `getLiteRtEmbeddingDimension`.
+  int get dimension;
+
+  /// `generateEmbedding`: the bundle prepends the query prompt.
+  Future<List<double>> embedQuery(String text);
+
+  /// `generateDocumentEmbedding`: the bundle prepends the document prompt.
+  Future<List<double>> embedDocument(String text);
+
+  /// `cleanupLiteRtEmbeddings`: frees the model and the tokenizer.
+  Future<void> dispose();
+}
+
 /// What the web `LiteRtEmbeddingBackend.describe` hands core: the model and
-/// tokenizer URLs core resolved for the active spec.
+/// tokenizer paths core resolved for the active spec, and the bundle.
+///
+/// Hosted inline, never sent across an isolate.
 final class LiteRtJsEmbeddingConfig {
   const LiteRtJsEmbeddingConfig({
     required this.modelPath,
     required this.tokenizerPath,
+    required this.bundle,
   });
 
   final String modelPath;
   final String tokenizerPath;
+  final LiteRtJsBundle bundle;
 }
 
 /// The descriptor factory.
@@ -43,6 +69,8 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
   LiteRtJsEmbeddingPass(this._config);
 
   final LiteRtJsEmbeddingConfig _config;
+
+  LiteRtJsBundle get _bundle => _config.bundle;
 
   /// Where the page's LiteRT.js runtime was actually loaded from, if at all.
   /// Static because the runtime is one per page, not one per pass.
@@ -92,16 +120,12 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
         'before the first embedder loads.',
       );
     }
-    await LiteRTWebEmbeddings.initialize(
-      _config.modelPath,
-      _config.tokenizerPath,
-      wasmPath: wasmPath,
-    );
+    await _bundle.load(_config.modelPath, _config.tokenizerPath, wasmPath);
     _loadedWasmPath ??= wasmPath;
     _loaded = true;
     if (kDebugMode) edgeAiLog('LiteRT.js embeddings loaded');
     // v1 cannot report the model's input length.
-    return EmbeddingPassInfo(dimension: LiteRTWebEmbeddings.getDimension());
+    return EmbeddingPassInfo(dimension: _bundle.dimension);
   });
 
   @override
@@ -111,9 +135,9 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
       throw StateError('LiteRtJsEmbeddingPass embeds text only');
     }
     return switch (taskType) {
-      TaskType.retrievalQuery => LiteRTWebEmbeddings.generateEmbedding(text),
-      TaskType.retrievalDocument =>
-        LiteRTWebEmbeddings.generateDocumentEmbedding(text),
+      // The raw text: the v1 bundle prepends the prompt itself.
+      TaskType.retrievalQuery => _bundle.embedQuery(text),
+      TaskType.retrievalDocument => _bundle.embedDocument(text),
       // The v1 bundle builds the prefix itself and knows only the query and
       // document prompts; it would embed every other type with the query
       // prompt. Refused instead of silently embedded with the wrong prefix.
@@ -136,7 +160,7 @@ final class LiteRtJsEmbeddingPass extends EmbeddingPass {
     return _onPage(() async {
       if (!_loaded) return;
       _loaded = false;
-      await LiteRTWebEmbeddings.dispose();
+      await _bundle.dispose();
       if (kDebugMode) edgeAiLog('LiteRT.js embeddings disposed');
     });
   }
