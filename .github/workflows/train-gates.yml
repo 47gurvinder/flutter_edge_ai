@@ -6,14 +6,13 @@ name: Train gates
 # release PR merges. The per-PR checks stay in test.yml; this workflow holds
 # the gates that only make sense for a whole train.
 #
-# SKELETON. It runs the minimum-versions gate today. Later train PRs add:
+# SKELETON. It runs the minimum-versions gate and the store downgrade harness
+# today. Later train PRs add:
 #   - the codelab gate (`CODELAB_USE_LOCAL_PACKAGES=1 tool/check_codelabs.sh`)
 #     once the codelabs migrate (PR G);
 #   - the unforced-consumer gate: a scratch app on hosted
 #     `genkit_flutter_edge_ai: 0.8.0` with path overrides for the train, analyze
 #     + `flutter build web` + macOS (PR C, when the embedding forwarders land);
-#   - the store downgrade harness against hosted rag 1.0.0 / sqlite 2.0.1 /
-#     qdrant 2.0.1 (PR E);
 #   - `dart pub publish --dry-run` for every published package and
 #     `dart tool/check_published_assets.dart` (PR F).
 # Example builds (apk, ios, macos, web, web --wasm) already run per PR in
@@ -55,3 +54,24 @@ jobs:
 
       - name: Run tests (all packages)
         run: tool/test_all.sh
+
+  # Gate 6 of §9.3: the published flutter_edge_ai_rag 1.0.0 +
+  # flutter_edge_ai_sqlite 2.0.1 + flutter_edge_ai_qdrant 2.0.1 must refuse
+  # every image/audio store the train writes and still open its text stores
+  # (tool/rag_store_compat/README.md).
+  store-downgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Store downgrade harness
+        run: tool/rag_store_compat/run_downgrade_harness.sh
