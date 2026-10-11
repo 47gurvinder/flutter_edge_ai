@@ -1,13 +1,17 @@
-// Web LiteRT embedding backend. It builds [WebEmbeddingModel], which runs on
-// the LiteRT.js bundle in this package's `web/` — so unlike the native arm it
-// never asks core's tokenizer registry: tokenization happens inside
-// `sentencepiece.js`, not in Dart.
+// LiteRT embedding backend — web arm. It describes the LiteRT.js pass over the
+// bundle in this package's `web/`; core hosts it inline on the page. Unlike
+// the native arm it never asks core's tokenizer registry: tokenization happens
+// inside the bundle's `sentencepiece.js`, not in Dart.
+//
+// It does not claim `.litertlm` bundles: web has no EmbeddingGemma 2 pass, so
+// `installEmbedder()` refuses such a spec before any download.
 
 import 'package:flutter_edge_ai/engine.dart';
-import 'web/web_embedding_model.dart';
 
-/// Web LiteRT embedding backend — builds [WebEmbeddingModel] (LiteRT.js).
-class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
+import 'web/litert_js_embedding_pass.dart';
+
+/// LiteRT embedding backend, web: EmbeddingGemma `.tflite` through LiteRT.js.
+final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
   const LiteRtEmbeddingBackend();
 
   @override
@@ -16,18 +20,40 @@ class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
   @override
   int get priority => 0;
 
+  /// A two-file spec (model + tokenizer).
   @override
-  bool canHandle(EmbeddingModelSpec spec) => true;
+  bool canHandle(EmbeddingModelSpec spec) => spec.tokenizerSource != null;
 
   @override
-  Future<EmbeddingModel> createModel(
+  Future<EmbeddingPassDescriptor<Object>> describe(
     EmbeddingModelSpec spec,
     RuntimeConfig config,
   ) async {
-    return WebEmbeddingModel(
-      modelPath: config.modelPath,
-      tokenizerPath: config.tokenizerPath,
-      onClose: () {}, // core resets its state via addCloseListener
+    if (config.supportImage || config.supportAudio) {
+      throw EmbeddingLoadException(
+        '${spec.files.first.filename} is a text-only model',
+        engine: liteRtJsEngine,
+      );
+    }
+    final tokenizerPath =
+        config.tokenizerPath ??
+        (throw EmbeddingLoadException(
+          'identity corrupt: the active embedder ${spec.name} names a '
+          'tokenizer, but core resolved no tokenizer path for it. Install the '
+          'embedder again.',
+          engine: liteRtJsEngine,
+        ));
+    return EmbeddingPassDescriptor<LiteRtJsEmbeddingConfig>(
+      engineTag: liteRtJsEngine,
+      factory: buildLiteRtJsEmbeddingPass,
+      config: LiteRtJsEmbeddingConfig(
+        modelPath: config.modelPath,
+        tokenizerPath: tokenizerPath,
+      ),
+      // The runtime picks the accelerator itself and the answer does not
+      // exist until it has run; the bundle reports it through
+      // `window.getLiteRtEmbeddingAccelerator()`. Null = unknown, never CPU.
+      activeBackend: null,
     );
   }
 }
