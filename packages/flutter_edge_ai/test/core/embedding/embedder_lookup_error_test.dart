@@ -8,7 +8,6 @@ import 'dart:typed_data';
 import 'package:flutter_edge_ai/src/di/service_registry.dart';
 import 'package:flutter_edge_ai/src/domain/model_source.dart';
 import 'package:flutter_edge_ai/src/mobile/flutter_edge_ai_mobile.dart';
-import 'package:flutter_edge_ai/src/model_management/model_specs.dart';
 import 'package:flutter_edge_ai/src/registry/embedding_registry.dart';
 import 'package:flutter_edge_ai/src/services/model_repository.dart' as repo;
 import 'package:flutter_test/flutter_test.dart';
@@ -102,9 +101,7 @@ void main() {
         );
       }
       final plugin = FlutterEdgeAiMobile();
-      await (plugin.modelManager as MobileModelManager).activateInstalledModel(
-        spec,
-      );
+      await plugin.modelManager.activateInstalledModel(spec);
 
       repository.down = true;
       await expectLater(
