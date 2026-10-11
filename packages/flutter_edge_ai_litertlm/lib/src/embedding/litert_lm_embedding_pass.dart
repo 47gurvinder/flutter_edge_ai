@@ -21,7 +21,9 @@
 //   setting — the limit the engine enforces.
 // - The engine always gets an existing, writable cache directory that this
 //   pass owns (D22): without one it runs with no weight cache (+290 MB) or
-//   writes `.xnnpack_cache` files next to the model.
+//   writes `.xnnpack_cache` files next to the model. The directory is named by
+//   a short hash of the file name (see `liteRtLmCacheDirName`: Windows
+//   MAX_PATH), and a load that leaves it empty is reported.
 // - Overflow (§4.8): options use kError; a NULL response with status 3
 //   (InvalidArgument) on the single, well-formed text part this pass built is
 //   an overflow — the only InvalidArgument reachable for such a request at
@@ -36,6 +38,7 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_edge_ai/engine.dart';
@@ -54,7 +57,8 @@ const liteRtLmTextOnlyRefusal =
 /// The explicit text input cap (D21). Never raised on mobile.
 const liteRtLmMaxInputLength = 1024;
 
-/// `kLiteRtLmStatusInvalidArgument` (`c/error_reporter.h`).
+/// `kLiteRtLmStatusOk` / `kLiteRtLmStatusInvalidArgument` (`c/error_reporter.h`).
+const _statusOk = 0;
 const _statusInvalidArgument = 3;
 
 /// What `LiteRtEmbeddingBackend.describe` hands core for a `.litertlm`
@@ -93,6 +97,7 @@ EmbeddingPass buildLiteRtLmEmbeddingPass(LiteRtLmEmbeddingConfig config) =>
 /// refused at load by [checkLiteRtLmEmbeddingSymbols], by name, instead of
 /// failing on the first lookup somewhere inside the worker.
 const liteRtLmEmbeddingSymbols = <String>[
+  'litert_lm_clear_last_error',
   'litert_lm_get_last_error_code',
   'litert_lm_get_last_error_message',
   'litert_lm_loaded_file_create',
@@ -217,6 +222,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
       _free();
       rethrow;
     }
+    _warnIfNoWeightCache(cacheDir);
 
     _dimension = info.dimension;
     _maxInputTokens = maxInputTokens;
@@ -278,6 +284,9 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
     final parts = _alloc<Pointer<LiteRtLmInputData>>();
     try {
       parts[0] = part;
+      // The error state is per thread and survives successful calls: clear
+      // it, so a NULL with nothing reported is never read as an old status.
+      b.litert_lm_clear_last_error();
       final response = b.litert_lm_embedding_engine_compute_embedding(
         _engine,
         parts,
@@ -299,7 +308,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
         throw EmbeddingEngineException(
           'compute_embedding failed for $_file: $message',
           engine: liteRtLmEngineTag,
-          nativeCode: code,
+          nativeCode: code == _statusOk ? null : code,
         );
       }
       try {
@@ -348,6 +357,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
     final path = _config.modelPath.toNativeUtf8(allocator: _alloc);
     final Pointer<LiteRtLmLoadedFile> file;
     try {
+      b.litert_lm_clear_last_error();
       file = b.litert_lm_loaded_file_create(path.cast());
     } finally {
       _alloc.free(path);
@@ -357,7 +367,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
       throw EmbeddingLoadException(
         'LiteRT-LM could not read $_file: $message',
         engine: liteRtLmEngineTag,
-        nativeCode: code,
+        nativeCode: code == _statusOk ? null : code,
       );
     }
     try {
@@ -475,7 +485,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
       );
     }
     final name = _fileName(dir.path);
-    final ours = RegExp('^${RegExp.escape(_file)}-\\d+-\\d+\$');
+    final ours = RegExp('^${liteRtLmCacheDirPrefix(_file)}-\\d+-\\d+\$');
     try {
       for (final entry in Directory(_config.cacheBase).listSync()) {
         final entryName = _fileName(entry.path);
@@ -495,6 +505,26 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
     return dir.path;
   }
 
+  /// The engine writes its weight cache at create. When it could not (a
+  /// path too long for the platform, a full disk) it runs anyway — slower to
+  /// load and about 290 MB larger — and says so only in the native log. Said
+  /// here in release builds too, because that is a cost the app pays silently.
+  void _warnIfNoWeightCache(String cacheDir) {
+    final bool empty;
+    try {
+      empty = Directory(cacheDir).listSync().whereType<File>().isEmpty;
+    } on FileSystemException {
+      return; // the directory existed a moment ago; nothing useful to add
+    }
+    if (!empty) return;
+    // ignore: avoid_print
+    print(
+      '[flutter_edge_ai_litertlm] WARNING: LiteRT-LM wrote no weight cache to '
+      '$cacheDir while loading $_file, so this embedder runs without one '
+      '(slower to load, about 290 MB more memory). The native log says why.',
+    );
+  }
+
   // ── Settings, engine, options ──────────────────────────────────────────
 
   Pointer<LiteRtLmEmbeddingEngine> _createEngine(
@@ -508,6 +538,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
     try {
       // Tower backends NULL (D26): present towers run on the main backend,
       // and naming one the bundle lacks fails create with code 5.
+      b.litert_lm_clear_last_error();
       settings = b.litert_lm_embedding_engine_settings_create(
         path.cast(),
         cpu.cast(),
@@ -523,7 +554,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
       throw EmbeddingLoadException(
         'LiteRT-LM could not build embedding settings for $_file: $message',
         engine: liteRtLmEngineTag,
-        nativeCode: code,
+        nativeCode: code == _statusOk ? null : code,
       );
     }
     try {
@@ -547,6 +578,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
           threads,
         );
       }
+      b.litert_lm_clear_last_error();
       final engine = b.litert_lm_embedding_engine_create(settings);
       if (engine == nullptr) {
         final (:code, :message) = _lastError(b);
@@ -558,7 +590,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
               : 'LiteRT-LM could not create the embedding engine for $_file: '
                     '$message',
           engine: liteRtLmEngineTag,
-          nativeCode: code,
+          nativeCode: code == _statusOk ? null : code,
         );
       }
       return engine;
@@ -616,15 +648,29 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
   );
 }
 
-/// The cache directory name for one copy of a bundle: the file name, its size
-/// and its modification time, so a re-downloaded or replaced file never reads
-/// the weight cache of another (the engine's own cache names carry the same
-/// pair).
+/// The cache directory name for one copy of a bundle:
+/// `<liteRtLmCacheDirPrefix(file)>-<size>-<mtime ms>`, so a re-downloaded or
+/// replaced file never reads the weight cache of another (the engine's own
+/// cache file names carry the same pair).
+///
+/// The file is named by a 12-hex hash, not spelled out (R5 D22 spells it): the
+/// engine names its cache file `<model file name>_<mtime>_<size>.<graph>.xnnpack_cache`
+/// inside this directory, so a spelled-out name would put the model's name in
+/// the path twice — about 284 characters for the example app on Windows, past
+/// MAX_PATH, where the engine would run without a weight cache.
 String liteRtLmCacheDirName(
   String modelFileName, {
   required int size,
   required DateTime modified,
-}) => '$modelFileName-$size-${modified.millisecondsSinceEpoch}';
+}) =>
+    '${liteRtLmCacheDirPrefix(modelFileName)}-$size-'
+    '${modified.millisecondsSinceEpoch}';
+
+/// The part of [liteRtLmCacheDirName] that names the file: the first 12 hex
+/// digits of the SHA-256 of its name. Directories with this prefix and another
+/// size or time are stale copies of the same file.
+String liteRtLmCacheDirPrefix(String modelFileName) =>
+    sha256.convert(utf8.encode(modelFileName)).toString().substring(0, 12);
 
 typedef _ModelInfo = ({
   LiteRtLmModelType? type,
@@ -641,14 +687,17 @@ const _ModelInfo _unknownModelInfo = (
 );
 
 /// The calling thread's last LiteRT-LM error, copied. Call it right after the
-/// failing call, before any other native call or `await`.
+/// failing call, before any other native call or `await`, and clear the state
+/// right before that call: success never resets it, so without the clear an
+/// earlier failure on this (pooled) thread would read as this one's. Code 0
+/// after a NULL means the call reported nothing.
 ({int code, String message}) _lastError(LiteRtLmEmbeddingBindings b) {
   final code = b.litert_lm_get_last_error_code();
   final message = b.litert_lm_get_last_error_message();
   return (
     code: code,
-    message: message == nullptr
-        ? 'no message (status $code)'
+    message: code == _statusOk || message == nullptr
+        ? 'no error reported (status $code)'
         : message.cast<Utf8>().toDartString(),
   );
 }

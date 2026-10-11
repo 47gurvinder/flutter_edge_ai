@@ -9,6 +9,7 @@
 
 // ignore_for_file: non_constant_identifier_names
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
@@ -65,7 +66,7 @@ void main() {
 
   String expectedCacheDir() {
     final stat = File(modelPath).statSync();
-    return '$cacheBase/$_file-${stat.size}-'
+    return '$cacheBase/${liteRtLmCacheDirPrefix(_file)}-${stat.size}-'
         '${stat.modified.millisecondsSinceEpoch}';
   }
 
@@ -387,6 +388,30 @@ void main() {
         expectNothingLeaked();
       });
 
+      test('engine_create returning NULL with nothing reported is not the '
+          'cache dir, whatever an earlier call left', () async {
+        // Left on the thread after the settings were made: a setter that
+        // reported something (upstream main's setters return statuses).
+        native
+          ..errorFromSetter = (code: 3, message: 'left by a setter')
+          ..silentNullEngine = true;
+        final p = pass();
+        await expectLater(
+          p.load(),
+          throwsA(
+            isA<EmbeddingLoadException>()
+                .having((e) => e.nativeCode, 'nativeCode', isNull)
+                .having(
+                  (e) => e.message,
+                  'message',
+                  isNot(contains('cache directory')),
+                ),
+          ),
+        );
+        expectNothingLeaked();
+        await p.close();
+      });
+
       test('options_create', () async {
         native.failOptions = true;
         final p = pass();
@@ -402,14 +427,18 @@ void main() {
       test(
         'is created, and stale siblings for the same file are deleted',
         () async {
-          final stale = Directory('$cacheBase/$_file-1-2')
+          final ours = liteRtLmCacheDirPrefix(_file);
+          final stale = Directory('$cacheBase/$ours-1-2')
             ..createSync(recursive: true);
           File('${stale.path}/old.xnnpack_cache').writeAsStringSync('x');
           final kept = [
-            Directory('$cacheBase/other.litertlm-1-2'),
-            Directory('$cacheBase/$_file-2.litertlm-1-2'),
-            Directory('$cacheBase/$_file-abc-2'),
-            Directory('$cacheBase/x$_file-1-2'),
+            Directory(
+              '$cacheBase/${liteRtLmCacheDirPrefix('other.litertlm')}-1-2',
+            ),
+            Directory('$cacheBase/$ours-abc-2'),
+            Directory('$cacheBase/$ours-1-2-3'),
+            Directory('$cacheBase/x$ours-1-2'),
+            Directory('$cacheBase/$_file-1-2'),
           ];
           for (final dir in kept) {
             dir.createSync(recursive: true);
@@ -424,6 +453,73 @@ void main() {
           }
         },
       );
+
+      test('is named <12-hex hash of the file name>-<size>-<mtime ms>', () {
+        final name = liteRtLmCacheDirName(
+          _file,
+          size: 164626432,
+          modified: DateTime.fromMillisecondsSinceEpoch(1791758581397),
+        );
+        expect(
+          name,
+          matches(RegExp(r'^[0-9a-f]{12}-164626432-1791758581397$')),
+        );
+        expect(name, startsWith(liteRtLmCacheDirPrefix(_file)));
+        expect(
+          liteRtLmCacheDirPrefix('a.litertlm'),
+          isNot(liteRtLmCacheDirPrefix('b.litertlm')),
+        );
+      });
+
+      test('keeps the engine\'s cache file under Windows MAX_PATH for the '
+          'example app', () {
+        // The engine names its file `<model>_<mtime s>_<size>.<graph>.xnnpack_cache`
+        // inside the directory; spelling the model's name in the directory
+        // too put this path at about 284 characters.
+        const model = 'embeddinggemma-2-text-270m__rev-9be6e8b90982.litertlm';
+        const base =
+            r'C:\Users\a-twenty-char-user-x\AppData\Roaming\dev.flutterberlin'
+            r'\flutter_edge_ai_example\flutter_edge_ai\embedding_cache';
+        final dir = liteRtLmCacheDirName(
+          model,
+          size: 164626432,
+          modified: DateTime.fromMillisecondsSinceEpoch(1791758581397),
+        );
+        final file = '${model}_1791758581_164626432.text_encoder.xnnpack_cache';
+        expect('$base\\$dir\\$file'.length, lessThan(260));
+      });
+
+      test('an empty directory after create is reported, a filled one is '
+          'not', () async {
+        Future<List<String>> printsDuring(Future<void> Function() body) async {
+          final lines = <String>[];
+          await runZoned(
+            body,
+            zoneSpecification: ZoneSpecification(
+              print: (_, _, _, line) => lines.add(line),
+            ),
+          );
+          return lines;
+        }
+
+        final filled = await printsDuring(() => pass().load());
+        expect(filled.where((l) => l.contains('weight cache')), isEmpty);
+
+        native.dispose();
+        native = _FakeLiteRtLm()..writeCacheOnCreate = false;
+        Directory(expectedCacheDir()).deleteSync(recursive: true);
+        final empty = await printsDuring(() => pass().load());
+        expect(
+          empty,
+          contains(
+            allOf(
+              contains('WARNING'),
+              contains('no weight cache'),
+              contains(expectedCacheDir()),
+            ),
+          ),
+        );
+      });
 
       test('a path that cannot become a directory is a load failure, before '
           'any settings', () async {
@@ -528,6 +624,25 @@ void main() {
       );
       expect(native.live.keys, unorderedEquals(['engine', 'options']));
       expect(allocator.live, 0);
+    });
+
+    test('a NULL that reports nothing is not read as an earlier failure on '
+        'this thread', () async {
+      native
+        ..setStaleError(3, 'an overflow from an earlier call')
+        ..silentNullCompute = true;
+      await expectLater(
+        p.embed(EmbeddingInput.text('x'), TaskType.retrievalQuery),
+        throwsA(
+          isA<EmbeddingEngineException>()
+              .having((e) => e.nativeCode, 'nativeCode', isNull)
+              .having(
+                (e) => e.message,
+                'message',
+                contains('no error reported'),
+              ),
+        ),
+      );
     });
 
     test('input_data_create returning NULL sets no native error: an engine '
@@ -679,6 +794,10 @@ final class _FakeLiteRtLm extends LiteRtLmEmbeddingBindings {
   _Failure? failCompute;
   bool failOptions = false;
   bool failInputData = false;
+  bool silentNullCompute = false;
+  bool silentNullEngine = false;
+  bool writeCacheOnCreate = true;
+  _Failure? errorFromSetter;
   int? responseSize;
 
   final order = <String>[];
@@ -708,6 +827,9 @@ final class _FakeLiteRtLm extends LiteRtLmEmbeddingBindings {
   Pointer<Utf8> _errorMessage = nullptr;
 
   int created(String kind) => _created[kind] ?? 0;
+
+  /// What a failure on this thread long before left behind.
+  void setStaleError(int code, String message) => _setError(code, message);
   int deleted(String kind) => _deleted[kind] ?? 0;
 
   void dispose() {
@@ -755,6 +877,15 @@ final class _FakeLiteRtLm extends LiteRtLmEmbeddingBindings {
   static String _string(Pointer<Char> p) => p.cast<Utf8>().toDartString();
 
   // ── error reporter ──
+  @override
+  void litert_lm_clear_last_error() {
+    order.add('clear_last_error');
+    symbolsCalled.add('litert_lm_clear_last_error');
+    if (_errorMessage != nullptr) calloc.free(_errorMessage);
+    _errorMessage = nullptr;
+    _errorCode = 0;
+  }
+
   @override
   int litert_lm_get_last_error_code() {
     order.add('get_last_error_code');
@@ -889,6 +1020,8 @@ final class _FakeLiteRtLm extends LiteRtLmEmbeddingBindings {
       'litert_lm_embedding_engine_settings_set_max_input_length',
     );
     maxInputLength = max_input_length;
+    final error = errorFromSetter;
+    if (error != null) _setError(error.code, error.message);
   }
 
   @override
@@ -910,7 +1043,13 @@ final class _FakeLiteRtLm extends LiteRtLmEmbeddingBindings {
   ) {
     _call('engine_create', 'litert_lm_embedding_engine_create');
     final failure = failEngine;
-    return failure != null ? _fail(failure) : _create('engine');
+    if (failure != null) return _fail(failure);
+    if (silentNullEngine) return nullptr;
+    final dir = cacheDir;
+    if (writeCacheOnCreate && dir != null) {
+      File('$dir/model.text_encoder.xnnpack_cache').writeAsStringSync('w');
+    }
+    return _create('engine');
   }
 
   @override
@@ -1013,6 +1152,7 @@ final class _FakeLiteRtLm extends LiteRtLmEmbeddingBindings {
     lastTexts = [for (final (_, text) in parts) text];
     final failure = failCompute;
     if (failure != null) return _fail(failure);
+    if (silentNullCompute) return nullptr;
     final response = _create<LiteRtLmEmbeddingResponse>('response');
     final n = responseSize ?? dimension;
     final values = calloc<Float>(n);
