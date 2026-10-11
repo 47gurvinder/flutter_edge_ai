@@ -73,6 +73,8 @@ export 'src/media/encoded_media_format.dart'
     show EncodedMediaFormat, sniffEncodedMediaFormat;
 export 'src/message.dart' show Message, MessageType;
 export 'src/model.dart' show ModelFileType, ModelType;
+// Sampling a session asks for; engines resolve the unset fields.
+export 'src/sampling.dart' show SamplingParams;
 export 'src/model_response.dart'
     show
         FunctionCallResponse,

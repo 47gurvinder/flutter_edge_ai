@@ -37,6 +37,9 @@ export 'src/extensions.dart' show MessageExtension;
 export 'src/parsing/sdk_response_parser.dart' show SdkResponseParser;
 export 'src/parsing/sdk_text_extractor.dart' show SdkTextExtractor;
 export 'src/model_management/model_specs.dart' show TtsModelTypeManifest;
+// Sampling with every field set: what SamplingParams.resolve returns and an
+// engine sends.
+export 'src/sampling.dart' show ResolvedSampling;
 
 // Embedding SPI. Core builds, hosts and closes every embedding model from
 // what a backend's describe() returns; CommonEmbeddingModel, the hosts and the

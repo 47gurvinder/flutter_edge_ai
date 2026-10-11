@@ -87,12 +87,14 @@ class FakeInferenceModel extends gemma.InferenceModel {
   gemma.ToolChoice? lastToolChoice;
   String? lastSystemInstruction;
   int? lastMaxFunctionBufferLength;
+  ({double? temperature, int? topK, double? topP, int? randomSeed})?
+  lastSampling;
 
   @override
   Future<gemma.InferenceChat> createChat({
-    double temperature = .8,
-    int randomSeed = 1,
-    int topK = 1,
+    double? temperature,
+    int? randomSeed,
+    int? topK,
     double? topP,
     int tokenBuffer = 256,
     String? loraPath,
@@ -111,14 +113,20 @@ class FakeInferenceModel extends gemma.InferenceModel {
     lastToolChoice = toolChoice;
     lastSystemInstruction = systemInstruction;
     lastMaxFunctionBufferLength = maxFunctionBufferLength;
+    lastSampling = (
+      temperature: temperature,
+      topK: topK,
+      topP: topP,
+      randomSeed: randomSeed,
+    );
     return chatToReturn ?? FakeInferenceChat();
   }
 
   @override
   Future<gemma.InferenceModelSession> createSession({
-    double temperature = .8,
-    int randomSeed = 1,
-    int topK = 1,
+    double? temperature,
+    int? randomSeed,
+    int? topK,
     double? topP,
     String? loraPath,
     bool? enableVisionModality,
