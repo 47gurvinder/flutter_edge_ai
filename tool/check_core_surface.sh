@@ -17,10 +17,22 @@
 #         // ignore: implementation_imports — <reason>
 #       That inline comment is the single allowlist: there is no second list to
 #       keep in sync, and the reason sits next to the import it excuses;
-#   (c) any such `src/` import or export in the lib/ of a PUBLISHED package
-#       (packages/<pkg>/lib/), annotated or not. Unpublished example apps
-#       (packages/<pkg>/example/lib/) host white-box test screens and may use
-#       an annotated import, like tests.
+#   (c) any such `src/` import or export in code a package SHIPS, annotated or
+#       not: packages/<pkg>/{lib,hook,bin}/ and packages/<pkg>/example/lib/
+#       (example/lib is in the pub archive; .pubignore drops only test/,
+#       example/integration_test/ and example/build/).
+#       TEMPORARY carve-out, removed by the train's PR B/C before the release
+#       PR F: three files of core's example app still reach core internals
+#       through annotated imports and are checked like tests (rule (b)) —
+#         packages/flutter_edge_ai/example/lib/integration_test_screen.dart
+#         packages/flutter_edge_ai/example/lib/utils/installed_model_lookup.dart
+#         packages/flutter_edge_ai/example/lib/services/embedding_catalog_provenance.dart
+#       Any other example/lib file falls under (c).
+#
+# Directive detection: a line that starts (after indentation) with `import` or
+# `export` followed by anything but an identifier character — so `import'x'`,
+# `import/*c*/'x'` and a URI on the next line are all seen — up to the first
+# line containing `;`. CRLF line endings are accepted.
 #
 # It prints every annotated import with its reason, so the allowlist can be
 # reviewed in one place.
@@ -83,6 +95,10 @@ BEGIN {
   public["engine_web.dart"] = 1
   public["genai.dart"] = 1
   violations = 0; annotated = 0; files = 0
+  # TEMPORARY (see the header): removed by PR B/C before the release PR.
+  carve_out["packages/flutter_edge_ai/example/lib/integration_test_screen.dart"] = 1
+  carve_out["packages/flutter_edge_ai/example/lib/utils/installed_model_lookup.dart"] = 1
+  carve_out["packages/flutter_edge_ai/example/lib/services/embedding_catalog_provenance.dart"] = 1
   # The annotation: the comment line directly above the directive.
   ann_re = "^[ \t]*// ignore: implementation_imports — [^ \t].*$"
   # A quoted package: URI, single or double quotes (\047 is the single quote).
@@ -96,9 +112,11 @@ function owner_of(path,    i) {
   return ""
 }
 
-function published_lib(path, pkg) {
-  # packages/<dir>/lib/... where <dir> is the package itself (not an example).
-  return path ~ /^packages\/[^\/]+\/lib\//
+function shipped(path) {
+  if (path in carve_out) return 0
+  # lib/, hook/ and bin/ of a package, and lib/ of an example app (pub archive).
+  return path ~ /^packages\/[^\/]+\/(lib|hook|bin)\// ||
+    path ~ /^packages\/[^\/]+\/example\/lib\//
 }
 
 function violation(msg) {
@@ -122,8 +140,8 @@ function check_uri(uri,    rest, pkg, slash) {
   if (!(pkg in workspace) || rest !~ /^src\//) return
   if (pkg == file_owner) return
 
-  if (published_lib(FILENAME, file_owner)) {
-    violation("(c) " uri " — a published package lib/ must not import another package'"'"'s src/")
+  if (shipped(FILENAME)) {
+    violation("(c) " uri " — shipped code (lib/, hook/, bin/, example/lib/) must not import another package'"'"'s src/")
     return
   }
   if (prev_line ~ ann_re) {
@@ -144,7 +162,12 @@ FNR == 1 {
 
 {
   line = $0
-  if (!in_directive && line ~ /^[ \t]*(import|export)[ \t]/) {
+  sub(/\r$/, "", line)   # CRLF files
+  # `import`/`export` not followed by an identifier character: catches a
+  # space, a quote or a comment right after the keyword, and a bare keyword
+  # whose URI is on the next line, but not `importFoo`. (No quote characters in
+  # this program: it sits inside a single-quoted shell string.)
+  if (!in_directive && line ~ /^[ \t]*(import|export)([^A-Za-z0-9_$]|$)/) {
     in_directive = 1
     start_line = FNR
     prev_line = before
@@ -155,7 +178,9 @@ FNR == 1 {
       check_uri(substr(rest, RSTART + 1, RLENGTH - 2))
       rest = substr(rest, RSTART + RLENGTH)
     }
-    if (line ~ /;[ \t]*(\/\/.*)?$/) in_directive = 0
+    # The directive ends on the first line holding its `;`, whatever follows
+    # it (a trailing `// ...` or `/* ... */`).
+    if (index(line, ";") > 0) in_directive = 0
   }
   before = line
 }
