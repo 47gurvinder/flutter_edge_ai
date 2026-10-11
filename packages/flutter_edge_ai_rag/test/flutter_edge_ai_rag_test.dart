@@ -560,7 +560,7 @@ void main() {
       expect(index.documents, EmbeddingModality.image);
       await index.addVector(id: 'doc', content: 'photo.jpg', embedding: [1, 0]);
       await index.searchVector(embedding: [1, 0]);
-      expect(
+      await _expectFailedFuture(
         () => index.add(id: 'x', document: _image, content: 'x.png'),
         throwsA(
           isA<StateError>().having(
@@ -570,7 +570,7 @@ void main() {
           ),
         ),
       );
-      expect(
+      await _expectFailedFuture(
         () => index.search(query: EmbeddingInput.text('q')),
         throwsStateError,
       );
@@ -604,7 +604,7 @@ void main() {
         _FakeEmbedder(profileValue: _profile2),
       );
 
-      expect(
+      await _expectFailedFuture(
         () => index.add(id: 'a', document: _image, content: 'a.png'),
         throwsA(
           isA<ArgumentError>().having(
@@ -627,7 +627,7 @@ void main() {
         );
         final index = await _openImages(store, embedder);
 
-        expect(
+        await _expectFailedFuture(
           () => index.add(id: 'a', document: _image),
           throwsA(
             isA<ArgumentError>().having(
@@ -637,11 +637,11 @@ void main() {
             ),
           ),
         );
-        expect(
+        await _expectFailedFuture(
           () => index.add(id: 'a', document: _image, content: '  '),
           throwsArgumentError,
         );
-        expect(
+        await _expectFailedFuture(
           () => index.add(
             id: 'a',
             document: EmbeddingInput.text('caption'),
@@ -655,7 +655,7 @@ void main() {
             ),
           ),
         );
-        expect(
+        await _expectFailedFuture(
           () => index.add(id: 'a', document: _audio, content: 'a.wav'),
           throwsArgumentError,
         );
@@ -698,7 +698,7 @@ void main() {
         final embedder = _FakeEmbedder(profileValue: _profile2);
         final index = await _openText(_FakeStore(), embedder);
 
-        expect(
+        await _expectFailedFuture(
           () => index.search(query: _image),
           throwsA(
             isA<ArgumentError>().having(
@@ -726,7 +726,7 @@ void main() {
           index.add(id: 'doc', document: EmbeddingInput.text('content')),
           throwsArgumentError,
         );
-        expect(
+        await _expectFailedFuture(
           () => index.addVector(
             id: 'doc',
             content: 'content',
@@ -734,7 +734,7 @@ void main() {
           ),
           throwsArgumentError,
         );
-        expect(
+        await _expectFailedFuture(
           () => index.searchVector(embedding: [1, 2, 3]),
           throwsArgumentError,
         );
@@ -823,7 +823,7 @@ void main() {
       test('an undeclared field in $clause is an ArgumentError', () async {
         final (index, store, embedder) = await open();
 
-        expect(
+        await _expectFailedFuture(
           () => index.search(query: EmbeddingInput.text('q'), filter: filter),
           throwsA(
             isA<ArgumentError>().having(
@@ -833,7 +833,7 @@ void main() {
             ),
           ),
         );
-        expect(
+        await _expectFailedFuture(
           () => index.searchVector(embedding: [1, 0], filter: filter),
           throwsArgumentError,
         );
@@ -1530,8 +1530,8 @@ void main() {
         final firstDispose = index.dispose();
         final secondDispose = index.dispose();
         expect(identical(firstDispose, secondDispose), isTrue);
-        expect(() => index.stats(), throwsStateError);
-        expect(
+        await _expectFailedFuture(() => index.stats(), throwsStateError);
+        await _expectFailedFuture(
           () => index.add(id: 'late', document: EmbeddingInput.text('x')),
           throwsStateError,
         );
@@ -1544,6 +1544,83 @@ void main() {
         expect(identical(index.dispose(), firstDispose), isTrue);
       },
     );
+  });
+
+  group('errors arrive as failed futures', () {
+    test('every Future-returning member of FlutterEdgeAiRag', () async {
+      final rag = FlutterEdgeAiRag(
+        providers: [_FakeProvider(id: 'memory', name: 'Memory')],
+      );
+      final missing = VectorStoreSpec(providerId: 'none', location: 'x');
+      await _expectFailedFuture(
+        () => rag.open(
+          spec: missing,
+          embedder: _FakeEmbedder(profileValue: _profile2),
+        ),
+        throwsStateError,
+      );
+      await _expectFailedFuture(
+        () => rag.openVectors(spec: missing, profile: _profile2),
+        throwsStateError,
+      );
+      await _expectFailedFuture(
+        () => rag.open(
+          spec: VectorStoreSpec(
+            providerId: 'memory',
+            location: 'photos',
+            documents: EmbeddingModality.image,
+          ),
+          embedder: _FakeEmbedder(profileValue: _profile2),
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('every Future-returning member of a disposed RagIndex', () async {
+      final index = await _openText(
+        _FakeStore(),
+        _FakeEmbedder(profileValue: _profile2),
+      );
+      await index.dispose();
+
+      final calls = <String, Future<Object?> Function()>{
+        'add': () => index.add(id: 'a', document: EmbeddingInput.text('a')),
+        'addVector': () =>
+            index.addVector(id: 'a', content: 'a', embedding: [1, 0]),
+        'search': () => index.search(query: EmbeddingInput.text('q')),
+        'searchVector': () => index.searchVector(embedding: [1, 0]),
+        'remove': () => index.remove(id: 'a'),
+        'stats': index.stats,
+        'flush': index.flush,
+        'clear': index.clear,
+      };
+      for (final MapEntry(key: name, value: call) in calls.entries) {
+        await _expectFailedFuture(
+          call,
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              '$name message',
+              contains('disposing or already disposed'),
+            ),
+          ),
+        );
+      }
+      expect(identical(index.dispose(), index.dispose()), isTrue);
+    });
+
+    test('a vector-only index fails add and search as futures', () async {
+      final index = await _openVectors(_FakeStore());
+      await _expectFailedFuture(
+        () => index.add(id: 'a', document: EmbeddingInput.text('a')),
+        throwsStateError,
+      );
+      await _expectFailedFuture(
+        () => index.search(query: EmbeddingInput.text('q')),
+        throwsStateError,
+      );
+      await index.dispose();
+    });
   });
 
   group('argument validation', () {
@@ -1561,34 +1638,57 @@ void main() {
         _FakeStore(),
         _FakeEmbedder(profileValue: _profile2),
       );
-      expect(
+      await _expectFailedFuture(
         () => index.addVector(id: '', content: '', embedding: [1, 0]),
         throwsArgumentError,
       );
-      expect(
+      await _expectFailedFuture(
         () => index.add(id: ' ', document: EmbeddingInput.text('x')),
         throwsArgumentError,
       );
-      expect(
+      await _expectFailedFuture(
         () => index.searchVector(embedding: [1, 0], topK: 0),
         throwsArgumentError,
       );
-      expect(
+      await _expectFailedFuture(
         () => index.search(query: EmbeddingInput.text('q'), topK: 0),
         throwsArgumentError,
       );
-      expect(
+      await _expectFailedFuture(
         () => index.searchVector(embedding: [1, 0], threshold: double.nan),
         throwsArgumentError,
       );
-      expect(() => index.searchVector(embedding: []), throwsArgumentError);
-      expect(
+      await _expectFailedFuture(
+        () => index.searchVector(embedding: []),
+        throwsArgumentError,
+      );
+      await _expectFailedFuture(
         () => index.searchVector(embedding: [double.infinity, 0]),
         throwsArgumentError,
       );
       await index.dispose();
     });
   });
+}
+
+/// The repo rule for asynchronous APIs: every error arrives as a FAILED
+/// FUTURE, never as a synchronous throw. `expect(() => f(), throwsA(m))`
+/// cannot tell the two apart (it awaits a returned future), so this checks
+/// both halves: the call returns normally, then its future fails with
+/// [matcher].
+Future<void> _expectFailedFuture(
+  Future<Object?> Function() call,
+  Matcher matcher,
+) async {
+  late Future<Object?> future;
+  expect(
+    () {
+      future = call();
+    },
+    returnsNormally,
+    reason: 'an asynchronous API must not throw synchronously',
+  );
+  await expectLater(future, matcher);
 }
 
 final EmbeddingProfile _profile2 = EmbeddingProfile(

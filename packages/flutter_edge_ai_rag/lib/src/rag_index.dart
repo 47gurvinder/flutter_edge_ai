@@ -54,13 +54,17 @@ final class RagIndex {
   /// text. Image or audio index: [document] carries that medium (optionally
   /// with text), and [content] is required — a reference to the medium (a
   /// URI, file path or asset id), never its bytes; search results return it.
-  /// Throws [ArgumentError] otherwise.
+  /// Fails with [ArgumentError] otherwise.
+  ///
+  /// Like every method of this class that returns a future, it reports every
+  /// error — argument errors included — as a failed future, never as a
+  /// synchronous throw.
   Future<void> add({
     required String id,
     required EmbeddingInput document,
     String? content,
     String? metadata,
-  }) {
+  }) => Future.sync(() {
     _ensureUsable();
     _validateId(id);
     final embedder = _requireEmbedder('add');
@@ -80,7 +84,7 @@ final class RagIndex {
         );
       }),
     );
-  }
+  });
 
   /// Stores a precomputed vector, which must be in this index's embedding
   /// space and of its dimension.
@@ -89,7 +93,7 @@ final class RagIndex {
     required List<double> embedding,
     required String content,
     String? metadata,
-  }) {
+  }) => Future.sync(() {
     _ensureUsable();
     _validateId(id);
     final embeddingSnapshot = List<double>.unmodifiable(embedding);
@@ -107,11 +111,12 @@ final class RagIndex {
         ),
       ),
     );
-  }
+  });
 
   /// Embeds [query] with the embedder's query role for this index's
   /// [documents] and searches. The query may be any modality the embedder
-  /// has: a text query over an image index is text → image search.
+  /// has: a text query over an image index is text → image search; any other
+  /// modality fails with [ArgumentError].
   ///
   /// Every [filter] field must be declared in the spec's `filterSchema`
   /// ([ArgumentError] otherwise).
@@ -120,7 +125,7 @@ final class RagIndex {
     int topK = 5,
     double threshold = 0.0,
     Filter? filter,
-  }) {
+  }) => Future.sync(() {
     _ensureUsable();
     _validateSearch(topK: topK, threshold: threshold);
     _validateFilter(filter);
@@ -152,7 +157,7 @@ final class RagIndex {
         );
       }),
     );
-  }
+  });
 
   /// Searches with a precomputed query vector. Every [filter] field must be
   /// declared in the spec's `filterSchema` ([ArgumentError] otherwise).
@@ -161,7 +166,7 @@ final class RagIndex {
     int topK = 5,
     double threshold = 0.0,
     Filter? filter,
-  }) {
+  }) => Future.sync(() {
     _ensureUsable();
     _validateSearch(topK: topK, threshold: threshold);
     _validateFilter(filter);
@@ -180,13 +185,13 @@ final class RagIndex {
         ),
       ),
     );
-  }
+  });
 
-  Future<void> remove({required String id}) {
+  Future<void> remove({required String id}) => Future.sync(() {
     _ensureUsable();
     _validateId(id);
     return _accept(() => _gate.runShared(() => _store.removeDocument(id: id)));
-  }
+  });
 
   Future<VectorStoreStats> stats() =>
       _accept(() => _gate.runShared(_store.getStats));
@@ -282,8 +287,10 @@ final class RagIndex {
     }
   }
 
+  /// Registers [operation] synchronously, so [dispose] waits for it; a
+  /// disposing index fails it as a future, like every other error here.
   Future<T> _accept<T>(Future<T> Function() operation) {
-    _ensureUsable();
+    if (_disposeRequested) return Future.error(_disposedError());
     _acceptedOperations++;
     return Future<T>.sync(operation).whenComplete(() {
       _acceptedOperations--;
@@ -295,10 +302,11 @@ final class RagIndex {
   }
 
   void _ensureUsable() {
-    if (_disposeRequested) {
-      throw StateError('This RagIndex is disposing or already disposed.');
-    }
+    if (_disposeRequested) throw _disposedError();
   }
+
+  static StateError _disposedError() =>
+      StateError('This RagIndex is disposing or already disposed.');
 
   static String _names(Set<EmbeddingModality> modalities) =>
       '{${[for (final modality in modalities) modality.name].join(', ')}}';

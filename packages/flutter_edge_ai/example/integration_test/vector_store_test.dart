@@ -142,9 +142,9 @@ void main() {
         embedding: const [1.0, 0.0, 0.0],
       );
 
-      // Argument validation throws synchronously, before a future exists.
-      expect(
-        () => index.addVector(
+      // Every error of an asynchronous API is a failed future.
+      await expectLater(
+        index.addVector(
           id: 'doc2',
           content: 'Document 2',
           embedding: const [1.0, 0.0, 0.0, 0.0],

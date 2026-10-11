@@ -48,6 +48,8 @@ final class FlutterEdgeAiRag {
   ///
   /// [embedder] is borrowed and never closed: dispose the index before the
   /// embedder.
+  ///
+  /// Every error, argument errors included, arrives as a failed future.
   Future<RagIndex> open({
     required VectorStoreSpec spec,
     required RagEmbedder embedder,
@@ -79,7 +81,7 @@ final class FlutterEdgeAiRag {
   Future<RagIndex> openVectors({
     required VectorStoreSpec spec,
     required EmbeddingProfile profile,
-  }) {
+  }) async {
     final provider = _resolveProvider(spec);
     return _openBound(
       provider: provider,
