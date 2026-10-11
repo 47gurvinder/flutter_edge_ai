@@ -11,6 +11,7 @@ import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:flutter_edge_ai/src/di/service_registry.dart';
 import 'package:flutter_edge_ai/src/mobile/flutter_edge_ai_mobile.dart';
 import 'package:flutter_edge_ai/src/model_management/active_embedding_identity.dart';
+import 'package:flutter_edge_ai/src/model_management/active_identity_store.dart';
 import 'package:flutter_edge_ai/src/model_management/constants/preferences_keys.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -145,6 +146,51 @@ void main() {
           isNot(contains('could not be read')),
         ),
       ),
+    );
+  });
+
+  test('pre-2.2 keys the new rules refuse fail closed without skipping the '
+      'restores after it (STT here)', () async {
+    // The pre-record keys of a .litertlm paired with a tokenizer — which 2.1
+    // could install — and an active STT model.
+    for (final name in [
+      'eg2.litertlm',
+      't.model',
+      'whisper.tflite',
+      'whisper__tokenizer.json',
+    ]) {
+      File('${dir.path}/$name').writeAsBytesSync(List.filled(4096, 0));
+    }
+    SharedPreferences.setMockInitialValues({
+      PreferencesKeys.activeEmbeddingFilename: 'eg2.litertlm',
+      PreferencesKeys.activeEmbeddingTokenizerFilename: 't.model',
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await ActiveIdentityStore.write(prefs, ActiveIdentityKind.stt, {
+      PreferencesKeys.activeSttFilename: 'whisper.tflite',
+      PreferencesKeys.activeSttTokenizerFilename: 'whisper__tokenizer.json',
+      PreferencesKeys.activeSttModelType: SttModelType.values.first.name,
+    });
+
+    final printed = <String>[];
+    final manager = MobileModelManager();
+    await runZoned(
+      manager.ensureInitialized,
+      zoneSpecification: ZoneSpecification(
+        print: (self, parent, zone, line) => printed.add(line),
+      ),
+    );
+
+    expect(manager.activeEmbeddingModel, isNull, reason: 'fails closed');
+    expect(
+      rejectedActiveEmbeddingIdentity,
+      contains('carries its own tokenizer'),
+    );
+    expect(printed.join('\n'), contains('could not be read'));
+    expect(
+      manager.activeSttModel,
+      isNotNull,
+      reason: 'the embedding restore must not abort the STT restore',
     );
   });
 

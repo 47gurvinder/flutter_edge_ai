@@ -496,30 +496,43 @@ class MobileModelManager extends ModelFileManager
       return;
     }
 
-    final runtimeSpec = EmbeddingModelSpec(
-      name: modelFilename,
-      modelSource: FileSource(modelPath),
-      tokenizerSource: FileSource(tokenizerPath),
-      modelFilename: modelFilenameExplicit ? modelFilename : null,
-      tokenizerFilename: tokenizerFilenameExplicit
-          ? effectiveTokenizerFilename
-          : null,
-    );
-    final originalModelSource = ModelSource.tryDecode(
-      prefs.getString(PreferencesKeys.activeEmbeddingSource) ?? '',
-    );
-    final originalTokenizerSource = ModelSource.tryDecode(
-      prefs.getString(PreferencesKeys.activeEmbeddingTokenizerSource) ?? '',
-    );
-    final identitySpec = EmbeddingModelSpec(
-      name: modelFilename,
-      modelSource: originalModelSource ?? runtimeSpec.modelSource,
-      tokenizerSource: originalTokenizerSource ?? runtimeSpec.tokenizerSource,
-      modelFilename: modelFilenameExplicit ? modelFilename : null,
-      tokenizerFilename: tokenizerFilenameExplicit
-          ? effectiveTokenizerFilename
-          : null,
-    );
+    // The 2.2 spec rules can refuse what 2.1 wrote under these keys (a
+    // .litertlm paired with a tokenizer). Fail closed and say why, as the
+    // record path does — never let it escape and skip the restores after it.
+    final EmbeddingModelSpec runtimeSpec;
+    final EmbeddingModelSpec identitySpec;
+    try {
+      runtimeSpec = EmbeddingModelSpec(
+        name: modelFilename,
+        modelSource: FileSource(modelPath),
+        tokenizerSource: FileSource(tokenizerPath),
+        modelFilename: modelFilenameExplicit ? modelFilename : null,
+        tokenizerFilename: tokenizerFilenameExplicit
+            ? effectiveTokenizerFilename
+            : null,
+      );
+      final originalModelSource = ModelSource.tryDecode(
+        prefs.getString(PreferencesKeys.activeEmbeddingSource) ?? '',
+      );
+      final originalTokenizerSource = ModelSource.tryDecode(
+        prefs.getString(PreferencesKeys.activeEmbeddingTokenizerSource) ?? '',
+      );
+      identitySpec = EmbeddingModelSpec(
+        name: modelFilename,
+        modelSource: originalModelSource ?? runtimeSpec.modelSource,
+        tokenizerSource: originalTokenizerSource ?? runtimeSpec.tokenizerSource,
+        modelFilename: modelFilenameExplicit ? modelFilename : null,
+        tokenizerFilename: tokenizerFilenameExplicit
+            ? effectiveTokenizerFilename
+            : null,
+      );
+    } on ArgumentError catch (e) {
+      reportRejectedActiveEmbeddingIdentity(
+        'its pre-2.2 identity keys name a model the 2.2 rules refuse: '
+        '${e.message}',
+      );
+      return;
+    }
     if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
     final mutation = _activeEmbeddingIdentityCoordinator.enqueueOrThrow(
       ActiveEmbeddingIdentityRecord.fromSpec(identitySpec),
