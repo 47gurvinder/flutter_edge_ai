@@ -4,8 +4,9 @@
 // native: text before media, queued requests fail on close, the pass is
 // closed once.
 //
-// Pure Dart (no dart:isolate, no dart:js_interop): the VM tests run it, and on
-// native the TRANSITIONAL pre-2.2 seam path hosts its models here.
+// Pure Dart (no dart:isolate, no dart:js_interop): the VM tests run it.
+// TRANSITIONAL(C stage 3): remove this line — until then the pre-2.2 seam
+// path hosts its models here on native too.
 
 import 'dart:async';
 

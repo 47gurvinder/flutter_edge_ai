@@ -67,6 +67,9 @@ void _resetAll() {
 
 class _MockInferenceEngine extends Mock implements InferenceEngineProvider {}
 
+// TRANSITIONAL(C stage 2): `implements` stops compiling once
+// EmbeddingBackendProvider is `abstract base` (stage 3); rewrite as a
+// `final class … extends EmbeddingBackendProvider` fake.
 class _MockEmbeddingBackend extends Mock implements EmbeddingBackendProvider {}
 
 class _MockTokenizer extends Mock implements EmbeddingTokenizerProvider {}

@@ -18,9 +18,11 @@ import 'task_type.dart';
 /// `with CloseNotifier` from `engine.dart` for close listeners) implementing
 /// [dimension], [isClosed], [embed], [addCloseListener] and [close].
 // TRANSITIONAL(C stage 3): remove — becomes `abstract base class` (so
-// `implements`, and therefore mockito/mocktail mocks, stop compiling) once no
-// engine package builds its own model any more; until C stage 2 the litertlm
-// and onnx web arms still extend it from another library.
+// `implements`, and therefore mockito/mocktail mocks, stop compiling outside
+// core) once no engine package builds its own model any more. A `base` class
+// may still be extended from another library; what breaks is that every
+// subclass must then be `base`, `final` or `sealed`, and the litertlm and onnx
+// web models (until C stage 2) and the repo's test fakes are plain `class`.
 abstract class EmbeddingModel {
   /// Length of every vector this model returns. Known when the model is
   /// returned: every engine loads eagerly.

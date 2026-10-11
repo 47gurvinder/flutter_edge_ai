@@ -230,9 +230,10 @@ class FakeInferenceChat extends gemma.InferenceChat {
 
 /// Fake embedding model that returns preconfigured embeddings.
 // `extends`, not `implements`: core's EmbeddingModel gained members in 2.2.0,
-// which an `implements` fake would have to spell out one by one. Rewritten to
-// the final fake shape (`final class … extends EmbeddingModel` over `embed`)
-// with genkit_flutter_edge_ai 0.8.1.
+// which an `implements` fake would have to spell out one by one.
+// TRANSITIONAL(C stage 2): rewrite to the final fake shape (`final class …
+// extends EmbeddingModel` over `embed`/`dimension`) with
+// genkit_flutter_edge_ai 0.8.1; stage 3 makes those abstract.
 class FakeEmbeddingModel extends gemma.EmbeddingModel {
   /// Embeddings returned by [generateEmbeddings].
   List<List<double>> embeddingsToReturn = [];

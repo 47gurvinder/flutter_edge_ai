@@ -13,6 +13,9 @@ import 'package:flutter_edge_ai/src/interface.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Nothing but the defaults, to pin what an implementation gets for free.
+// TRANSITIONAL(C stage 2): old-shape fake (generate*/getDimension). Rewrite
+// as `final class … extends EmbeddingModel` over `embed`/`dimension`;
+// stage 3 makes those abstract.
 class _BareEmbedder extends EmbeddingModel {
   @override
   void addCloseListener(void Function() listener) {}

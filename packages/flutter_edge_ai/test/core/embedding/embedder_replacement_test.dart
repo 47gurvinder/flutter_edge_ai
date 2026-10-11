@@ -100,6 +100,8 @@ void main() {
 }
 
 /// Records every model path the shell asks it to build.
+// TRANSITIONAL(C stage 2): a createModel backend; rewrite as a backend that
+// describe()s a pass whose close is gated (stage 3 removes createModel).
 final class _CountingBackend extends EmbeddingBackendProvider {
   final List<String> builds = [];
   final List<_GatedCloseModel> models = [];
@@ -127,6 +129,9 @@ final class _CountingBackend extends EmbeddingBackendProvider {
 
 /// Closes the way a worker-backed model does: closed at once, torn down when
 /// the gate opens, and every `close()` call returns the same teardown.
+// TRANSITIONAL(C stage 2): old-shape fake (generate*/getDimension). Rewrite
+// as `final class … extends EmbeddingModel` over `embed`/`dimension`;
+// stage 3 makes those abstract.
 class _GatedCloseModel extends EmbeddingModel with CloseNotifier {
   _GatedCloseModel(this._closeGate);
 

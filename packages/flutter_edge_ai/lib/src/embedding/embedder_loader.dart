@@ -136,6 +136,8 @@ Future<EmbeddingModel> loadActiveEmbedder({
     void holdNextBuild(Future<void> cleanup) =>
         cache.trackFailedLoadCleanup(cleanup, build);
     final EmbeddingModel model;
+    // TRANSITIONAL(C stage 3): remove the null branch — describe() is
+    // non-nullable in 2.2.0, and this becomes the one CommonEmbeddingModel.start.
     if (descriptor != null) {
       model = await CommonEmbeddingModel.start(
         descriptor,

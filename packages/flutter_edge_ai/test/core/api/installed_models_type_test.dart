@@ -142,6 +142,8 @@ void main() {
   );
 }
 
+// TRANSITIONAL(C stage 2): a createModel backend; rewrite as one that
+// describe()s (stage 3 removes createModel).
 class _FakeEmbeddingBackend extends EmbeddingBackendProvider {
   @override
   String get name => 'FakeEmbedding';
@@ -156,6 +158,9 @@ class _FakeEmbeddingBackend extends EmbeddingBackendProvider {
   ) async => _FakeEmbeddingModel();
 }
 
+// TRANSITIONAL(C stage 2): old-shape fake (generate*/getDimension). Rewrite
+// as `final class … extends EmbeddingModel` over `embed`/`dimension`;
+// stage 3 makes those abstract.
 class _FakeEmbeddingModel extends EmbeddingModel with CloseNotifier {
   @override
   Future<List<double>> generateEmbedding(

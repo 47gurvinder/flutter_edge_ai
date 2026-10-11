@@ -765,6 +765,9 @@ class _HostileListenerEmbedder extends _FakeEmbedder {
       throw StateError('this model does not support close listeners');
 }
 
+// TRANSITIONAL(C stage 2): old-shape fake (generate*/getDimension). Rewrite
+// as `final class … extends EmbeddingModel` over `embed`/`dimension`;
+// stage 3 makes those abstract.
 class _FakeEmbedder extends EmbeddingModel with CloseNotifier {
   _FakeEmbedder({this.closeGate, this.throwOnClose = false});
 

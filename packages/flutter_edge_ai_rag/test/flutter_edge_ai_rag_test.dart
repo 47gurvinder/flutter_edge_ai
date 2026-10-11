@@ -1258,9 +1258,10 @@ class _FakeEmbedder implements RagEmbedder {
 }
 
 // `extends`, not `implements`: core's EmbeddingModel gained members in 2.2.0,
-// which an `implements` fake would have to spell out one by one. Rewritten to
-// the final fake shape (`final class … extends EmbeddingModel` over `embed`)
-// in the PR that moves this package to the new API.
+// which an `implements` fake would have to spell out one by one.
+// TRANSITIONAL(C stage 2): rewrite to the final fake shape (`final class …
+// extends EmbeddingModel` over `embed`/`dimension`) with the move to the new
+// API; stage 3 makes those abstract.
 class _FakeEmbeddingModel extends EmbeddingModel {
   _FakeEmbeddingModel({required this.dimension});
 
