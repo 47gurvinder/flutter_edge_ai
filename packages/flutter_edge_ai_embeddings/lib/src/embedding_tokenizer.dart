@@ -3,10 +3,10 @@
 //
 // The Gemma BOS/EOS convention and the `.json`-vs-`.model` loader branch live
 // here rather than inside a forward pass because they are engine-agnostic (pure
-// Dart, `dart_sentencepiece_tokenizer` only). The pad/truncate-to-`seqLen` half
-// deliberately does NOT: it stays with the LiteRT forward pass in
-// `flutter_edge_ai_litertlm`, because only that engine's compiled model knows its
-// fixed `seqLen`.
+// Dart, `dart_sentencepiece_tokenizer` only). The length check and the padding
+// to a graph's `seqLen` deliberately do NOT: core's `TokenEmbeddingPass` refuses
+// an input longer than the graph takes, and the engine's pass pads, because only
+// that engine's model knows its fixed `seqLen`.
 //
 // ⚠️ I1 risk: getting `bosId`/`eosId` or the `prefix + text` concatenation
 // order wrong silently changes every embedding vector without any exception.
@@ -30,7 +30,7 @@ const int eosId = 1;
 /// The returned tokenizer has any `padding` and `truncation` the file declares
 /// DISABLED: `encode()` hands back bare content, never a fixed-width row. Width
 /// and terminators are the caller's — [encodeForEmbedding],
-/// [encodeForSiglipEmbedding], and the forward pass that owns `seqLen`. (A raw
+/// [encodeForSiglipEmbedding], and the embedding pass that owns `seqLen`. (A raw
 /// `.model` carries no such blocks, so there the guarantee is free.)
 ///
 /// Throws [StateError] if the resolved `dart_sentencepiece_tokenizer` accepts
@@ -80,8 +80,9 @@ Future<SentencePieceTokenizer> loadEmbeddingTokenizer(
 /// Tokenizes ([prefix] + [text]) with Gemma BOS/EOS:
 /// `[bosId, ...encode(prefix + text).ids, eosId]`.
 ///
-/// Does NOT pad/truncate to a fixed sequence length — that is the forward
-/// pass's job (it owns `seqLen`, e.g. LiteRT's compiled input tensor width).
+/// Does NOT pad to a fixed sequence length, nor check one — that is the
+/// embedding pass's job (it owns `seqLen`, e.g. LiteRT's compiled input tensor
+/// width, and refuses a longer input).
 List<int> encodeForEmbedding(
   SentencePieceTokenizer tokenizer,
   String prefix,
@@ -96,8 +97,8 @@ List<int> encodeForEmbedding(
 /// [encodeForEmbedding]. Byte-identical to the pre-generalization LiteRT
 /// path: same BOS=2/EOS=1 convention, same `prefix + text` concatenation
 /// order. Always returns `attentionMask: null, tokenTypeIds: null` — Gemma
-/// SentencePiece has no notion of either; the forward pass pads/truncates
-/// internally and has no mask to report back.
+/// SentencePiece has no notion of either; the embedding pass pads internally
+/// and has no mask to report back.
 Future<EmbeddingTokenizer> loadGemmaSentencePieceEmbeddingTokenizer(
   String tokenizerPath,
 ) async {
@@ -161,11 +162,13 @@ const int siglipSeqLen = 64;
 const int siglipPadId = 0;
 
 /// Tokenizes [text] with SigLIP2's convention and returns exactly [siglipSeqLen]
-/// ids: no BOS, lowercased content truncated to `siglipSeqLen - 1`, one trailing
-/// [siglipEosId], then right-padding with [siglipPadId].
+/// ids: no BOS, the lowercased content, one trailing [siglipEosId], then
+/// right-padding with [siglipPadId].
 ///
-/// The EOS survives truncation — content of 63 tokens or more yields
-/// `[...first 63, EOS]` with no padding, matching the reference.
+/// Content longer than `siglipSeqLen - 1` (63 tokens) throws
+/// [EmbeddingInputTooLongException] with `maxInputTokens: 64` and
+/// `actualTokens` = content + EOS. It used to be cut to its first 63 tokens —
+/// a vector of a different text, with no error.
 ///
 /// Takes the content text ALONE. The adapter deliberately does not hand a
 /// TaskType prefix through — see [loadSiglipSentencePieceEmbeddingTokenizer].
@@ -173,18 +176,23 @@ List<int> encodeForSiglipEmbedding(
   SentencePieceTokenizer tokenizer,
   String text,
 ) {
-  // Truncate the CONTENT to leave room for the EOS, rather than appending it
-  // and cutting it back off — the reference (`tokenizers` with
-  // `enable_truncation(64)`, and DJL's `LONGEST_FIRST` default, which is what
-  // the reference Android app runs) keeps `<eos>` at index 63 on a long input.
-  // Appending first silently dropped it and cost cosine 0.9683 on inputs over
-  // the width.
   // `loadEmbeddingTokenizer` turns the tokenizer's own padding and truncation
   // off, so this is bare content and the width rule below is the only one that
   // applies. Without that the file's `{Fixed: 64}` block comes back applied and
   // the EOS appended here would land past the pad run.
   final content = tokenizer.encode(text.toLowerCase()).ids;
-  final ids = <int>[...content.take(siglipSeqLen - 1), siglipEosId];
+  // Prefix-free, so the EOS is the only id beside the content.
+  final actualTokens = content.length + 1;
+  if (actualTokens > siglipSeqLen) {
+    throw EmbeddingInputTooLongException(
+      'The input is $actualTokens tokens (EOS included); the SigLIP 2 text '
+      'tower takes at most $siglipSeqLen. Split the text and embed the '
+      'pieces.',
+      maxInputTokens: siglipSeqLen,
+      actualTokens: actualTokens,
+    );
+  }
+  final ids = <int>[...content, siglipEosId];
   return [...ids, ...List<int>.filled(siglipSeqLen - ids.length, siglipPadId)];
 }
 
@@ -197,9 +205,9 @@ List<int> encodeForSiglipEmbedding(
 /// text tower has no vocabulary for it: a prefix would be embedded as literal
 /// leading text and move the vector off the space it shares with the vision
 /// tower, which encodes an image with no prefix at all. Dropping it is not a
-/// silent liberty — [CommonEmbeddingModel.generateEmbedding] DEFAULTS to
-/// `TaskType.retrievalQuery`, so rejecting a non-empty prefix would make this
-/// profile unreachable through the only public API, and honoring one would make
+/// silent liberty — every `EmbeddingModel.embed` names a task, and only
+/// `TaskType.none` has an empty prefix, so rejecting a non-empty one would make
+/// this profile reachable only through `none`, and honoring one would make
 /// `retrievalQuery` and `retrievalDocument` of the same string two different
 /// points.
 Future<EmbeddingTokenizer> loadSiglipSentencePieceEmbeddingTokenizer(
@@ -246,7 +254,7 @@ class _SiglipSentencePieceEmbeddingTokenizer implements EmbeddingTokenizer {
     // This adapter BUILT the padding, so it is the only thing that knows which
     // positions are real. Reporting the mask matters even though the head pools
     // the last position rather than averaging: when the graph declares an
-    // `attention_mask` input, the forward pass otherwise fabricates an all-ones
+    // `attention_mask` input, the embedding pass otherwise fabricates an all-ones
     // one over the pad tail, and a graph that falls through to
     // `last_hidden_state` would mean-pool 63 pads into the vector.
     // Counted from the END rather than by locating the EOS, and on 1.4.x that is
