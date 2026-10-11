@@ -162,7 +162,7 @@ class _DownloadedModelsScreenState extends State<DownloadedModelsScreen> {
 
   Future<void> _copyPath(_DownloadedModelEntry entry) async {
     try {
-      final path = await resolveInstalledModelPath(entry.id);
+      final path = await FlutterEdgeAi.getModelPath(entry.id);
       await Clipboard.setData(ClipboardData(text: path));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
