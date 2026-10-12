@@ -76,7 +76,7 @@ import '../ffi/litert_lm_library.dart';
 import '../ffi/sigprof_mask.dart';
 import 'embedding_parts.dart';
 import 'litert_lm_embedding_common.dart';
-import 'litertlm_container.dart';
+import 'litertlm_container_io.dart';
 import 'litertlm_npu_target.dart';
 import 'vision_budget.dart';
 
@@ -94,9 +94,6 @@ const _statusOk = 0;
 const _statusUnknown = 2;
 const _statusInvalidArgument = 3;
 
-/// The bundle to install for audio, named in the refusal.
-const _audioBundle = 'embeddinggemma-2-740m';
-
 /// Throws [EmbeddingLoadException] unless the `.litertlm` bundle at
 /// [modelPath] has an audio encoder, read from its container header (D23:
 /// ModelInfo claims audio on the 270m and the 440m). A header this reader
@@ -109,12 +106,8 @@ const _audioBundle = 'embeddinggemma-2-740m';
 /// the close.
 void requireLiteRtLmAudioEncoder(String modelPath) {
   final file = _fileName(modelPath);
-  Never cannotRead(Object e, String reason) => throw EmbeddingLoadException(
-    'could not read the container of $file to find its audio encoder: '
-    '$reason',
-    engine: liteRtLmEngineTag,
-    cause: e,
-  );
+  Never cannotRead(Object e, String reason) =>
+      throw liteRtLmUnreadableContainer(file, reason, e);
   final List<String> types;
   try {
     types = readLitertlmModelTypes(modelPath);
@@ -123,12 +116,7 @@ void requireLiteRtLmAudioEncoder(String modelPath) {
   } on FormatException catch (e) {
     cannotRead(e, e.message);
   }
-  if (!litertlmHasAudioEncoder(types)) {
-    throw EmbeddingLoadException(
-      '$file has no audio encoder; install $_audioBundle',
-      engine: liteRtLmEngineTag,
-    );
-  }
+  if (!litertlmHasAudioEncoder(types)) throw liteRtLmNoAudioEncoder(file);
 }
 
 /// What `LiteRtEmbeddingBackend.describe` hands core for a `.litertlm`

@@ -1,10 +1,49 @@
 // Just enough of the FlatBuffers wire format to walk a `.litertlm` header —
 // shared by the LLM sampler reader (`litertlm_bundle_sampler.dart`) and the
-// embedding container reader (`embedding/litertlm_container.dart`).
-// Package-private: nothing exports it.
+// embedding container reader (`embedding/litertlm_container.dart`) — and the
+// 32-byte preamble in front of it. Package-private: nothing exports it.
+// Web-safe, dart2js included: no dart:io, and no 64-bit ByteData access
+// (`getUint64` throws UnsupportedError under dart2js), so the web
+// EmbeddingGemma 2 pass reads the same header with the same code.
 
 import 'dart:convert';
 import 'dart:typed_data';
+
+/// The container major version this reader understands, as LiteRT-LM's own
+/// reader (`LITERTLM_MAJOR_VERSION`).
+const _majorVersion = 1;
+
+/// Larger than any header seen (a few KB); a bigger value is a corrupt file,
+/// not one to read into memory.
+const _maxHeaderBytes = 1 << 20;
+
+/// Where the header flatbuffer ends, from the 32-byte preamble: the magic
+/// `LITERTLM`, three uint32 version fields, 4 bytes of padding and a uint64
+/// header end (LiteRT-LM `schema/core/litertlm_read.cc`, pin b2f686e2).
+///
+/// The uint64 is read as two uint32 halves, so this runs under dart2js too; a
+/// non-zero high half is past [_maxHeaderBytes] anyway.
+int litertlmHeaderEnd(Uint8List preamble) {
+  final data = ByteData.sublistView(preamble);
+  if (preamble.length < 32 ||
+      String.fromCharCodes(preamble.sublist(0, 8)) != 'LITERTLM') {
+    throw const FormatException('not a .litertlm file: no LITERTLM magic');
+  }
+  final major = data.getUint32(8, Endian.little);
+  if (major != _majorVersion) {
+    throw FormatException(
+      '.litertlm container version $major is not supported '
+      '(expected $_majorVersion)',
+    );
+  }
+  final low = data.getUint32(24, Endian.little);
+  final high = data.getUint32(28, Endian.little);
+  final end = high * 0x100000000 + low;
+  if (high != 0 || end < 32 || end - 32 > _maxHeaderBytes) {
+    throw FormatException('.litertlm header end $end is out of range');
+  }
+  return end;
+}
 
 /// Tables, vectors of tables, strings, union discriminators and scalar
 /// fields, little-endian, over the header bytes. Out-of-range offsets throw

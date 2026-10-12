@@ -1,3 +1,6 @@
+## 1.13.2
+- Web: EmbeddingGemma 2 audio and combined-input embeddings on WebGPU.
+
 ## 1.13.1
 - EmbeddingGemma 2 image embeddings on native platforms.
 - Web: EmbeddingGemma 2 text and image embeddings on WebGPU via @litert-lm/core 0.18.0.
