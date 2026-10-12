@@ -443,6 +443,13 @@ Run a Gemma 4 bundle on the NPU: a Gemma 3 bundle drops every prefill chunk
 after the first, with no error, and answers from the start of the prompt alone
 ([LiteRT-LM#3508](https://github.com/google-ai-edge/LiteRT-LM/issues/3508)).
 
+On macOS, App Nap throttles an app that is in the background: after about a
+minute, generation and embedding run several times slower (measured: an
+EmbeddingGemma 2 image went from 0.35 s to 2–7 s). An app that embeds or
+generates while in the background should hold an activity for the duration —
+`ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: …)` in
+Swift, ended with `endActivity` when the work is done.
+
 ### Qualcomm NPU on Android and Linux arm64 (opt-in)
 
 This package does not ship Qualcomm's QNN runtime: Qualcomm licenses it for

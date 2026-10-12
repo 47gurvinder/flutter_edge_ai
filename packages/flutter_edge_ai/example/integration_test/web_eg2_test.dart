@@ -833,7 +833,9 @@ void main() {
         photos: app.photos,
         // No file dialog under a driver: the picker hands in one photo,
         // which the web photo store keeps in OPFS.
-        pickPhotos: () async => [pieDuplicate],
+        pickPhotos: () async => [
+          (name: pieDuplicate.name, read: () async => pieDuplicate.bytes),
+        ],
         pickQueryPhoto: () async => pieDuplicate,
         loadSample: app.loadSample,
       );

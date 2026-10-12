@@ -11,6 +11,10 @@ import 'photo_store.dart';
 /// One encoded image the user picked (or a bundled sample).
 typedef PickedPhoto = ({String name, Uint8List bytes});
 
+/// A photo the user picked, not read yet: [read] loads its encoded bytes.
+/// Lets a batch hold one original in memory at a time.
+typedef PickedPhotoSource = ({String name, Future<Uint8List> Function() read});
+
 /// Everything the Image Search screen needs from outside: the embedder, the
 /// RAG index, where photos live, and where they come from. The app's wiring is
 /// `imageSearchAppDependencies()`; tests pass fakes.
@@ -46,8 +50,8 @@ final class ImageSearchDependencies {
 
   final PhotoStore photos;
 
-  /// Photos to add; empty when the user cancelled.
-  final Future<List<PickedPhoto>> Function() pickPhotos;
+  /// Photos to add, not read yet; empty when the user cancelled.
+  final Future<List<PickedPhotoSource>> Function() pickPhotos;
 
   /// A photo to search by; null when the user cancelled.
   final Future<PickedPhoto?> Function() pickQueryPhoto;
@@ -199,68 +203,93 @@ final class ImageSearchController extends ChangeNotifier {
   }
 
   /// Adds the ten bundled scenes (replacing them if they were added before).
-  Future<void> addSamples() => _run('Adding samples', () async {
-    final samples = <({String id, String reference, PickedPhoto photo})>[
+  /// They are referenced by asset key, so nothing is copied.
+  Future<void> addSamples() => _run(
+    'Adding samples',
+    () => _add([
       for (final scene in eg2VisionSampleCaptions.keys)
         (
           id: 'sample-$scene',
-          reference: assetPhotoReference(eg2VisionSampleAsset(scene)),
-          photo: (
-            name: '$scene.png',
-            bytes: await _deps.loadSample(eg2VisionSampleAsset(scene)),
-          ),
+          name: '$scene.png',
+          read: () => _deps.loadSample(eg2VisionSampleAsset(scene)),
+          asset: assetPhotoReference(eg2VisionSampleAsset(scene)),
         ),
-    ];
-    await _add(samples);
-  });
+    ]),
+  );
 
   /// Lets the user pick photos and adds each.
   Future<void> addPhotos() => _run('Adding photos', () async {
     final picked = await _deps.pickPhotos();
-    if (picked.isEmpty) return;
+    // The screen may have gone while the picker was open: copy nothing.
+    if (picked.isEmpty || _disposed || _index == null) return;
     final stamp = DateTime.now().microsecondsSinceEpoch;
-    final photos = <({String id, String reference, PickedPhoto photo})>[];
-    for (var i = 0; i < picked.length; i++) {
-      final photo = picked[i];
-      photos.add((
-        id: 'photo-$stamp-$i',
-        reference: await _deps.photos.keep(photo.bytes, name: photo.name),
-        photo: photo,
-      ));
-    }
-    await _add(photos);
+    await _add([
+      for (final (i, photo) in picked.indexed)
+        (
+          id: 'photo-$stamp-$i',
+          name: photo.name,
+          read: photo.read,
+          asset: null,
+        ),
+    ]);
   });
 
-  Future<void> _add(
-    List<({String id, String reference, PickedPhoto photo})> photos,
-  ) async {
-    final index = _requireIndex();
-    final embedder = _embedder!;
+  /// Adds [photos] one at a time: read the original, copy it (unless it is an
+  /// asset), embed and store it, then let its bytes go before the next is
+  /// read — a batch of full-size photos never sits in memory at once.
+  ///
+  /// A photo the model refuses (HEIC, WebP, a broken file) is listed in
+  /// [addFailures] and the rest are still added. Any other failure stops the
+  /// batch and is shown by [_run]. Either way the copy the failed photo got
+  /// is deleted; the copies of photos already added stay, because the index
+  /// refers to them.
+  Future<void> _add(List<_PendingPhoto> photos) async {
     addFailures.clear();
     for (var i = 0; i < photos.length; i++) {
-      final (:id, :reference, :photo) = photos[i];
+      final photo = photos[i];
+      // Checked before every read and copy: the screen may have gone.
+      final index = _index;
+      final embedder = _embedder;
+      if (_disposed || index == null || embedder == null) return;
       _set(() => progress = 'Embedding ${i + 1} of ${photos.length}');
+      final bytes = await photo.read();
+      if (_disposed) return;
+      String? copy;
       try {
+        final reference =
+            photo.asset ??
+            (copy = await _deps.photos.keep(bytes, name: photo.name));
         await index.add(
-          id: id,
-          document: EmbeddingInput.image(photo.bytes),
+          id: photo.id,
+          document: EmbeddingInput.image(bytes),
           content: reference,
         );
+        copy = null; // indexed: the copy belongs to the index now
         added.insert(0, (
           reference: reference,
           label: photo.name,
           embed: embedder.last ?? Duration.zero,
         ));
       } on EmbeddingException catch (e) {
-        // One photo the model cannot take (HEIC, WebP, a broken file) does
-        // not stop the others; the reason is shown next to its name.
         debugPrint('[ImageSearch] ${photo.name} not added: $e');
         addFailures.add('${photo.name}: ${e.message}');
-        await _deps.photos.forget(reference);
+      } finally {
+        if (copy != null) await _forget(copy);
       }
     }
+    final index = _requireIndex();
     await index.flush();
     documentCount = (await index.stats()).documentCount;
+  }
+
+  /// Deletes a copy that was never indexed. A failure here is logged: the
+  /// error the user sees is the one that stopped the photo.
+  Future<void> _forget(String copy) async {
+    try {
+      await _deps.photos.forget(copy);
+    } catch (e, st) {
+      debugPrint('[ImageSearch] could not delete $copy: $e\n$st');
+    }
   }
 
   /// Text → image: the photos that best match [query].
@@ -315,6 +344,7 @@ final class ImageSearchController extends ChangeNotifier {
     await index.flush();
     await _deps.photos.forgetAll();
     added.clear();
+    addFailures.clear();
     results = const [];
     resultsFor = null;
     documentCount = 0;
@@ -376,6 +406,15 @@ final class ImageSearchController extends ChangeNotifier {
     super.dispose();
   }
 }
+
+/// A photo on its way into the index: [read] loads its encoded bytes; an
+/// [asset] reference means it is not copied.
+typedef _PendingPhoto = ({
+  String id,
+  String name,
+  Future<Uint8List> Function() read,
+  String? asset,
+});
 
 /// A refusal of this screen's own, with a message ready to show.
 final class _Refusal implements Exception {

@@ -1200,7 +1200,7 @@ void main() {
         openIndex: app.openIndex,
         photos: app.photos,
         // No photo library on a test device: the query photo is handed in.
-        pickPhotos: () async => const [],
+        pickPhotos: () async => const <PickedPhotoSource>[],
         pickQueryPhoto: () async => pieDuplicate,
         loadSample: app.loadSample,
       );

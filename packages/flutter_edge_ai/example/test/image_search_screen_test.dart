@@ -6,6 +6,7 @@
 // decode, and no active embedder. The real model runs in
 // integration_test/embeddinggemma2_test.dart.
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -29,8 +30,9 @@ void main() {
   late _Rig rig;
 
   setUp(() {
-    model = _FakeEmbedder();
-    rig = _Rig(model);
+    final log = <String>[];
+    model = _FakeEmbedder(log);
+    rig = _Rig(model, log);
   });
 
   Future<void> settle(WidgetTester tester) async {
@@ -172,11 +174,8 @@ void main() {
       'and the others are still added', (tester) async {
     await pumpScreen(tester);
     rig.picked = [
-      (
-        name: 'IMG_0001.HEIC',
-        bytes: _asset('assets/eg2_vision/small_circle.heic'),
-      ),
-      (name: 'circle.png', bytes: _asset(eg2VisionSampleAsset('circle'))),
+      rig.source('IMG_0001.HEIC', 'assets/eg2_vision/small_circle.heic'),
+      rig.source('circle.png', eg2VisionSampleAsset('circle')),
     ];
     await tester.tap(find.byKey(const Key('image-search-add-photos')));
     await settle(tester);
@@ -196,6 +195,114 @@ void main() {
     expect(rig.photos.kept, hasLength(1), reason: 'the HEIC copy is deleted');
   });
 
+  testWidgets('picked photos are streamed: each is read, copied and embedded '
+      'before the next is read, so one original is in memory at a time', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    rig.picked = [
+      for (final scene in ['circle', 'square', 'triangle'])
+        rig.source('$scene.png', eg2VisionSampleAsset(scene)),
+    ];
+    rig.log.clear();
+    await tester.tap(find.byKey(const Key('image-search-add-photos')));
+    await settle(tester);
+    expect(rig.log, [
+      for (final scene in ['circle', 'square', 'triangle']) ...[
+        'read $scene.png',
+        'keep $scene.png',
+        'embed $scene',
+      ],
+    ]);
+    expect(
+      textOf(tester, const Key('image-search-count')),
+      '3 photos in the index',
+    );
+  });
+
+  testWidgets('thumbnails are decoded at their display size, not the '
+      'original\'s', (tester) async {
+    await pumpScreen(tester);
+    await tester.tap(find.byKey(const Key('image-search-add-samples')));
+    await settle(tester);
+    await tester.enterText(
+      find.byKey(const Key('image-search-query')),
+      'a red stop sign',
+    );
+    await tester.tap(find.byKey(const Key('image-search-search-text')));
+    await settle(tester);
+
+    ImageProvider thumbnailOf(Finder parent) => tester
+        .widget<Image>(
+          find.descendant(of: parent, matching: find.byType(Image)).first,
+        )
+        .image;
+
+    final hit = thumbnailOf(find.byKey(const Key('image-search-hit-0')));
+    expect(hit, isA<ResizeImage>());
+    // 104 logical px at 2x (the test view's ratio is 1).
+    expect((hit as ResizeImage).width, 208);
+    expect(hit.height, 208);
+    expect(hit.policy, ResizeImagePolicy.fit);
+
+    final strip = thumbnailOf(find.byKey(const Key('image-search-added')));
+    expect(strip, isA<ResizeImage>());
+    expect((strip as ResizeImage).width, 128);
+  });
+
+  testWidgets('closing the screen while the picker is open copies nothing', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    final picker = Completer<List<PickedPhotoSource>>();
+    rig.pickFuture = picker.future;
+    await tester.tap(find.byKey(const Key('image-search-add-photos')));
+    await settle(tester);
+    await tester.pumpWidget(const SizedBox()); // the screen goes
+    rig.log.clear();
+    picker.complete([rig.source('circle.png', eg2VisionSampleAsset('circle'))]);
+    await settle(tester);
+    expect(rig.photos.kept, isEmpty, reason: 'no orphaned copy');
+    expect(rig.log, isEmpty, reason: 'nothing was even read');
+  });
+
+  testWidgets('a store failure while adding is shown, and the copy that '
+      'photo got is deleted', (tester) async {
+    await pumpScreen(tester);
+    rig.store.failAdds = true;
+    rig.picked = [rig.source('circle.png', eg2VisionSampleAsset('circle'))];
+    await tester.tap(find.byKey(const Key('image-search-add-photos')));
+    await settle(tester);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('image-search-error')),
+        matching: find.textContaining('disk full'),
+      ),
+      findsOneWidget,
+    );
+    expect(rig.photos.kept, isEmpty, reason: 'no orphaned copy');
+  });
+
+  testWidgets('Clear also clears the list of photos that were not added', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    rig.picked = [
+      rig.source('IMG_0001.HEIC', 'assets/eg2_vision/small_circle.heic'),
+      rig.source('circle.png', eg2VisionSampleAsset('circle')),
+    ];
+    await tester.tap(find.byKey(const Key('image-search-add-photos')));
+    await settle(tester);
+    expect(find.byKey(const Key('image-search-add-failures')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('image-search-clear')));
+    await settle(tester);
+    expect(find.byKey(const Key('image-search-add-failures')), findsNothing);
+    expect(
+      textOf(tester, const Key('image-search-count')),
+      '0 photos in the index',
+    );
+  });
+
   testWidgets('no active embedder: says what to install', (tester) async {
     rig.active = false;
     await pumpScreen(tester);
@@ -209,16 +316,31 @@ void main() {
 
 /// Everything the screen reaches, faked, around the real RAG API.
 final class _Rig {
-  _Rig(this.model);
+  _Rig(this.model, this.log);
 
   final _FakeEmbedder model;
+
+  /// Reads, copies and embeds, in the order they happened.
+  final List<String> log;
   final store = _MemoryStore();
-  final photos = _MemoryPhotos();
+  late final photos = _MemoryPhotos(log);
   bool active = true;
   EmbeddingLoadException? loadError;
   int loads = 0;
   int choseModel = 0;
-  List<PickedPhoto> picked = const [];
+  List<PickedPhotoSource> picked = const [];
+
+  /// When set, the picker answers with this instead of [picked].
+  Future<List<PickedPhotoSource>>? pickFuture;
+
+  /// A picked photo that logs when it is read.
+  PickedPhotoSource source(String name, String asset) => (
+    name: name,
+    read: () async {
+      log.add('read $name');
+      return _asset(asset);
+    },
+  );
   PickedPhoto? queryPhoto;
 
   late final _spec = EmbeddingModelSpec(
@@ -252,7 +374,7 @@ final class _Rig {
           embedder: embedder,
         ),
     photos: photos,
-    pickPhotos: () async => picked,
+    pickPhotos: () => pickFuture ?? Future.value(picked),
     pickQueryPhoto: () async => queryPhoto,
     loadSample: (key) async => _asset(key),
     closeEmbedderOnDispose: false,
@@ -264,6 +386,9 @@ final class _Rig {
 /// core's facade refuses for EmbeddingGemma 2 (anything but JPEG, PNG, GIF,
 /// BMP), with the same exception.
 final class _FakeEmbedder extends EmbeddingModel {
+  _FakeEmbedder(this._log);
+
+  final List<String> _log;
   final tasks = <TaskType>[];
   bool declaredImages = false;
   bool _closed = false;
@@ -315,6 +440,7 @@ final class _FakeEmbedder extends EmbeddingModel {
         );
       }
       scene = _byBytes[_key(bytes)] ?? -1;
+      if (scene >= 0) _log.add('embed ${_scenes[scene]}');
     }
     if (scene < 0) throw StateError('the fake knows no vector for $input');
     final vector = List<double>.generate(
@@ -333,11 +459,15 @@ final class _FakeEmbedder extends EmbeddingModel {
 }
 
 final class _MemoryPhotos implements PhotoStore {
+  _MemoryPhotos(this._log);
+
+  final List<String> _log;
   final kept = <String, Uint8List>{};
   int _n = 0;
 
   @override
-  Future<String> keep(List<int> bytes, {required String name}) async {
+  Future<String> keep(Uint8List bytes, {required String name}) async {
+    _log.add('keep $name');
     final reference = '/photos/${_n++}-$name';
     kept[reference] = Uint8List.fromList(bytes);
     return reference;
@@ -381,6 +511,9 @@ final class _MemoryProvider implements VectorStoreProvider {
 /// A vector store in memory, ranking by cosine similarity.
 final class _MemoryStore extends VectorStoreRepository {
   VectorStoreBinding? binding;
+
+  /// Every addDocument fails, as a full disk would.
+  bool failAdds = false;
   final _documents = <String, (String, List<double>)>{};
 
   Iterable<String> get contents => _documents.values.map((d) => d.$1);
@@ -415,7 +548,10 @@ final class _MemoryStore extends VectorStoreRepository {
     required String content,
     required List<double> embedding,
     String? metadata,
-  }) async => _documents[id] = (content, embedding);
+  }) async {
+    if (failAdds) throw const VectorStoreException('disk full');
+    _documents[id] = (content, embedding);
+  }
 
   @override
   Future<void> removeDocument({required String id}) async =>

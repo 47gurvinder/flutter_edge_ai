@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -289,6 +290,7 @@ class _AddedStrip extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: SizedBox(
+        key: const Key('image-search-added'),
         height: 92,
         child: ListView(
           scrollDirection: Axis.horizontal,
@@ -359,20 +361,31 @@ class _Thumbnail extends StatelessWidget {
   final double size;
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(6),
-    child: Image(
-      image: image,
-      width: size,
-      height: size,
-      fit: BoxFit.cover,
-      errorBuilder: (context, error, stackTrace) => Container(
+  Widget build(BuildContext context) {
+    // Decoded at the size it is shown (at least 2x), not the photo's: a
+    // 12-megapixel original would otherwise be decoded whole for a 104 px tile.
+    final px = (size * math.max(2.0, MediaQuery.devicePixelRatioOf(context)))
+        .round();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: Image(
+        image: ResizeImage(
+          image,
+          width: px,
+          height: px,
+          policy: ResizeImagePolicy.fit,
+        ),
         width: size,
         height: size,
-        color: Colors.white10,
-        alignment: Alignment.center,
-        child: const Icon(Icons.broken_image, color: Colors.white38),
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => Container(
+          width: size,
+          height: size,
+          color: Colors.white10,
+          alignment: Alignment.center,
+          child: const Icon(Icons.broken_image, color: Colors.white38),
+        ),
       ),
-    ),
-  );
+    );
+  }
 }

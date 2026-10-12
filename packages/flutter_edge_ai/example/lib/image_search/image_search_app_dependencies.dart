@@ -43,8 +43,11 @@ ImageSearchDependencies imageSearchAppDependencies() {
     // No resizing or re-encoding: the photo's own bytes reach the model, so a
     // container it cannot decode (HEIC, WebP) is refused, not silently
     // converted. The model scales every image to its vision budget itself.
+    // Read one by one, when the screen gets to each photo: a batch of
+    // full-size originals never sits in memory at once.
     pickPhotos: () async => [
-      for (final file in await picker.pickMultiImage()) await read(file),
+      for (final file in await picker.pickMultiImage())
+        (name: file.name, read: file.readAsBytes),
     ],
     pickQueryPhoto: () async {
       final file = await picker.pickImage(source: ImageSource.gallery);
