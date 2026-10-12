@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:flutter/widgets.dart';
 
 export 'photo_store_stub.dart'
@@ -15,7 +16,7 @@ export 'photo_store_stub.dart'
 abstract interface class PhotoStore {
   /// Keeps [bytes] (an encoded image picked as [name]) and returns the
   /// reference to store with its vector.
-  Future<String> keep(List<int> bytes, {required String name});
+  Future<String> keep(Uint8List bytes, {required String name});
 
   /// The image a reference from [keep], or an asset reference, points to.
   ImageProvider imageFor(String reference);

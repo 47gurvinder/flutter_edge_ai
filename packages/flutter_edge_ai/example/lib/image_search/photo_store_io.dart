@@ -23,8 +23,7 @@ final class _FilePhotoStore implements PhotoStore {
   }
 
   @override
-  Future<String> keep(List<int> bytes, {required String name}) async {
-    final data = Uint8List.fromList(bytes);
+  Future<String> keep(Uint8List data, {required String name}) async {
     // The container from the bytes, not the picked name: a HEIC saved as
     // .jpg is still HEIC (and still refused before it reaches the engine).
     final extension = sniffEncodedMediaFormat(data)?.name ?? 'bin';

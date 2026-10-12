@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:flutter/widgets.dart';
 
 import 'photo_store.dart';
@@ -10,7 +11,7 @@ final class _NoPhotoStore implements PhotoStore {
   const _NoPhotoStore();
 
   @override
-  Future<String> keep(List<int> bytes, {required String name}) => Future.error(
+  Future<String> keep(Uint8List bytes, {required String name}) => Future.error(
     UnsupportedError('Image search is not available on this platform.'),
   );
 
