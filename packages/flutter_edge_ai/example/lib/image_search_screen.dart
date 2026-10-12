@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'embedding_models_screen.dart';
@@ -14,7 +13,9 @@ import 'image_search/photo_store.dart';
 ///
 /// The model is the ACTIVE embedder, chosen on the Embedding Models list —
 /// EmbeddingGemma 2 Text + Vision (440M); the 270M has no vision encoder and
-/// is refused with the reason. Native only until web EmbeddingGemma 2 lands.
+/// is refused with the reason. Every platform: on the web the model runs on
+/// the CPU (WebAssembly) through `@litert-lm/core`, so expect each photo to
+/// take longer than on a phone or desktop.
 class ImageSearchScreen extends StatefulWidget {
   const ImageSearchScreen({super.key, this.dependencies, this.onChooseModel});
 
@@ -38,7 +39,7 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
   void initState() {
     super.initState();
     // open() keeps every failure in the controller's state, for the screen.
-    if (!kIsWeb) unawaited(_controller.open());
+    unawaited(_controller.open());
   }
 
   @override
@@ -70,21 +71,10 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
         title: const Text('Image Search'),
         backgroundColor: const Color(0xFF0b2351),
       ),
-      body: kIsWeb
-          ? const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Text(
-                  'Image embeddings run on Android, iOS, macOS, Linux and '
-                  'Windows for now.',
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            )
-          : ListenableBuilder(
-              listenable: _controller,
-              builder: (context, _) => _body(context),
-            ),
+      body: ListenableBuilder(
+        listenable: _controller,
+        builder: (context, _) => _body(context),
+      ),
     );
   }
 

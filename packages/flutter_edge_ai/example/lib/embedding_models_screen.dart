@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_edge_ai_example/models/embedding_model.dart';
 import 'package:flutter_edge_ai_example/widgets/universal_model_card.dart';
@@ -11,12 +10,9 @@ class EmbeddingModelsScreen extends StatefulWidget {
 }
 
 class _EmbeddingModelsScreenState extends State<EmbeddingModelsScreen> {
-  /// `.litertlm` bundles (EmbeddingGemma 2) have no web engine yet: the
-  /// installer would refuse them there before any download.
-  static final _models = [
-    for (final model in EmbeddingModel.values)
-      if (!kIsWeb || !model.isLiteRtLmBundle) model,
-  ];
+  /// Every catalog model, on every platform: since flutter_edge_ai_litertlm
+  /// 1.15.0 the `.litertlm` bundles (EmbeddingGemma 2) run on the web too.
+  static const _models = EmbeddingModel.values;
 
   @override
   Widget build(BuildContext context) {

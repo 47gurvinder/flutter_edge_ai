@@ -127,21 +127,17 @@ class _HomeScreenState extends State<HomeScreen> {
               color: Colors.green,
               onTap: () => _push(const EmbeddingModelsScreen()),
             ),
-            // EmbeddingGemma 2 images are native only until the web engine
-            // embeds them too.
-            if (!kIsWeb) ...[
-              const SizedBox(height: 16),
-              _NavigationCard(
-                key: const Key('home-image-search'),
-                title: 'Image Search',
-                subtitle:
-                    'Find photos by text or by photo with EmbeddingGemma 2 '
-                    '(choose Text + Vision 440M under Embedding Models)',
-                icon: Icons.image_search,
-                color: Colors.lightGreen,
-                onTap: () => _push(const ImageSearchScreen()),
-              ),
-            ],
+            const SizedBox(height: 16),
+            _NavigationCard(
+              key: const Key('home-image-search'),
+              title: 'Image Search',
+              subtitle:
+                  'Find photos by text or by photo with EmbeddingGemma 2 '
+                  '(choose Text + Vision 440M under Embedding Models)',
+              icon: Icons.image_search,
+              color: Colors.lightGreen,
+              onTap: () => _push(const ImageSearchScreen()),
+            ),
             const SizedBox(height: 16),
             _NavigationCard(
               title: 'Speech-to-Text',

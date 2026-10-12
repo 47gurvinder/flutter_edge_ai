@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 export 'photo_store_stub.dart'
     if (dart.library.io) 'photo_store_io.dart'
+    if (dart.library.js_interop) 'photo_store_web.dart'
     show createPhotoStore;
 
 /// Where the Image Search screen keeps the photos it indexed.
@@ -10,8 +11,9 @@ export 'photo_store_stub.dart'
 /// `content` of a document); search results hand the reference back, and the
 /// screen shows the photo through [imageFor]. A bundled sample is referenced
 /// by its asset key (`asset:assets/eg2_vision/circle.png`); a picked photo is
-/// copied into the app's documents directory, so the reference outlives the
-/// picker's temporary file and the app's restarts, like the index itself.
+/// copied into the app's documents directory (on the web, the origin private
+/// file system), so the reference outlives the picker's temporary file and the
+/// app's restarts, like the index itself.
 abstract interface class PhotoStore {
   /// Keeps [bytes] (an encoded image picked as [name]) and returns the
   /// reference to store with its vector.

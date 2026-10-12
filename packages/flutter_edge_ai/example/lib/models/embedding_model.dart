@@ -108,9 +108,9 @@ enum EmbeddingModel implements EmbeddingModelInterface {
   ),
 
   // EmbeddingGemma 2 text (270M): ONE self-contained `.litertlm` bundle that
-  // carries its own tokenizer, so there is no tokenizer file. Ungated. Native
-  // only (Android, iOS, macOS, Linux, Windows) until the web EG2 engine lands;
-  // the list screen hides it on web. Input cap 1024 tokens (prefix, BOS and
+  // carries its own tokenizer, so there is no tokenizer file. Ungated.
+  // Android, iOS, macOS, Linux, Windows, and the web (CPU/WebAssembly, since
+  // flutter_edge_ai_litertlm 1.15.0). Input cap 1024 tokens (prefix, BOS and
   // EOS included) — keep RAG chunks at 512 or below.
   embeddingGemma2Text270m(
     url:
@@ -132,10 +132,11 @@ enum EmbeddingModel implements EmbeddingModelInterface {
   // EmbeddingGemma 2 Text + Vision (440M): the 270M's text tower (the same
   // bytes, so the same text vectors and the same text profile id) plus a
   // vision encoder, so it embeds images too — the Image Search screen needs
-  // it. Ungated, native only. What the images cost over the 270M (macOS
-  // figures): 388 MB on disk instead of 165, a 218 MB vision weight cache
-  // written at every load, even for text-only use, and about 385 MB more RAM
-  // from the first image on. For text alone the 270M is the better choice.
+  // it. Ungated; every platform, the web included. What the images cost over
+  // the 270M (macOS figures): 388 MB on disk instead of 165, a 218 MB vision
+  // weight cache written at every load, even for text-only use (native; the
+  // web keeps no weight cache), and about 385 MB more RAM from the first image
+  // on. For text alone the 270M is the better choice.
   embeddingGemma2TextVision440m(
     url:
         'https://huggingface.co/litert-community/embeddinggemma-2-text-vision-440m-litert-lm/resolve/e301f74d5551b0c2641bd5cb4652a76239d5c5f8/embeddinggemma-2-text-vision-440m.litertlm',

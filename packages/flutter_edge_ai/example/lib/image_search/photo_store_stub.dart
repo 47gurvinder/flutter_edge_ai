@@ -2,8 +2,8 @@ import 'package:flutter/widgets.dart';
 
 import 'photo_store.dart';
 
-/// Web (and any platform without `dart:io`): image embeddings are native
-/// only for now, so nothing is kept. Bundled samples still show.
+/// A platform with neither `dart:io` nor the web's file system: nothing is
+/// kept. Bundled samples still show.
 PhotoStore createPhotoStore() => const _NoPhotoStore();
 
 final class _NoPhotoStore implements PhotoStore {
