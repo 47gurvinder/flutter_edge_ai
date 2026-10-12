@@ -472,7 +472,7 @@ a VM test keeps the two lists equal); three are the dispatch-directory setters
 the NPU path calls for the main, vision and audio executors. Two are ours, not
 upstream's:
 `litert_lm_embedding_response_get_input_length` / `_get_truncated_length`
-(`patch_c_api.sh` §14, from `native-v0.18.0-e`) — litertlm 1.16.0 refuses every
+(`patch_c_api.sh` §14, from `native-v0.18.0-e`) — litertlm 1.13.1 refuses every
 EG2 load on a library without them, so a release that drops §14 breaks EG2
 text too. They leave through visibility attributes, not the Windows `.def`, and
 no LLM check calls them — a dropped one fails only an EG2 load on that

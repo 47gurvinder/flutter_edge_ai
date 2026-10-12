@@ -1,4 +1,4 @@
-// EmbeddingGemma 2 on a Qualcomm NPU (flutter_edge_ai_litertlm 1.16.0): the
+// EmbeddingGemma 2 on a Qualcomm NPU (flutter_edge_ai_litertlm 1.13.1): the
 // per-SoC bundles litert-community publishes beside the generic ones, through
 // `installEmbedder()` → `getActiveEmbedder(preferredBackend: npu)` → core's
 // worker isolate → the `.litertlm` pass on LiteRT-LM's EmbeddingEngine with

@@ -183,7 +183,7 @@ final eg2Index = await rag.open(
 ```
 
 - Android, iOS, macOS, Linux, Windows (`flutter_edge_ai_litertlm` 1.13.0 for
-  text, 1.14.0 for images), and Web from 1.15.0 (text and images, on WebGPU
+  text, 1.13.1 for images), and Web from 1.13.1 (text and images, on WebGPU
   through `@litert-lm/core`'s EmbeddingEngine). The Web page needs
   `window.EmbeddingEngine = m.EmbeddingEngine;` next to `window.Engine =
   m.Engine;` in its `@litert-lm/core` module script; without it the load fails
@@ -201,7 +201,7 @@ final eg2Index = await rag.open(
 - `maxInputTokens` is 1024 — task prefix, BOS and EOS included. Keep chunks at
   512 tokens or fewer: memory grows with the input length. A longer text throws
   `EmbeddingInputTooLongException` with the exact `actualTokens` (natively
-  from `flutter_edge_ai_litertlm` 1.16.0, from a truncated run; on Web read
+  from `flutter_edge_ai_litertlm` 1.13.1, from a truncated run; on Web read
   after the engine ran the whole input in 1024-token windows). Either way an
   over-long chunk still costs a full embedding before it is refused: split
   before embedding.
@@ -221,7 +221,7 @@ final eg2Index = await rag.open(
   them different ids (different file names); the explicit id above is for one
   text store shared by the three EmbeddingGemma 2 bundles.
 
-### EmbeddingGemma 2 on a Qualcomm NPU (`flutter_edge_ai_litertlm` 1.16.0)
+### EmbeddingGemma 2 on a Qualcomm NPU (`flutter_edge_ai_litertlm` 1.13.1)
 
 The same repos hold each bundle compiled for one SoC's NPU
 (`embeddinggemma-2-text-270m_Qualcomm_SM8850.litertlm`,
@@ -282,7 +282,7 @@ final npuIndex = await rag.open(
   NPU embedder or the reverse. `FlutterEdgeAiActiveEmbedder.forActiveModel`
   keys on the file name, so it separates them by itself.
 
-### EmbeddingGemma 2 images (440m; `flutter_edge_ai_litertlm` 1.14.0 native, 1.15.0 Web)
+### EmbeddingGemma 2 images (440m; `flutter_edge_ai_litertlm` 1.13.1 native, 1.13.1 Web)
 
 The 440m bundle adds a vision encoder to the same text tower, so one model
 embeds both and a text finds photos. Install it like the 270m (ungated):
@@ -397,7 +397,7 @@ page itself: there are no isolates there.
   the retrieval-query prefix found the same photos with a smaller margin. Do
   not set `queryTask` for it: that applies to text documents only.
 
-### EmbeddingGemma 2 audio and combined inputs (740m; `flutter_edge_ai_litertlm` 1.16.0, native)
+### EmbeddingGemma 2 audio and combined inputs (740m; `flutter_edge_ai_litertlm` 1.13.1, native)
 
 The 740m bundle (`litert-community/embeddinggemma-2-740m-litert-lm`, revision
 `24d962e906c7d332c6428e71c9676855024569e2`, ungated, 485 MB) has the 440m's
@@ -432,7 +432,7 @@ final hits = await clips.search(
   query: EmbeddingInput.text('turn off the kitchen lights'),
 );
 
-// Several parts in one vector (flutter_edge_ai 2.4.0), outside an index:
+// Several parts in one vector (flutter_edge_ai 2.3.1), outside an index:
 final embedder = await FlutterEdgeAi.getActiveEmbedder(
   supportImage: true,
   supportAudio: true,
@@ -569,7 +569,7 @@ final matches = await photos.search(query: EmbeddingInput.text('a red bicycle'))
 ```
 
 The active embedder embeds images with the EmbeddingGemma 2 440m bundle
-(above; on Web from `flutter_edge_ai_litertlm` 1.15.0). With any other model —
+(above; on Web from `flutter_edge_ai_litertlm` 1.13.1). With any other model —
 the 270m, EmbeddingGemma 1, ONNX — `getActiveEmbedder(supportImage: true)`,
 and therefore `open()` of an image index with the active embedder, fails with
 `EmbeddingLoadException`. A
@@ -862,7 +862,7 @@ location.
 - `EmbeddingInputTooLongException` from `add` or `search`: the text is longer
   than the embedder's `maxInputTokens`. Split it into smaller chunks; older
   releases truncated it silently. With EmbeddingGemma 2 its `actualTokens` is
-  the exact count (natively from `flutter_edge_ai_litertlm` 1.16.0).
+  the exact count (natively from `flutter_edge_ai_litertlm` 1.13.1).
 - `EmbeddingLoadException` from `open()` of an image index: the installed
   model has no vision encoder — "has no vision encoder; install
   embeddinggemma-2-text-vision-440m" on the 270m — or is not an EmbeddingGemma

@@ -12,11 +12,11 @@ import 'package:flutter_edge_ai/engine.dart';
 const liteRtLmEngineTag = 'LiteRT-LM';
 
 /// The web's answer to declared audio, from `describe()` and from the web
-/// pass. Native platforms embed audio from 1.16.0 (on a bundle with an audio
+/// pass. Native platforms embed audio from 1.13.1 (on a bundle with an audio
 /// encoder); the web pass does not take audio parts.
 const liteRtLmNoAudioRefusal =
     'flutter_edge_ai_litertlm embeds EmbeddingGemma 2 audio on native '
-    'platforms (from 1.16.0); on the web it embeds text and images only';
+    'platforms (from 1.13.1); on the web it embeds text and images only';
 
 /// The explicit text input cap (D21), on every platform. Never raised on
 /// mobile; on the web it is also the runtime's own default, which keeps the

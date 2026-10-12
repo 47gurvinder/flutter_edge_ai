@@ -64,8 +64,8 @@ longer compiles, and `isClosed` is no longer defaulted.
 file that carries its own tokenizer, so it installs without
 `tokenizerFrom…()` and needs no `flutter_edge_ai_embeddings`. Android, iOS,
 macOS, Linux and Windows, CPU, at most 1024 input tokens — keep chunks at 512
-or fewer. Images arrive in litertlm 1.14.0, the Web (text and images) in
-1.15.0, audio in 1.16.0. See
+or fewer. Images, the Web (text and images) and audio arrive in
+litertlm 1.13.1. See
 [Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2) for the install
 snippet and its disk and memory cost.
 

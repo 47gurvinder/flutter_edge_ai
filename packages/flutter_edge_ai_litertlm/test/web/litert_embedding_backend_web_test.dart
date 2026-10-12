@@ -1,7 +1,7 @@
 // The web `LiteRtEmbeddingBackend`: what it claims and what describe() hands
 // core. Web routing is on the spec's file name (the path core resolves is a
 // URL): a two-file spec gets the LiteRT.js pass, a `.litertlm` bundle
-// (EmbeddingGemma 2, since 1.15.0) the `@litert-lm/core` EmbeddingEngine pass.
+// (EmbeddingGemma 2, since 1.13.1) the `@litert-lm/core` EmbeddingEngine pass.
 // The paths are `opfs://`, as under WebStorageMode.streaming: describe() must
 // wire the real resolver, and the pass must hand the bundle resolved URLs
 // (this suite used to feed `blob:` paths and stayed green while every
@@ -59,7 +59,7 @@ RuntimeConfig _config({bool supportImage = false, bool supportAudio = false}) =>
 void main() {
   const backend = LiteRtEmbeddingBackend();
 
-  test('claims a two-file spec and a .litertlm bundle (1.15.0), as the '
+  test('claims a two-file spec and a .litertlm bundle (1.13.1), as the '
       'native arm does', () {
     expect(backend.canHandle(_tflite), isTrue);
     expect(backend.canHandle(_eg2), isTrue);
@@ -96,7 +96,7 @@ void main() {
       throwsA(
         isA<EmbeddingLoadException>()
             .having((e) => e.engine, 'engine', 'LiteRT-LM')
-            .having((e) => e.message, 'message', contains('1.16.0')),
+            .having((e) => e.message, 'message', contains('1.13.1')),
       ),
     );
 

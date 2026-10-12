@@ -1,4 +1,4 @@
-## 2.4.0
+## 2.3.1
 - Combined text, image and audio inputs: `EmbeddingInput(text:, images:, audio:)`.
 
 ## 2.3.0
