@@ -299,6 +299,12 @@ Web follows the same rule since `flutter_edge_ai` 2.2.1. Before that, every
 `getActiveModel` call on web closed the cached model and built a new one,
 identical arguments or not.
 
+A model is closed from the moment its `close()` starts: `model.isClosed` is
+true. Since 2.3.0 a `getActiveModel` call made while that close is still
+running waits for it to finish (at most 60 s, then `TimeoutException`) and
+builds a new model; it never returns the closing one, and two models are never
+loaded at once.
+
 <Info>
 
 On native `.litertlm` (except the NPU) a `maxTokens` below 1024 is clamped up to
