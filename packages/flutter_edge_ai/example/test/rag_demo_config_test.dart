@@ -13,13 +13,25 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('every catalog embedder has a unique path-safe stable profile', () {
-    final ids = catalog.EmbeddingModel.values
-        .map((model) => model.ragProfileId)
-        .toList();
+  test('every catalog embedder has a unique path-safe stable profile — '
+      'except the EmbeddingGemma 2 bundles, whose text towers are one', () {
+    final ids = [
+      for (final model in catalog.EmbeddingModel.values)
+        if (!model.isLiteRtLmBundle) model.ragProfileId,
+    ];
+    final eg2 = {
+      for (final model in catalog.EmbeddingModel.values)
+        if (model.isLiteRtLmBundle) model.ragProfileId,
+    };
+    expect(eg2, hasLength(1), reason: 'one text id for every EG2 bundle (M7)');
+    ids.add(eg2.single);
 
     expect(ids.toSet(), hasLength(ids.length));
-    for (final id in ids) {
+    for (final id in [
+      ...ids,
+      for (final model in catalog.EmbeddingModel.values)
+        ?model.imageRagProfileId,
+    ]) {
       expect(id, matches(RegExp(r'^[a-z0-9][a-z0-9._-]*$')));
       expect(id, isNot(contains('/')));
       expect(id, isNot(contains('resolve')));
@@ -107,11 +119,72 @@ void main() {
     // The installer builds a self-contained spec from it: one file.
     expect(_catalogSpec(eg2).isSelfContained, isTrue);
     expect(_catalogSpec(eg2).files, hasLength(1));
-    // Every other entry is a two-file EG1/Gecko spec.
+    expect(eg2.embedsImages, isFalse);
+    expect(eg2.imageRagProfileId, isNull);
+    // Every other entry is a two-file EG1/Gecko spec, or the 440m bundle.
     for (final model in catalog.EmbeddingModel.values) {
-      if (model == eg2) continue;
+      if (model == eg2 ||
+          model == catalog.EmbeddingModel.embeddingGemma2TextVision440m) {
+        continue;
+      }
       expect(model.isLiteRtLmBundle, isFalse, reason: model.name);
+      expect(model.embedsImages, isFalse, reason: model.name);
     }
+  });
+
+  test('EmbeddingGemma 2 Text + Vision is one pinned .litertlm bundle: the '
+      'text id for text stores, the text id + -vis140 for image indexes', () {
+    const vision = catalog.EmbeddingModel.embeddingGemma2TextVision440m;
+    expect(vision.isLiteRtLmBundle, isTrue);
+    expect(
+      vision.url,
+      'https://huggingface.co/litert-community/'
+      'embeddinggemma-2-text-vision-440m-litert-lm/resolve/'
+      'e301f74d5551b0c2641bd5cb4652a76239d5c5f8/'
+      'embeddinggemma-2-text-vision-440m.litertlm',
+    );
+    expect(vision.filename, contains('__rev-e301f74d5551'));
+    expect(
+      vision.sha256,
+      '92dcbea108899e5d6e30d919b0744f90d9967e80c67a4ab5503ac16d54f62eb0',
+    );
+    expect(vision.needsAuth, isFalse);
+    expect(vision.embedsImages, isTrue);
+    expect(
+      vision.ragProfileId,
+      catalog.EmbeddingModel.embeddingGemma2Text270m.ragProfileId,
+    );
+    expect(
+      vision.imageRagProfileId,
+      'embeddinggemma2-litertlm-text-4410a540ce75-prefix-v1-vis140',
+    );
+    expect(catalog.kExampleVisionTokensPerImage, 140);
+    expect(_catalogSpec(vision).files, hasLength(1));
+  });
+
+  test('a restart restores the profile of the entry that was installed, also '
+      'when another entry shares its profile id', () async {
+    // The 270m and the 440m share the text id; the record names the 440m.
+    const model = catalog.EmbeddingModel.embeddingGemma2TextVision440m;
+    await persistVerifiedEmbeddingCatalogSelection(
+      model,
+      spec: _catalogSpec(model),
+    );
+    final restored = EmbeddingModelSpec(
+      name: model.name,
+      modelSource: ModelSource.file('/managed/${model.filename}'),
+      modelFilename: model.filename,
+    );
+    expect(
+      await resolveActiveEmbeddingCatalogProfile(spec: restored),
+      model.ragProfileId,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getString(EmbeddingCatalogPreferencesKeys.activeProfileProvenance),
+      isNotNull,
+      reason: 'the record was not cleared',
+    );
   });
 
   test('local asset has its own versioned install identities', () {

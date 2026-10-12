@@ -1,5 +1,14 @@
 import 'base_model.dart';
 
+/// Vision tokens per EmbeddingGemma 2 image in this app: the
+/// `LiteRtEmbeddingBackend` default, registered in gemma_bootstrap.dart.
+const kExampleVisionTokensPerImage = 140;
+
+/// The profile id of an image index over [textProfileId]'s embedding space:
+/// image vectors also depend on the vision budget (R5 §5.6).
+String imageIndexProfileId(String textProfileId) =>
+    '$textProfileId-vis$kExampleVisionTokensPerImage';
+
 enum EmbeddingModel implements EmbeddingModelInterface {
   // EmbeddingGemma-300M models (all generate 768D embeddings)
   // Numbers in names indicate max sequence length, not embedding dimension
@@ -120,6 +129,29 @@ enum EmbeddingModel implements EmbeddingModelInterface {
     ragProfileId: 'embeddinggemma2-litertlm-text-4410a540ce75-prefix-v1',
   ),
 
+  // EmbeddingGemma 2 Text + Vision (440M): the 270M's text tower (the same
+  // bytes, so the same text vectors and the same text profile id) plus a
+  // vision encoder, so it embeds images too — the Image Search screen needs
+  // it. Ungated, native only. What the images cost over the 270M (macOS
+  // figures): 388 MB on disk instead of 165, a 218 MB vision weight cache
+  // written at every load, even for text-only use, and about 385 MB more RAM
+  // from the first image on. For text alone the 270M is the better choice.
+  embeddingGemma2TextVision440m(
+    url:
+        'https://huggingface.co/litert-community/embeddinggemma-2-text-vision-440m-litert-lm/resolve/e301f74d5551b0c2641bd5cb4652a76239d5c5f8/embeddinggemma-2-text-vision-440m.litertlm',
+    filename: 'embeddinggemma-2-text-vision-440m__rev-e301f74d5551.litertlm',
+    displayName: 'EmbeddingGemma 2 Text + Vision (440M)',
+    size: '388MB',
+    dimension: 768,
+    maxSeqLen: 1024,
+    needsAuth: false,
+    sha256: '92dcbea108899e5d6e30d919b0744f90d9967e80c67a4ab5503ac16d54f62eb0',
+    // Text vectors are identical to the 270M's, so text stores share its id.
+    // An image index uses imageRagProfileId.
+    ragProfileId: 'embeddinggemma2-litertlm-text-4410a540ce75-prefix-v1',
+    embedsImages: true,
+  ),
+
   // Gecko-110m models (generate 768D embeddings)
   // Gecko 64 is the smallest and fastest model - ideal for short queries
   gecko64(
@@ -207,6 +239,16 @@ enum EmbeddingModel implements EmbeddingModelInterface {
   /// it.
   final String? sha256;
 
+  /// Whether the model embeds images (a bundle with a vision encoder).
+  final bool embedsImages;
+
+  /// The profile of an IMAGE index built with this model, or null when it
+  /// embeds no images: the text id plus the vision budget the example
+  /// registers (`-vis140`). Image vectors depend on that budget, text vectors
+  /// do not, so text stores keep [ragProfileId].
+  String? get imageRagProfileId =>
+      embedsImages ? imageIndexProfileId(ragProfileId) : null;
+
   /// Constructor
   const EmbeddingModel({
     required this.url,
@@ -220,6 +262,7 @@ enum EmbeddingModel implements EmbeddingModelInterface {
     required this.needsAuth,
     required this.ragProfileId,
     this.sha256,
+    this.embedsImages = false,
     this.sourceType = ModelSourceType
         .network, // Default to network for backward compatibility
   }) : assert(

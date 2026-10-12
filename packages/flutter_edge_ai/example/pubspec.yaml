@@ -157,6 +157,10 @@ flutter:
     - assets/
     - assets/models/
     - assets/test/
+    # EmbeddingGemma 2 image samples (generated, see
+    # integration_test/tools/generate_eg2_vision_images.py): the Image Search
+    # screen's sample photos and the device suites' test images.
+    - assets/eg2_vision/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware
