@@ -162,7 +162,11 @@ x64 build ignores the flag.
 
 <Warning>
 
-**NPU is a Gemma 4 story today.** Our NPU verification runs Gemma 4 bundles, and
+**EmbeddingGemma 2 on the NPU** uses the same flag on Qualcomm Android and
+Linux arm64, with the per-SoC bundles, and never falls back: see
+[Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2-on-a-qualcomm-npu).
+
+**For LLMs, NPU is a Gemma 4 story today.** Our NPU verification runs Gemma 4 bundles, and
 those work on both vendors. The **Gemma 3** family does not, and it fails
 silently — the model answers from the first prefill chunk alone, fluently,
 with no error and nothing in the log:

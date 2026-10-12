@@ -47,7 +47,7 @@ and **rag/sqlite3.wasm**; see [Installation → Web](/docs/installation#web).
 
 | Model | Files | Platforms | Tokenizer | Longest input |
 |---|---|---|---|---|
-| EmbeddingGemma 2 text | one `.litertlm` | Android, iOS, macOS, Linux, Windows | inside the bundle | 1024 tokens |
+| EmbeddingGemma 2 text | one `.litertlm` | Android, iOS, macOS, Linux, Windows; per-SoC bundles on Qualcomm NPUs | inside the bundle | 1024 tokens |
 | EmbeddingGemma 1, Gecko | `.tflite` + tokenizer file | Android, iOS, macOS, Linux, Windows, Web | `flutter_edge_ai_embeddings` | the model's sequence length |
 | MiniLM, EmbeddingGemma ONNX | `.onnx` + `tokenizer.json` | native via **flutter_edge_ai_onnx**; Web for WordPiece models | `flutter_edge_ai_embeddings` | the graph's static length, or none |
 
@@ -110,14 +110,17 @@ final vector = await embedder.embed(
   an over-long input costs one full embedding before it is refused.
 - **CPU natively, WebGPU on the Web.** **activeBackend** is
   **PreferredBackend.cpu** natively and **PreferredBackend.gpu** on the Web.
-  The Web has no CPU path for these bundles — the CPU (WebAssembly) backend of
-  `@litert-lm/core` 0.18.0 cannot read their external weights — so a browser
-  without WebGPU (no **navigator.gpu**, or no GPU adapter) throws
-  **EmbeddingLoadException** saying so before anything loads. Web vectors come
-  from WebGPU and differ slightly from the native CPU ones (measured min cos
-  about 0.995 for text, 0.998 for images); retrieval across platforms holds —
-  web text queries find natively embedded images and native queries find
-  web-embedded images, top-1 10/10 on the example's ten scenes.
+  The NPU runs the per-SoC bundles
+  ([below](#embeddinggemma-2-on-a-qualcomm-npu)); this bundle refuses
+  **PreferredBackend.npu**. The Web has no CPU path for these bundles — the
+  CPU (WebAssembly) backend of `@litert-lm/core` 0.18.0 cannot read their
+  external weights — so a browser without WebGPU (no **navigator.gpu**, or no
+  GPU adapter) throws **EmbeddingLoadException** saying so before anything
+  loads. Web vectors come from WebGPU and differ slightly from the native CPU
+  ones (measured min cos about 0.995 for text, 0.998 for images); retrieval
+  across platforms holds — web text queries find natively embedded images and
+  native queries find web-embedded images, top-1 10/10 on the example's ten
+  scenes.
 - **Disk:** the 165 MB bundle plus a 71 MB weight cache the engine writes at
   its first load (the 440m bundle adds 218 MB for vision, the 740m bundle
   writes 385 MB in total, even for text-only use). The cache lives in the app's
@@ -298,6 +301,63 @@ final note = await embedder.embed(
 - An audio index keeps the text profile id (audio vectors do not depend on the
   vision budget); a text query over it is sent raw (**TaskType.none**).
 
+### EmbeddingGemma 2 on a Qualcomm NPU
+
+Google publishes each EmbeddingGemma 2 bundle again, compiled for one SoC's
+NPU, in the same repositories: `embeddinggemma-2-text-270m_Qualcomm_SM8850.litertlm`,
+`embeddinggemma-2-text-vision-440m_Qualcomm_QCS8275.litertlm` and so on.
+flutter_edge_ai_litertlm 1.16.0 runs them on **Qualcomm Android (arm64) and
+Qualcomm Linux arm64**:
+
+```dart
+const revision = '9be6e8b90982095dc05c2bd162e4b954ee4dbac7';
+
+await FlutterEdgeAi.installEmbedder()
+    .modelFromNetwork(
+      'https://huggingface.co/litert-community/'
+      'embeddinggemma-2-text-270m-litert-lm/resolve/$revision/'
+      'embeddinggemma-2-text-270m_Qualcomm_SM8850.litertlm',
+    )
+    .install();
+
+final embedder = await FlutterEdgeAi.getActiveEmbedder(
+  preferredBackend: PreferredBackend.npu,
+);
+print(embedder.activeBackend); // PreferredBackend.npu
+```
+
+- **The app opts in to Qualcomm's stack** with the flag the LLM NPU path uses,
+  **qualcomm_npu: true** under **hooks: user_defines: flutter_edge_ai_litertlm:**
+  ([LiteRT-LM](/docs/litertlm)).
+- **Use the bundle for the device's SoC.** Verified on device: SM8850
+  (Snapdragon 8 Elite Gen 5), SM8650 (Snapdragon 8 Gen 3) and QCS8275 (Arduino
+  VENTUNO Q). Google also publishes SM8550, SM8750, Google Tensor G5/G6,
+  MediaTek MT6991/MT6993 and Intel PTL builds: the Qualcomm ones load but are
+  not verified by us, the others are refused. The package reads what a bundle
+  is compiled for from the bundle, not from its file name.
+- **Fast, and close to the CPU vectors, not equal to them.** On an SM8650
+  (Galaxy S24): about 9 ms per text (53 ms on its CPU), 0.31 s per image, 0.85 s
+  to load the 270m. Cosine against the CPU bundle: 0.79–0.86 for sentences of a
+  few words, 0.92 at about 50 words, 0.99 from about 200; images 0.86–0.88.
+  Within the NPU's own space retrieval holds: ten of ten captions find their
+  picture, every query its document.
+- **Nothing switches backend.** NPU and CPU vectors are not interchangeable,
+  so each mismatch throws **EmbeddingLoadException** with what to do instead:
+  a per-SoC bundle without **npu**; the generic bundle with **npu**; **npu** on
+  iOS, macOS, Windows, Linux x64 or the Web; an app built without
+  **qualcomm_npu**; no reachable Qualcomm NPU on the device; a bundle the NPU
+  cannot run (another SoC's — the load embeds one test text to find out). A
+  loaded embedder is never handed to a request for the other backend.
+- **An NPU index has its own profile id.** The example app uses the CPU text id
+  plus **-npu-&lt;soc&gt;**
+  (**embeddinggemma2-litertlm-text-4410a540ce75-prefix-v1-npu-sm8850**, and
+  **…-vis140** for an image index); the 270m and the 440m of one SoC share it,
+  their text towers being byte-identical.
+  **FlutterEdgeAiActiveEmbedder.forActiveModel** keys on the installed file
+  name, so it keeps them apart by itself.
+- Text up to 1024 tokens, images on the 440m, as on CPU. The 740m per-SoC
+  bundles are not verified.
+
 ## EmbeddingGemma 1 (`.tflite` + tokenizer)
 
 Initialize the backend and the tokenizers:
@@ -339,10 +399,12 @@ await FlutterEdgeAi.installEmbedder()
     .install();
 ```
 
-On native, current LiteRT and ONNX embedding paths run on CPU. On Web the
-`.tflite` and ONNX paths try WebGPU and can fall back to WASM; EmbeddingGemma 2
-runs on WebGPU only, with no fallback. **preferredBackend** is accepted by
-**getActiveEmbedder** for API symmetry but is not applied; inspect
+On native, current LiteRT and ONNX embedding paths run on CPU, except the
+EmbeddingGemma 2 per-SoC bundles, which run on a Qualcomm NPU
+([above](#embeddinggemma-2-on-a-qualcomm-npu)). On Web the `.tflite` and ONNX
+paths try WebGPU and can fall back to WASM; EmbeddingGemma 2 runs on WebGPU
+only, with no fallback. **preferredBackend** reaches the embedder only as
+**npu** for the per-SoC bundles; otherwise it is not applied. Inspect
 **EmbeddingModel.activeBackend** when the selected backend matters.
 
 ## Embedding API

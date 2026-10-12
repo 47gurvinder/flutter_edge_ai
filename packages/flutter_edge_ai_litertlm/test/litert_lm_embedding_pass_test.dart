@@ -19,6 +19,7 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter_edge_ai/engine.dart';
 import 'package:flutter_edge_ai_litertlm/src/embedding/embedding_parts.dart';
 import 'package:flutter_edge_ai_litertlm/src/embedding/litert_lm_embedding_pass.dart';
+import 'package:flutter_edge_ai_litertlm/src/embedding/litertlm_npu_target.dart';
 import 'package:flutter_edge_ai_litertlm/src/ffi/litert_lm_embedding_bindings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -26,6 +27,11 @@ const _file = 'eg2.litertlm';
 const _noAudioEncoder =
     '$_file has no audio encoder; install embeddinggemma-2-740m';
 const _allSignatures = [128, 256, 512, 1024, 2048, 8192];
+
+/// What a per-SoC bundle declares (measured: 128-1024, no 2048/8192).
+const _npuSignatures = [128, 256, 512, 1024];
+const _sm8850 = LiteRtLmNpuTarget(vendor: 'Qualcomm', soc: 'SM8850');
+const _dispatchDir = '/data/app/code_cache/litert_npu';
 
 /// What LiteRT-LM's stb decoder handles (X3, measured on our dylib).
 final _imageFormats = {
@@ -90,6 +96,7 @@ void main() {
     int visionTokensPerImage = 140,
     LiteRtLmEmbeddingBindings Function()? openBindings,
     DateTime Function()? clock,
+    LiteRtLmNpuTarget? npuTarget,
   }) => LiteRtLmEmbeddingPass(
     LiteRtLmEmbeddingConfig(
       modelPath: modelPath,
@@ -97,6 +104,8 @@ void main() {
       declaredMedia: declaredMedia,
       numThreads: numThreads,
       visionTokensPerImage: visionTokensPerImage,
+      npuTarget: npuTarget,
+      npuDispatchDir: npuTarget == null ? null : _dispatchDir,
     ),
     openBindings: openBindings ?? () => native,
     allocator: allocator,
@@ -1444,6 +1453,175 @@ void main() {
     });
   });
 
+  group('a per-SoC bundle on the NPU', () {
+    setUp(() => native.textSignatures = _npuSignatures);
+
+    test('settings on "npu", towers NULL, the dispatch directory handed to '
+        'every executor, and a probe embedding before load returns', () async {
+      native.visionSignatures = const [70, 140];
+      final p = pass(
+        npuTarget: _sm8850,
+        declaredMedia: {EmbeddingModality.image},
+      );
+      final info = await p.load();
+      expect(native.settingsBackend, 'npu');
+      expect(native.towerBackendsNull, isTrue);
+      expect(native.dispatchDirs, {
+        'main': _dispatchDir,
+        'vision': _dispatchDir,
+        'audio': _dispatchDir,
+      });
+      // The dispatch directories are set before the engine exists.
+      expect(
+        native.order.indexOf('settings_set_litert_dispatch_lib_dir'),
+        lessThan(native.order.indexOf('engine_create')),
+      );
+      // engine_create does not run the graph: the load embeds once itself.
+      final probe = native.order.indexOf('compute_embedding');
+      expect(probe, greaterThan(native.order.indexOf('options_create')));
+      expect(native.lastTexts, ['task: search result | query: probe']);
+      expect(native.created('response'), 1);
+      expect(native.deleted('response'), 1);
+      expect(info.dimension, 4);
+      expect(info.maxInputTokens, 1024);
+      expect(info.modalities, {
+        EmbeddingModality.text,
+        EmbeddingModality.image,
+      });
+
+      final vector = await p.embed(
+        EmbeddingInput.text('hello'),
+        TaskType.retrievalQuery,
+      );
+      expect(vector, hasLength(4));
+      await p.close();
+      expectNothingLeaked();
+    });
+
+    test(
+      'the CPU path is unchanged: "cpu", no dispatch directory, no probe',
+      () async {
+        native.textSignatures = _allSignatures;
+        final p = pass();
+        await p.load();
+        expect(native.settingsBackend, 'cpu');
+        expect(native.dispatchDirs, isEmpty);
+        expect(native.order, isNot(contains('compute_embedding')));
+        await p.close();
+        expectNothingLeaked();
+      },
+    );
+
+    test('a probe the NPU cannot run fails the load, naming the SoC, and '
+        'frees the engine', () async {
+      // What macOS gives an SM8850 bundle: create succeeds, then the graph
+      // cannot be prepared.
+      native.failCompute = (
+        code: 2,
+        message: 'Failed to invoke the compiled model',
+      );
+      final p = pass(npuTarget: _sm8850);
+      await expectLater(
+        p.load(),
+        throwsA(
+          isA<EmbeddingLoadException>()
+              .having(
+                (e) => e.message,
+                'message',
+                allOf(
+                  contains('could not run $_file on the NPU'),
+                  contains('Failed to invoke the compiled model'),
+                  contains('compiled for Qualcomm SM8850'),
+                ),
+              )
+              .having((e) => e.nativeCode, 'nativeCode', 2),
+        ),
+      );
+      expect(native.deleted('engine'), 1);
+      expect(native.deleted('options'), 1);
+      await p.close();
+      expectNothingLeaked();
+    });
+
+    for (final (name, vector) in [
+      ('a NaN', [0.5, double.nan, 0.1, 0.2]),
+      ('an all-zero vector', [0.0, 0.0, 0.0, 0.0]),
+      ('an infinity', [0.5, double.infinity, 0.1, 0.2]),
+    ]) {
+      test('a probe that returns $name fails the load', () async {
+        native.vectorOverride = vector;
+        final p = pass(npuTarget: _sm8850);
+        await expectLater(
+          p.load(),
+          throwsA(
+            isA<EmbeddingLoadException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('Qualcomm SM8850 NPU returned'),
+                contains('not used'),
+              ),
+            ),
+          ),
+        );
+        await p.close();
+        expectNothingLeaked();
+      });
+    }
+
+    test('a probe of the wrong size fails the load', () async {
+      native.responseSize = 3;
+      final p = pass(npuTarget: _sm8850);
+      await expectLater(
+        p.load(),
+        throwsA(
+          isA<EmbeddingLoadException>().having(
+            (e) => e.message,
+            'message',
+            contains('3 values for dimension 4'),
+          ),
+        ),
+      );
+      await p.close();
+      expectNothingLeaked();
+    });
+
+    test('an NPU engine create that fails names the NPU, not the cache '
+        'directory, whatever the code', () async {
+      native.failEngine = (code: 3, message: 'dispatch init failed');
+      final p = pass(npuTarget: _sm8850);
+      await expectLater(
+        p.load(),
+        throwsA(
+          isA<EmbeddingLoadException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('on the Qualcomm SM8850 NPU'),
+              contains('dispatch init failed'),
+              isNot(contains('cache directory')),
+            ),
+          ),
+        ),
+      );
+      expectNothingLeaked();
+    });
+
+    test('the symbol gate covers what an NPU load calls', () async {
+      final p = pass(npuTarget: _sm8850);
+      await p.load();
+      await p.close();
+      expect(liteRtLmEmbeddingSymbols, containsAll(native.symbolsCalled));
+      for (final setter in [
+        'litert_lm_embedding_engine_settings_set_litert_dispatch_lib_dir',
+        'litert_lm_embedding_engine_settings_set_vision_litert_dispatch_lib_dir',
+        'litert_lm_embedding_engine_settings_set_audio_litert_dispatch_lib_dir',
+      ]) {
+        expect(native.symbolsCalled, contains(setter));
+      }
+    });
+  });
+
   test('the release gate checks exactly the symbols the pass needs', () {
     // native/litert_lm/check_embedding_exports.py refuses to publish a
     // tarball whose libLiteRtLm lacks one; it must ask for the same list.
@@ -1515,6 +1693,13 @@ final class _FakeLiteRtLm extends LiteRtLmEmbeddingBindings {
   bool writeCacheOnCreate = true;
   _Failure? errorFromSetter;
   int? responseSize;
+
+  /// When set, every response holds these values instead of the counting
+  /// ones (a NaN, all zeros, …).
+  List<double>? vectorOverride;
+
+  /// The dispatch directory handed to each executor: main, vision, audio.
+  final dispatchDirs = <String, String>{};
 
   final order = <String>[];
   final symbolsCalled = <String>{};
@@ -1766,6 +1951,42 @@ final class _FakeLiteRtLm extends LiteRtLmEmbeddingBindings {
     numThreads = num_threads;
   }
 
+  @override
+  void litert_lm_embedding_engine_settings_set_litert_dispatch_lib_dir(
+    Pointer<LiteRtLmEmbeddingEngineSettings> settings,
+    Pointer<Char> lib_dir,
+  ) {
+    _call(
+      'settings_set_litert_dispatch_lib_dir',
+      'litert_lm_embedding_engine_settings_set_litert_dispatch_lib_dir',
+    );
+    dispatchDirs['main'] = _string(lib_dir);
+  }
+
+  @override
+  void litert_lm_embedding_engine_settings_set_vision_litert_dispatch_lib_dir(
+    Pointer<LiteRtLmEmbeddingEngineSettings> settings,
+    Pointer<Char> lib_dir,
+  ) {
+    _call(
+      'settings_set_vision_litert_dispatch_lib_dir',
+      'litert_lm_embedding_engine_settings_set_vision_litert_dispatch_lib_dir',
+    );
+    dispatchDirs['vision'] = _string(lib_dir);
+  }
+
+  @override
+  void litert_lm_embedding_engine_settings_set_audio_litert_dispatch_lib_dir(
+    Pointer<LiteRtLmEmbeddingEngineSettings> settings,
+    Pointer<Char> lib_dir,
+  ) {
+    _call(
+      'settings_set_audio_litert_dispatch_lib_dir',
+      'litert_lm_embedding_engine_settings_set_audio_litert_dispatch_lib_dir',
+    );
+    dispatchDirs['audio'] = _string(lib_dir);
+  }
+
   // ── engine ──
   @override
   Pointer<LiteRtLmEmbeddingEngine> litert_lm_embedding_engine_create(
@@ -1896,7 +2117,7 @@ final class _FakeLiteRtLm extends LiteRtLmEmbeddingBindings {
     final values = calloc<Float>(n);
     final vector = <double>[];
     for (var i = 0; i < n; i++) {
-      values[i] = (i + 1) * 0.25 + lastParts.first.length;
+      values[i] = vectorOverride?[i] ?? (i + 1) * 0.25 + lastParts.first.length;
       vector.add(values[i]);
     }
     lastVector = vector;

@@ -1,6 +1,7 @@
 ## 1.16.0
 - EmbeddingGemma 2 audio (WAV, MP3, FLAC) and combined-input embeddings on native platforms.
 - Over-long EmbeddingGemma 2 inputs report their exact token count.
+- EmbeddingGemma 2 per-SoC bundles run on Qualcomm NPUs (Android, Linux arm64).
 - Require `flutter_edge_ai` ^2.4.0.
 
 ## 1.15.0

@@ -206,19 +206,81 @@ final eg2Index = await rag.open(
   over-long chunk still costs a full embedding before it is refused: split
   before embedding.
 - It runs on CPU natively (`activeBackend` is `PreferredBackend.cpu`) and on
-  WebGPU on Web (`PreferredBackend.gpu`). Web vectors therefore differ
-  slightly from native ones — measured min cos about 0.995 for text and 0.998
-  for images against the native CPU vectors — and retrieval across platforms
-  holds: web queries find natively embedded images and native queries find
-  web-embedded images, top-1 10/10 on the example's ten scenes. Natively it
-  keeps a weight cache of about 71 MB, on top of the 165 MB bundle, in the
-  app's cache directory: never backed up, and rebuilt at the next load if the
-  OS clears it. Web keeps no weight cache.
+  WebGPU on Web (`PreferredBackend.gpu`), and refuses `PreferredBackend.npu`:
+  the NPU runs the per-SoC bundles (next section). Web vectors therefore
+  differ slightly from native ones — measured min cos about 0.995 for text and
+  0.998 for images against the native CPU vectors — and retrieval across
+  platforms holds: web queries find natively embedded images and native
+  queries find web-embedded images, top-1 10/10 on the example's ten scenes.
+  Natively it keeps a weight cache of about 71 MB, on top of the 165 MB
+  bundle, in the app's cache directory: never backed up, and rebuilt at the
+  next load if the OS clears it. Web keeps no weight cache.
 - EmbeddingGemma 1 and 2 both produce 768-d vectors but are different spaces:
   give each its own location and profile ID — the dimension check alone cannot
   tell them apart. `FlutterEdgeAiActiveEmbedder.forActiveModel` already gives
   them different ids (different file names); the explicit id above is for one
   text store shared by the three EmbeddingGemma 2 bundles.
+
+### EmbeddingGemma 2 on a Qualcomm NPU (`flutter_edge_ai_litertlm` 1.16.0)
+
+The same repos hold each bundle compiled for one SoC's NPU
+(`embeddinggemma-2-text-270m_Qualcomm_SM8850.litertlm`,
+`embeddinggemma-2-text-vision-440m_Qualcomm_QCS8275.litertlm`, …). It runs on
+Qualcomm Android (arm64) and Qualcomm Linux arm64, in an app whose pubspec sets
+`hooks: user_defines: flutter_edge_ai_litertlm: qualcomm_npu: true` (the flag
+the LLM NPU path uses), loaded with `preferredBackend: PreferredBackend.npu`:
+
+```dart
+const eg2Revision = '9be6e8b90982095dc05c2bd162e4b954ee4dbac7';
+// Its own id: NPU vectors are not the CPU bundle's. Shared by the SoC's 270m
+// and 440m (byte-identical text towers).
+const npuProfileId =
+    'embeddinggemma2-litertlm-text-4410a540ce75-prefix-v1-npu-sm8850';
+
+await FlutterEdgeAi.installEmbedder()
+    .modelFromNetwork(
+      'https://huggingface.co/litert-community/'
+      'embeddinggemma-2-text-270m-litert-lm/resolve/$eg2Revision/'
+      'embeddinggemma-2-text-270m_Qualcomm_SM8850.litertlm',
+    )
+    .install();
+final npu = await FlutterEdgeAi.getActiveEmbedder(
+  preferredBackend: PreferredBackend.npu,
+);
+assert(npu.activeBackend == PreferredBackend.npu);
+
+final rag = FlutterEdgeAiRag(providers: const [SqliteVectorStoreProvider()]);
+final npuIndex = await rag.open(
+  spec: VectorStoreSpec(
+    providerId: SqliteVectorStoreProvider.providerId,
+    location: p.join(
+      (await getApplicationDocumentsDirectory()).path,
+      'knowledge-embeddinggemma2-npu-sm8850.db',
+    ),
+  ),
+  // The adapter loads the embedder per operation: pass npu here too.
+  embedder: FlutterEdgeAiActiveEmbedder(
+    profileId: npuProfileId,
+    preferredBackend: PreferredBackend.npu,
+  ),
+);
+```
+
+- Verified SoCs: SM8850, SM8650 and QCS8275. Google also publishes SM8550,
+  SM8750 (load, not verified by us), Tensor G5/G6, MediaTek MT6991/MT6993 and
+  Intel PTL (refused). What a bundle targets is read from the bundle.
+- Its vectors are close to the CPU bundle's, not equal (SM8650: cosine
+  0.79–0.86 for a few words, 0.99 from about 200 words; images 0.86–0.88), so
+  never compare NPU vectors with CPU ones; within the NPU space retrieval
+  holds (text → image 10/10).
+- Nothing falls back: a per-SoC bundle without `npu`, the generic bundle with
+  `npu`, `npu` on iOS/macOS/Windows/Linux x64/Web, a build without
+  `qualcomm_npu`, a device without a reachable Qualcomm NPU, and a bundle the
+  NPU cannot run (another SoC's) each throw `EmbeddingLoadException` with the
+  fix. A loaded embedder is never reused for the other backend.
+- Give an NPU index its own profile id (above); never open a CPU index with an
+  NPU embedder or the reverse. `FlutterEdgeAiActiveEmbedder.forActiveModel`
+  keys on the file name, so it separates them by itself.
 
 ### EmbeddingGemma 2 images (440m; `flutter_edge_ai_litertlm` 1.14.0 native, 1.15.0 Web)
 

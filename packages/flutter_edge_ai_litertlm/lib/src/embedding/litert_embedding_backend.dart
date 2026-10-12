@@ -7,14 +7,23 @@
 // combined — through LiteRT-LM's EmbeddingEngine) or a `.tflite` graph with a
 // separate tokenizer (EmbeddingGemma 1, Gecko, text, through the LiteRT C
 // API).
+//
+// A `.litertlm` bundle is read before anything else happens: a per-SoC bundle
+// (compiled for one NPU) runs only on that NPU and only when `npu` was asked
+// for; the generic bundle runs only on CPU (litert_lm_npu.dart). describe()
+// is still the place for that — no worker, no engine — but no longer free of
+// I/O: it reads a few KB of the bundle (its NPU target, and its audio encoder
+// when audio is declared) and, for the NPU, asks the platform.
 
-import 'dart:io' show Platform;
+import 'dart:io' show FileSystemException, Platform;
 
 import 'package:flutter_edge_ai/engine.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'litert_embedding_pass.dart';
 import 'litert_lm_embedding_pass.dart';
+import 'litert_lm_npu.dart';
+import 'litertlm_npu_target.dart';
 import 'vision_budget.dart';
 
 /// LiteRT embedding backend: `.tflite` embedders (EmbeddingGemma 1, Gecko)
@@ -22,6 +31,16 @@ import 'vision_budget.dart';
 /// text, images on a bundle with a vision encoder, audio on a bundle with an
 /// audio encoder, and combinations of them in one vector) over LiteRT-LM's
 /// EmbeddingEngine.
+///
+/// EmbeddingGemma 2 runs on CPU, or — for a bundle compiled for one SoC
+/// (`…_Qualcomm_SM8850.litertlm`), loaded with
+/// `getActiveEmbedder(preferredBackend: PreferredBackend.npu)` — on that SoC's
+/// NPU, on Qualcomm Android and Qualcomm Linux arm64, in an app built with
+/// `hooks: user_defines: flutter_edge_ai_litertlm: qualcomm_npu: true`.
+/// Nothing switches backend on its own: the generic bundle with `npu`, a
+/// per-SoC bundle without it, and `npu` where it cannot run are refused with
+/// an `EmbeddingLoadException`, because NPU and CPU vectors are not
+/// interchangeable.
 final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
   /// [visionTokensPerImage] is how many vision tokens an EmbeddingGemma 2
   /// image gets: 140 (the default, closest to the reference model) or 70
@@ -70,7 +89,9 @@ final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
         engine: opensBundle ? _liteRtLm : _liteRt,
       );
     }
-    if (opensBundle) return _describeBundle(config, _visionTokensPerImage);
+    if (opensBundle) {
+      return _describeBundle(config, file, _visionTokensPerImage);
+    }
     return _describeTflite(spec, file, config);
   }
 }
@@ -84,12 +105,38 @@ const _liteRtLm = liteRtLmEngineTag;
 /// header (a couple of KB): core calls describe() before it closes the
 /// embedder it holds, so that embedder keeps working. Whether the bundle has a
 /// vision tower for declared images is the pass's question, answered from
-/// ModelInfo at load (the 270m has none).
+/// ModelInfo at load (the 270m has none). Where it runs — CPU, or the NPU it
+/// was compiled for — is decided here too, from the bundle's own bytes
+/// ([readLiteRtLmNpuTarget], [placeLiteRtLmEmbedder]). Both refusals come
+/// before any isolate or engine exists.
 Future<EmbeddingPassDescriptor<LiteRtLmEmbeddingConfig>> _describeBundle(
   RuntimeConfig config,
+  String file,
   int visionTokensPerImage,
 ) async {
   if (config.supportAudio) requireLiteRtLmAudioEncoder(config.modelPath);
+  final LiteRtLmNpuTarget? target;
+  try {
+    target = await readLiteRtLmNpuTarget(config.modelPath);
+  } on FileSystemException catch (e) {
+    throw EmbeddingLoadException(
+      'could not read $file to tell whether it is compiled for an NPU: '
+      '${e.osError?.message ?? e.message}',
+      engine: _liteRtLm,
+      cause: e,
+    );
+  } on FormatException catch (e) {
+    throw EmbeddingLoadException(
+      '$file is not a readable .litertlm bundle: ${e.message}',
+      engine: _liteRtLm,
+      cause: e,
+    );
+  }
+  final placement = await placeLiteRtLmEmbedder(
+    file: file,
+    target: target,
+    requested: config.preferredBackend,
+  );
   // The platform CACHE directory, not application support: iOS backs that up
   // to iCloud and Android Auto Backup includes it under a 25 MB per-app quota,
   // which a 71-385 MB weight cache would break. If the OS purges the cache,
@@ -110,11 +157,14 @@ Future<EmbeddingPassDescriptor<LiteRtLmEmbeddingConfig>> _describeBundle(
         if (config.supportAudio) EmbeddingModality.audio,
       },
       visionTokensPerImage: visionTokensPerImage,
+      npuTarget: placement.target,
+      npuDispatchDir: placement.dispatchDir,
     ),
-    // `settings_create(path, "cpu", NULL, NULL)`: the text tower on CPU, and
-    // the vision and audio towers with it (NULL tower backends run on the
-    // main one, D26).
-    activeBackend: PreferredBackend.cpu,
+    // `settings_create(path, "cpu" | "npu", NULL, NULL)`: the text tower on
+    // that backend, and the vision and audio towers with it (NULL tower
+    // backends run on the main one, D26). The pass refuses to load rather
+    // than fall back, so this is what runs.
+    activeBackend: placement.backend,
   );
 }
 
