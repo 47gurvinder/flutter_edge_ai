@@ -182,17 +182,21 @@ final eg2Index = await rag.open(
 );
 ```
 
-- Native only: Android, iOS, macOS, Linux, Windows (`flutter_edge_ai_litertlm`
-  1.13.0 for text, 1.14.0 for images). On Web `install()` refuses the
-  `.litertlm` embedder with an `UnsupportedError` before downloading anything.
+- Android, iOS, macOS, Linux, Windows (`flutter_edge_ai_litertlm` 1.13.0 for
+  text, 1.14.0 for images), and Web from 1.15.0 (text and images, CPU/
+  WebAssembly through `@litert-lm/core`'s EmbeddingEngine). The Web page needs
+  `window.EmbeddingEngine = m.EmbeddingEngine;` next to `window.Engine =
+  m.Engine;` in its `@litert-lm/core` module script; without it the load fails
+  with an `EmbeddingLoadException` naming that line.
 - The 270m is text only: `getActiveEmbedder(supportImage: true)` throws
   `EmbeddingLoadException` naming the 440m bundle, before any engine or cache
   is made (below). `supportAudio: true` is refused on every bundle (audio
   arrives in 1.16.0).
 - `maxInputTokens` is 1024 — task prefix, BOS and EOS included. Keep chunks at
   512 tokens or fewer: memory grows with the input length. A longer text throws
-  `EmbeddingInputTooLongException` whose `actualTokens` is null — LiteRT-LM
-  reports the overflow without a count.
+  `EmbeddingInputTooLongException`. Natively its `actualTokens` is null —
+  LiteRT-LM's C API reports the overflow without a count; on Web it is the
+  exact count.
 - It runs on CPU (`activeBackend` is `PreferredBackend.cpu`) and keeps a weight
   cache of about 71 MB, on top of the 165 MB bundle, in the app's cache
   directory: never backed up, and rebuilt at the next load if the OS clears
@@ -203,7 +207,7 @@ final eg2Index = await rag.open(
   them different ids (different file names); the explicit id above is for one
   text store shared by the three EmbeddingGemma 2 bundles.
 
-### EmbeddingGemma 2 images (440m, native, `flutter_edge_ai_litertlm` 1.14.0)
+### EmbeddingGemma 2 images (440m; `flutter_edge_ai_litertlm` 1.14.0 native, 1.15.0 Web)
 
 The 440m bundle adds a vision encoder to the same text tower, so one model
 embeds both and a text finds photos. Install it like the 270m (ungated):
@@ -259,7 +263,8 @@ final hits = await photos.search(query: EmbeddingInput.text('a red bicycle'));
   `EmbeddingFormatNotSupportedException` (with `detected` and `accepted`)
   before anything is sent — convert them first. A corrupt or truncated file
   of an accepted type reaches the model and fails with
-  `EmbeddingEngineException` (`nativeCode` 3); the model keeps working.
+  `EmbeddingEngineException` (`nativeCode` 3 on native; on Web the message
+  carries the runtime's reason); the model keeps working.
 - Vision budget: 140 tokens per image by default (closest to the reference
   model); `LiteRtEmbeddingBackend(visionTokensPerImage: 70)` is about twice as
   fast with slightly different vectors — give its image indexes their own id
@@ -374,10 +379,11 @@ await photos.add(
 final matches = await photos.search(query: EmbeddingInput.text('a red bicycle'));
 ```
 
-The active embedder embeds images with the EmbeddingGemma 2 440m bundle on
-native (above). With any other model — the 270m, EmbeddingGemma 1, ONNX, or
-on Web — `getActiveEmbedder(supportImage: true)`, and therefore `open()` of an
-image index with the active embedder, fails with `EmbeddingLoadException`. A
+The active embedder embeds images with the EmbeddingGemma 2 440m bundle
+(above; on Web from `flutter_edge_ai_litertlm` 1.15.0). With any other model —
+the 270m, EmbeddingGemma 1, ONNX — `getActiveEmbedder(supportImage: true)`,
+and therefore `open()` of an image index with the active embedder, fails with
+`EmbeddingLoadException`. A
 custom `RagEmbedder` can embed media with any model. A text index and an image
 index can share one installed model: each adapter declares what it needs, and
 core reloads the embedder once with both.
@@ -650,6 +656,9 @@ location.
   `flutter_edge_ai_litertlm/web/` when that runtime is used, and copy them
   again after upgrading it: a stale `litert_embeddings.js` fails
   `getActiveEmbedder()` with an `EmbeddingLoadException` that names the file.
+  EmbeddingGemma 2 (`.litertlm`) needs none of those files, only
+  `window.EmbeddingEngine = m.EmbeddingEngine;` in the `@litert-lm/core`
+  module script of `web/index.html`.
 - `ArgumentError` naming an undeclared filter field: add it to `filterSchema`.
   SQLite names must match `^[A-Za-z][A-Za-z0-9_]*$` and avoid reserved columns.
 - `StateError: Vector store "…" is bound to …, not …`: the location belongs to

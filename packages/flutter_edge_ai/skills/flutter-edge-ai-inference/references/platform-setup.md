@@ -231,13 +231,17 @@ shader compiler and NPU runtime — are bundled at build time.
 
 All script tags go in `web/index.html` `<head>`, before Flutter boots.
 
-`.litertlm` engine:
+`.litertlm` engine (LLMs through `window.Engine`; EmbeddingGemma 2 embedders,
+flutter_edge_ai_litertlm 1.15.0+, through `window.EmbeddingEngine` — a page
+without that line fails the embedder's load with an `EmbeddingLoadException`
+naming it):
 
 ```html
 <script type="module">
 window.litertLmReady = (async () => {
   const m = await import('https://cdn.jsdelivr.net/npm/@litert-lm/core@0.18.0/+esm');
   window.Engine = m.Engine;
+  window.EmbeddingEngine = m.EmbeddingEngine;
   return m.Engine;
 })();
 </script>
