@@ -43,11 +43,11 @@ other engines (e.g. `MediaPipeEngine` from `flutter_edge_ai_mediapipe`) if your 
 uses both formats.
 
 Depend on both packages (`flutter_edge_ai: ^2.3.0`,
-`flutter_edge_ai_litertlm: ^1.13.0`) and install `.litertlm` files with
+`flutter_edge_ai_litertlm: ^1.14.0`) and install `.litertlm` files with
 `fileType: ModelFileType.litertlm`: `installModel` defaults to
 `ModelFileType.task`, which routes the file to MediaPipe.
 
-> **1.13.0 needs `flutter_edge_ai` 2.3.0, and 2.3.0 needs every
+> **Since 1.13.0 this package needs `flutter_edge_ai` 2.3.0, and 2.3.0 needs every
 > flutter_edge_ai package upgraded together:** `flutter_edge_ai_embeddings`
 > 2.3.0 · `flutter_edge_ai_onnx` 0.5.7 · `flutter_edge_ai_mediapipe` 1.2.1 ·
 > `flutter_edge_ai_builtin_ai` 0.3.4 · `flutter_edge_ai_speech` 0.5.6 ·
@@ -181,10 +181,11 @@ future (`EmbeddingException` and its subclasses).
 
 ### EmbeddingGemma 2
 
-EmbeddingGemma 2 text ships as one `.litertlm` bundle that carries its own
+EmbeddingGemma 2 ships as one `.litertlm` bundle that carries its own
 tokenizer, so it installs without `tokenizerFrom…()` and needs neither
-`flutter_edge_ai_embeddings` nor `embeddingTokenizers:`. The repository is not
-gated:
+`flutter_edge_ai_embeddings` nor `embeddingTokenizers:`. The text-only 270m
+bundle is the one for text; the 440m adds images ([below](#embeddinggemma-2-images)).
+The repositories are not gated:
 
 ```dart
 const revision = '9be6e8b90982095dc05c2bd162e4b954ee4dbac7';
@@ -209,9 +210,10 @@ final vector = await embedder.embed(
 - **Native only:** Android, iOS, macOS, Linux and Windows. On web `install()`
   refuses a `.litertlm` embedder with an `UnsupportedError` before downloading
   anything.
-- **Text only in 1.13.0.** `getActiveEmbedder(supportImage: true)` or
-  `supportAudio: true` fails with `EmbeddingLoadException`; images arrive in
-  1.14.0 and audio in 1.16.0.
+- **Text on every bundle; images on the 440m (1.14.0).** On the 270m,
+  `getActiveEmbedder(supportImage: true)` fails with `EmbeddingLoadException`
+  naming the 440m bundle, before any engine or cache is made.
+  `supportAudio: true` fails on every bundle: audio arrives in 1.16.0.
 - **At most 1024 tokens per input**, task prefix, BOS and EOS included
   (`maxInputTokens == 1024`). Keep chunks at 512 tokens or fewer: memory grows
   with the input length (on an M4 Pro Mac about +170 MB at 128 tokens, +340 MB
@@ -228,6 +230,57 @@ final vector = await embedder.embed(
   next load writes it again.
 - EmbeddingGemma 1 and 2 both produce 768-dimensional vectors in different
   embedding spaces: never mix them in one vector store.
+
+### EmbeddingGemma 2 images
+
+The 440m bundle carries the 270m's text tower (the same text vectors) plus a
+vision encoder, so one model embeds text and images and a text can find a
+photo. Declare images when you get the embedder:
+
+```dart
+const visionRevision = 'e301f74d5551b0c2641bd5cb4652a76239d5c5f8';
+
+await FlutterEdgeAi.initialize(
+  embeddingBackends: const [LiteRtEmbeddingBackend()],
+);
+await FlutterEdgeAi.installEmbedder()
+    .modelFromNetwork(
+      'https://huggingface.co/litert-community/'
+      'embeddinggemma-2-text-vision-440m-litert-lm/resolve/$visionRevision/'
+      'embeddinggemma-2-text-vision-440m.litertlm',
+    )
+    .install();
+final embedder = await FlutterEdgeAi.getActiveEmbedder(supportImage: true);
+final photo = await embedder.embed(
+  EmbeddingInput.image(jpegBytes), // the encoded file
+  taskType: TaskType.retrievalDocument, // prefixes reach text only
+);
+final query = await embedder.embed(
+  EmbeddingInput.text('a red bicycle'),
+  taskType: TaskType.none, // a text query over images works best raw
+);
+```
+
+- **Formats:** JPEG, PNG, GIF and BMP. HEIC, WebP, TIFF and AVIF fail with
+  `EmbeddingFormatNotSupportedException` (which names the detected and the
+  accepted formats) before anything is sent; convert them first. A corrupt or
+  truncated file of an accepted type fails with `EmbeddingEngineException`
+  (`nativeCode` 3) and the embedder keeps working. One image per vector.
+- **Vision budget:** 140 tokens per image by default, the closest to the
+  reference model. `LiteRtEmbeddingBackend(visionTokensPerImage: 70)` is about
+  twice as fast with slightly different image vectors; any other value fails
+  with `EmbeddingLoadException`. Text vectors do not depend on it. Image
+  vectors do, so give an image store an id that names the budget: the text
+  profile id plus `-vis140` (or `-vis70`).
+- **Cost** (measured on an M4 Pro Mac, CPU): a 388 MB bundle; at every load the
+  engine writes a 218 MB vision weight cache next to the 71 MB text cache in the
+  app's cache directory, also when you only embed text; about 385 MB more RAM
+  from the first image on; 0.36–0.56 s per image at 140 tokens, about 0.17–0.25
+  s at 70. For text alone use the 270m.
+- The example app's **Image Search** screen indexes photos (or ten bundled
+  sample pictures) in a RAG image index and searches them by text and by
+  photo; choose "EmbeddingGemma 2 Text + Vision (440M)" under Embedding Models
+  first.
 
 `EmbeddingModel.activeBackend` is `cpu` on native, the only backend this
 package's embedder uses, so `preferredBackend` is not applied. On web it is

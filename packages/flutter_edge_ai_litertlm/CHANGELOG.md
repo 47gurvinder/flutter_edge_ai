@@ -1,3 +1,6 @@
+## 1.14.0
+- EmbeddingGemma 2 image embeddings on native platforms.
+
 ## 1.13.0
 - Run EmbeddingGemma 2 (`.litertlm`) text embeddings on Android, iOS, macOS, Linux and Windows.
 - Web EmbeddingGemma uses the same prefixes and token ids as native for every `TaskType` (re-copy `litert_embeddings.js`).

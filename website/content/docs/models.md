@@ -471,6 +471,7 @@ the maximum is never truncated: it throws `EmbeddingInputTooLongException`.
 | Model | Parameters | Dimensions | Max Seq Length | Size | Auth Required |
 |---|---|---|---|---|---|
 | **[EmbeddingGemma 2 text](https://huggingface.co/litert-community/embeddinggemma-2-text-270m-litert-lm)** (`.litertlm`, native only) | 270M | 768D | 1024 tokens | 165MB + 71MB weight cache | ❌ |
+| **[EmbeddingGemma 2 text + vision](https://huggingface.co/litert-community/embeddinggemma-2-text-vision-440m-litert-lm)** (`.litertlm`, native only; text and images) | 440M | 768D | 1024 tokens | 388MB + 71MB + 218MB weight caches | ❌ |
 | **[Gecko 64](https://huggingface.co/litert-community/Gecko-110m-en)** | 110M | 768D | 64 tokens | 110MB | ❌ |
 | **[Gecko 256](https://huggingface.co/litert-community/Gecko-110m-en)** | 110M | 768D | 256 tokens | 114MB | ❌ |
 | **[Gecko 512](https://huggingface.co/litert-community/Gecko-110m-en)** | 110M | 768D | 512 tokens | 116MB | ❌ |
@@ -480,9 +481,12 @@ the maximum is never truncated: it throws `EmbeddingInputTooLongException`.
 | **[EmbeddingGemma 2048](https://huggingface.co/litert-community/embeddinggemma-300m)** | 300M | 768D | 2048 tokens | 196MB | ✅ |
 
 EmbeddingGemma 2 is one `.litertlm` file with its own tokenizer (no
-`tokenizerFrom…()`), runs on CPU on Android, iOS, macOS, Linux and Windows,
-and embeds text only in `flutter_edge_ai_litertlm` 1.13.0. Keep chunks at 512
-tokens or fewer; see [Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2).
+`tokenizerFrom…()`) and runs on CPU on Android, iOS, macOS, Linux and Windows.
+Both bundles embed text (`flutter_edge_ai_litertlm` 1.13.0, identical text
+vectors); the 440m also embeds JPEG, PNG, GIF and BMP images (1.14.0, about
+0.36–0.56 s per image and 385 MB more RAM from the first image). Keep chunks at
+512 tokens or fewer, and use the 270m when you embed only text; see
+[Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2).
 Every other row is a `.tflite` model plus a tokenizer file.
 
 **Performance (Android Pixel 8):**

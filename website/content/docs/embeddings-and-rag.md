@@ -23,7 +23,7 @@ inference model and is not initialized through **FlutterEdgeAi.initialize()**.
 ```
 dependencies:
   flutter_edge_ai: ^2.3.0
-  flutter_edge_ai_litertlm: ^1.13.0
+  flutter_edge_ai_litertlm: ^1.14.0
   flutter_edge_ai_embeddings: ^2.3.0 # tokenizers for .tflite / .onnx models
   flutter_edge_ai_rag: ^1.1.0
   flutter_edge_ai_sqlite: ^2.1.0 # all six platforms, including Web
@@ -60,10 +60,11 @@ maximum input length in tokens, not the vector dimension. See
 
 ## EmbeddingGemma 2
 
-EmbeddingGemma 2 text ships as one `.litertlm` bundle that carries its own
+EmbeddingGemma 2 ships as one `.litertlm` bundle that carries its own
 tokenizer: install the model alone — no **tokenizerFrom…()** call, and no
 **flutter_edge_ai_embeddings** or **embeddingTokenizers:** needed. The
-repository is not gated.
+text-only 270m bundle is the one for text; the 440m adds images
+([below](#embeddinggemma-2-images)). The repositories are not gated.
 
 ```dart
 const revision = '9be6e8b90982095dc05c2bd162e4b954ee4dbac7';
@@ -86,12 +87,14 @@ final vector = await embedder.embed(
 );
 ```
 
-- **Native only** with flutter_edge_ai_litertlm 1.13.0: Android, iOS, macOS,
-  Linux and Windows. On Web, **install()** refuses a `.litertlm` embedder with
-  an **UnsupportedError** before downloading anything.
-- **Text only for now.** **getActiveEmbedder(supportImage: true)** or
-  **supportAudio: true** throws **EmbeddingLoadException**; images arrive in
-  litertlm 1.14.0, audio in 1.16.0.
+- **Native only**: Android, iOS, macOS, Linux and Windows (flutter_edge_ai_litertlm
+  1.13.0 for text, 1.14.0 for images). On Web, **install()** refuses a
+  `.litertlm` embedder with an **UnsupportedError** before downloading anything.
+- **Text on every bundle, images on the 440m.** On the 270m,
+  **getActiveEmbedder(supportImage: true)** throws **EmbeddingLoadException**
+  naming the 440m bundle, before any engine or cache is made.
+  **supportAudio: true** throws on every bundle: audio arrives in litertlm
+  1.16.0.
 - **At most 1024 tokens per input**, task prefix, BOS and EOS included
   (**maxInputTokens** is 1024). Keep chunks at 512 tokens or fewer: memory
   grows with the input length — on an M4 Pro Mac about +170 MB at 128 tokens,
@@ -105,6 +108,67 @@ final vector = await embedder.embed(
   clears it.
 - EmbeddingGemma 1 and 2 are different embedding spaces with the same
   dimension: give each its own vector-store location and profile.
+
+### EmbeddingGemma 2 images
+
+The 440m bundle has the 270m's text tower (the same text vectors) plus a vision
+encoder, so one model embeds text and photos, and a text finds photos. It needs
+flutter_edge_ai_litertlm 1.14.0. Declare images when you get the embedder, and
+keep the photos in an image index:
+
+```dart
+const visionRevision = 'e301f74d5551b0c2641bd5cb4652a76239d5c5f8';
+// The text profile id plus the vision budget: image vectors depend on it.
+const photosProfileId =
+    'embeddinggemma2-litertlm-text-4410a540ce75-prefix-v1-vis140';
+
+await FlutterEdgeAi.installEmbedder()
+    .modelFromNetwork(
+      'https://huggingface.co/litert-community/'
+      'embeddinggemma-2-text-vision-440m-litert-lm/resolve/$visionRevision/'
+      'embeddinggemma-2-text-vision-440m.litertlm',
+    )
+    .install();
+
+final rag = FlutterEdgeAiRag(providers: const [SqliteVectorStoreProvider()]);
+final photos = await rag.open(
+  spec: VectorStoreSpec(
+    providerId: SqliteVectorStoreProvider.providerId,
+    location: photosDbPath,
+    documents: EmbeddingModality.image,
+  ),
+  embedder: FlutterEdgeAiActiveEmbedder(
+    profileId: photosProfileId,
+    supportImage: true,
+  ),
+);
+await photos.add(
+  id: 'photo-1',
+  document: EmbeddingInput.image(jpegBytes), // the encoded file
+  content: photoPath, // a reference to the photo, never its bytes
+);
+final hits = await photos.search(query: EmbeddingInput.text('a red bicycle'));
+```
+
+- **Formats:** JPEG, PNG, GIF and BMP. HEIC, WebP, TIFF and AVIF throw
+  **EmbeddingFormatNotSupportedException** (naming the detected and the
+  accepted formats) before anything is sent: convert them first. A corrupt or
+  truncated file of an accepted type throws **EmbeddingEngineException**
+  (native code 3) and the embedder keeps working. One image per vector.
+- **Vision budget:** 140 tokens per image by default, the closest to the
+  reference model. **LiteRtEmbeddingBackend(visionTokensPerImage: 70)** is
+  about twice as fast with slightly different image vectors; any other value
+  throws **EmbeddingLoadException**. Text vectors do not depend on it; image
+  stores do, so their profile id names it (`-vis140`, `-vis70`).
+- **Cost** (measured on an M4 Pro Mac, CPU): a 388 MB bundle; a 218 MB vision
+  weight cache written at every load, next to the 71 MB text cache in the app's
+  cache directory, also when you embed only text; about 385 MB more RAM from
+  the first image on; 0.36–0.56 s per image at 140 tokens, about 0.17–0.25 s at
+  70. For text alone use the 270m.
+- A text query over an image index is sent raw (**TaskType.none**): measured,
+  the retrieval-query prefix finds the same photos with a smaller margin.
+- The example app's **Image Search** screen does all of this with photos from
+  the gallery or ten bundled sample pictures.
 
 ## EmbeddingGemma 1 (`.tflite` + tokenizer)
 
@@ -350,9 +414,10 @@ A location holds documents of one modality, declared in
 An image or audio index needs an embedder whose **modalities** include it; its
 documents carry a **content** reference (a URI, file path or asset id), never
 the media bytes. A text query over an image index is text-to-image search.
-The embedders bundled with flutter_edge_ai 2.3.0 embed text only, so with them
-an image or audio index fails to open with **EmbeddingLoadException**; a custom
-**RagEmbedder** can embed media today. Cross-modal scores are not on one scale:
+With the active embedder, an image index needs the EmbeddingGemma 2 440m
+bundle on a native platform ([above](#embeddinggemma-2-images)); with any other
+model, and for audio, the index fails to open with **EmbeddingLoadException**.
+A custom **RagEmbedder** can embed media with any model. Cross-modal scores are not on one scale:
 mixed corpora use one index per modality.
 
 ## Profiles, locations, and migration
