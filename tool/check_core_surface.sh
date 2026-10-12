@@ -30,14 +30,14 @@
 # It prints every annotated import with its reason, so the allowlist can be
 # reviewed in one place.
 #
-# Scope: every .dart file under packages/, and every ```dart fence of the
-# website's docs (website/content/**/*.md), which users copy into their apps.
-# A fence is held to the shipped-code rules: (a) for a deep path, and
+# Scope: every .dart file under packages/; every ```dart fence of the website's
+# docs and codelab texts (website/content/**/*.md, website/codelabs/**/*.md),
+# which users copy into their apps; and every .dart file of the codelab apps
+# (codelabs/**), which users start their own apps from. Fences and codelab
+# apps are held to the shipped-code rules: (a) for a deep path, and
 #   (d) any import or export of a workspace package's src/ — no annotation
-#       excuses it in a doc.
-# A violation in a fence is reported at the line of the .md file. codelabs/**
-# and website/codelabs/** are not scanned yet: they document the published
-# API until the codelabs migrate (PR G of the EmbeddingGemma 2 train).
+#       excuses it in a doc or a codelab.
+# A violation in a fence is reported at the line of the .md file.
 #
 # Usage: tool/check_core_surface.sh
 #        CHECK_CORE_SURFACE_ROOT=<dir> tool/check_core_surface.sh   (scan <dir>
@@ -77,12 +77,31 @@ if [[ "$scanned" -eq 0 ]]; then
   exit 1
 fi
 
-# Each ```dart fence of a website doc becomes one file,
+# The codelab apps, with the exclusions packages/ has (build output, generated
+# platform code, CocoaPods). They are not workspace members: each resolves the
+# published packages, as a user's app does.
+codelab_files=0
+if [[ -d codelabs ]]; then
+  codelab_list="$(find codelabs -name '*.dart' \
+    -not -path '*/.dart_tool/*' -not -path '*/build/*' \
+    -not -path '*/ephemeral/*' -not -path '*/Pods/*' -not -path '*/.symlinks/*' \
+    -not -path '*/node_modules/*' | sort)"
+  if [[ -n "$codelab_list" ]]; then
+    printf '%s\n' "$codelab_list" >>"$files_file"
+    codelab_files="$(printf '%s\n' "$codelab_list" | wc -l | tr -d ' ')"
+  fi
+fi
+
+# Each ```dart fence of a website doc or codelab text becomes one file,
 # <fence_dir>/<path of the .md>@<line of its opening fence>.dart, so the awk
 # below checks it like any other file and maps its lines back to the .md.
 # Fences may be indented (inside a list); any other language is not Dart.
-if [[ -d website/content ]]; then
-  find website/content -name '*.md' -not -path '*/build/*' | sort |
+fence_sources=()
+for dir in website/content website/codelabs; do
+  if [[ -d "$dir" ]]; then fence_sources+=("$dir"); fi
+done
+if [[ "${#fence_sources[@]}" -gt 0 ]]; then
+  find "${fence_sources[@]}" -name '*.md' -not -path '*/build/*' | sort |
     while read -r md; do
       mkdir -p "$fence_dir/$(dirname "$md")"
       awk -v out="$fence_dir/$md" '
@@ -96,13 +115,18 @@ if [[ -d website/content ]]; then
 fi
 find "$fence_dir" -name '*.dart' | sort >>"$files_file"
 fences="$(find "$fence_dir" -name '*.dart' | wc -l | tr -d ' ')"
+codelab_fences=0
+if [[ -d "$fence_dir/website/codelabs" ]]; then
+  codelab_fences="$(find "$fence_dir/website/codelabs" -name '*.dart' | wc -l | tr -d ' ')"
+fi
 
 # Workspace packages whose src/ is private to them: every pubspec directly
 # under packages/ (examples are apps, nobody imports them).
 workspace_pkgs="$(awk -F'\t' '$1 ~ /^packages\/[^\/]+$/ { print $2 }' "$owners_file" | tr '\n' ' ')"
 
 awk -v owners_file="$owners_file" -v workspace_pkgs="$workspace_pkgs" \
-  -v fence_root="$fence_dir/" -v fences="$fences" '
+  -v fence_root="$fence_dir/" -v fences="$fences" \
+  -v codelab_fences="$codelab_fences" -v codelab_files="$codelab_files" '
 BEGIN {
   n = 0
   while ((getline line < owners_file) > 0) {
@@ -141,6 +165,10 @@ function in_fence(path) {
   return index(path, fence_root) == 1
 }
 
+function in_codelab(path) {
+  return index(path, "codelabs/") == 1
+}
+
 # A fence file reports as <the .md>:<its line>; the file name carries both.
 function violation(msg,    rel, at, md, first) {
   if (in_fence(FILENAME)) {
@@ -173,6 +201,10 @@ function check_uri(uri,    rest, pkg, slash) {
 
   if (in_fence(FILENAME)) {
     violation("(d) " uri " — a website code fence must not import a package'"'"'s src/")
+    return
+  }
+  if (in_codelab(FILENAME)) {
+    violation("(d) " uri " — a codelab app must not import a package'"'"'s src/")
     return
   }
   if (shipped(FILENAME)) {
@@ -228,9 +260,9 @@ END {
   for (i = 1; i <= annotated; i++) print allow[i]
   print ""
   if (violations > 0) {
-    printf "==> check_core_surface: %d violation(s) in %d files scanned (%d of them website fences).\n", violations, files, fences
+    printf "==> check_core_surface: %d violation(s) in %d files scanned (%d of them website fences, %d in codelab texts; %d codelab sources).\n", violations, files, fences, codelab_fences, codelab_files
     exit 1
   }
-  printf "==> check_core_surface: OK — %d files scanned (%d of them website fences), %d annotated src/ imports, 0 violations.\n", files, fences, annotated
+  printf "==> check_core_surface: OK — %d files scanned (%d of them website fences, %d in codelab texts; %d codelab sources), %d annotated src/ imports, 0 violations.\n", files, fences, codelab_fences, codelab_files, annotated
 }
 ' $(cat "$files_file")
