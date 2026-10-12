@@ -12,6 +12,13 @@ screen's sample photos, and what the device suites read on a phone):
                           decodes (small, so the BMP stays small)
 - small_circle.{webp,tiff}  formats it does not decode (refused in Dart)
 - small_circle.heic       with macOS `sips` (Pillow cannot write HEIC)
+- portrait_upright.jpg    a 480x640 portrait scene (a lighthouse), stored upright
+- portrait_exif6.jpg      the same scene as a phone camera stores it: pixels
+                          rotated 90 degrees counter-clockwise, EXIF Orientation
+                          6 (display rotated 90 clockwise) — EXIF-aware viewers
+                          show it upright, a decoder that ignores EXIF does not
+- large_12mp.jpg          a 4032x3024 (12.2 MP) photo-sized JPEG of the house
+                          scene, for decode cost
 
 usage: python3 -I generate_eg2_vision_images.py
        (needs Pillow 12.3.0 and numpy; macOS for the HEIC)
@@ -160,3 +167,25 @@ save(small, "small_circle.webp", "WEBP", quality=80)
 save(small, "small_circle.tiff", "TIFF", compression="tiff_lzw")
 subprocess.run(["sips", "-s", "format", "heic", os.path.join(OUT, "small_circle.png"), "--out",
                 os.path.join(OUT, "small_circle.heic")], check=True, capture_output=True)
+
+
+def lighthouse():
+    im, d = canvas(bg=(135, 190, 240), size=(480, 640))
+    d.rectangle((0, 470, 480, 640), fill=(30, 90, 170))  # sea
+    d.polygon([(0, 470), (180, 400), (300, 470)], fill=(110, 100, 90))  # rock
+    for k, color in enumerate([(220, 30, 30), (245, 245, 245)] * 3):
+        top = 150 + k * 45
+        d.rectangle((200, top, 280, top + 45), fill=color)  # striped tower
+    d.rectangle((190, 120, 290, 150), fill=(60, 60, 60))  # lantern room
+    d.polygon([(185, 120), (240, 70), (295, 120)], fill=(200, 30, 30))  # roof
+    d.ellipse((380, 40, 450, 110), fill=(255, 210, 0))  # sun
+    return im
+
+
+upright = lighthouse()
+save(upright, "portrait_upright.jpg", "JPEG", quality=90)
+exif = Image.Exif()
+exif[0x0112] = 6  # Orientation: rotate 90 clockwise to display
+save(upright.transpose(Image.ROTATE_90), "portrait_exif6.jpg", "JPEG", quality=90, exif=exif.tobytes())
+
+save(house_scene().resize((4032, 3024), Image.BICUBIC), "large_12mp.jpg", "JPEG", quality=85)

@@ -15,12 +15,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:flutter_edge_ai_example/image_search/eg2_vision_samples.dart';
 import 'package:flutter_edge_ai_example/image_search/image_search_controller.dart';
+import 'package:flutter_edge_ai_example/image_search/photo_preparation.dart';
 import 'package:flutter_edge_ai_example/image_search/photo_store.dart';
 import 'package:flutter_edge_ai_example/image_search_screen.dart';
 import 'package:flutter_edge_ai_rag/flutter_edge_ai_rag.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _textId = 'embeddinggemma2-litertlm-text-4410a540ce75-prefix-v1';
+
+/// What the fake `prepare` appends, so the fake model can tell prepared bytes
+/// from an original.
+const _prepared = [0xEE, 0x50, 0x52, 0x45, 0x50];
+
+bool _isPrepared(Uint8List b) =>
+    b.length > _prepared.length &&
+    [
+          for (var i = 0; i < _prepared.length; i++)
+            b[b.length - _prepared.length + i],
+        ].join(',') ==
+        _prepared.join(',');
 final _scenes = eg2VisionSampleCaptions.keys.toList();
 
 Uint8List _asset(String key) => File(key).readAsBytesSync();
@@ -138,6 +151,11 @@ void main() {
     await settle(tester);
     expect(textOf(tester, const Key('image-search-label-0')), 'pie_chart.png');
     expect(model.tasks, [TaskType.none]);
+    expect(
+      rig.log.last,
+      'embed pie_chart',
+      reason: 'the query photo is prepared too, not sent as the original',
+    );
     expect(find.textContaining('Closest to pie_chart_dup.jpg'), findsOneWidget);
     expect(find.byKey(const Key('image-search-error')), findsNothing);
   });
@@ -183,7 +201,7 @@ void main() {
       find.descendant(
         of: find.byKey(const Key('image-search-add-failures')),
         matching: find.textContaining(
-          'IMG_0001.HEIC: LiteRT-LM does not decode heic images',
+          'IMG_0001.HEIC: could not decode it on this platform',
         ),
       ),
       findsOneWidget,
@@ -210,6 +228,7 @@ void main() {
     expect(rig.log, [
       for (final scene in ['circle', 'square', 'triangle']) ...[
         'read $scene.png',
+        'prepare $scene',
         'keep $scene.png',
         'embed $scene',
       ],
@@ -217,6 +236,11 @@ void main() {
     expect(
       textOf(tester, const Key('image-search-count')),
       '3 photos in the index',
+    );
+    expect(
+      rig.photos.kept.values.where(_isPrepared),
+      isEmpty,
+      reason: 'the original is what is kept and shown',
     );
   });
 
@@ -377,6 +401,21 @@ final class _Rig {
     pickPhotos: () => pickFuture ?? Future.value(picked),
     pickQueryPhoto: () async => queryPhoto,
     loadSample: (key) async => _asset(key),
+    // What iOS and macOS do with a HEIC; everything else passes through
+    // (the real decoder is tested in photo_preparation_test.dart).
+    prepare: (bytes) async {
+      if (sniffEncodedMediaFormat(bytes) == EncodedMediaFormat.heic) {
+        throw const PhotoDecodeException('Invalid image data');
+      }
+      log.add('prepare ${model.sceneOf(bytes)}');
+      return (
+        bytes: Uint8List.fromList([...bytes, ..._prepared]),
+        width: 640,
+        height: 480,
+        sourceWidth: 640,
+        sourceHeight: 480,
+      );
+    },
     closeEmbedderOnDispose: false,
   );
 }
@@ -401,6 +440,12 @@ final class _FakeEmbedder extends EmbeddingModel {
   };
 
   static String _key(Uint8List bytes) => '${bytes.length}:${bytes.take(64)}';
+
+  /// The scene [bytes] are (a sample or its near-duplicate), for the log.
+  String? sceneOf(Uint8List bytes) => switch (_byBytes[_key(bytes)]) {
+    final i? => _scenes[i],
+    null => null,
+  };
 
   @override
   int get dimension => _scenes.length;
@@ -427,7 +472,11 @@ final class _FakeEmbedder extends EmbeddingModel {
     if (input.text case final text?) {
       scene = _scenes.indexWhere((s) => text.contains(s.split('_').first));
     } else {
-      final bytes = input.images.single;
+      final sent = input.images.single;
+      final prepared = _isPrepared(sent);
+      final bytes = prepared
+          ? Uint8List.sublistView(sent, 0, sent.length - _prepared.length)
+          : sent;
       final format = sniffEncodedMediaFormat(bytes);
       const accepted = {'jpeg', 'png', 'gif', 'bmp'};
       if (format == null || !accepted.contains(format.name)) {
@@ -440,7 +489,9 @@ final class _FakeEmbedder extends EmbeddingModel {
         );
       }
       scene = _byBytes[_key(bytes)] ?? -1;
-      if (scene >= 0) _log.add('embed ${_scenes[scene]}');
+      if (scene >= 0) {
+        _log.add('embed ${prepared ? '' : 'RAW '}${_scenes[scene]}');
+      }
     }
     if (scene < 0) throw StateError('the fake knows no vector for $input');
     final vector = List<double>.generate(
