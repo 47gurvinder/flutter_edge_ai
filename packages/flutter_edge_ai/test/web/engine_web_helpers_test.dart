@@ -136,11 +136,19 @@ void main() {
 
     group('under streaming storage, against a real OPFS file', () {
       setUp(() async {
-        // The page's opfs_helper.js; resolveWebModelUrl reads OPFS itself, so
-        // an app's helper from an older release is enough.
-        _eval<JSAny?>(
-          'window.flutterGemmaOPFS = window.flutterGemmaOPFS || {}',
-        );
+        // The page's opfs_helper.js, as far as a resolver could use it: its
+        // getReadableStream, word for word. resolveWebModelUrl reads OPFS
+        // itself today; the version before it streamed this into a copy.
+        _eval<JSAny?>('''
+          window.flutterGemmaOPFS = {
+            async getReadableStream(filename) {
+              const opfs = await navigator.storage.getDirectory();
+              const handle = await opfs.getFileHandle(filename);
+              const file = await handle.getFile();
+              return file.stream();
+            },
+          };
+        ''');
         await ServiceRegistry.initialize(
           webStorageMode: WebStorageMode.streaming,
         );
@@ -151,6 +159,7 @@ void main() {
       tearDown(() async {
         _restoreObjectUrls();
         await _removeOpfsFile();
+        _eval<JSAny?>('delete window.flutterGemmaOPFS');
       });
 
       test('an opfs:// path becomes a blob: URL of the OPFS File itself — no '
