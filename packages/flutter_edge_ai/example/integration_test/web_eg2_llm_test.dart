@@ -14,7 +14,12 @@
 /// - the EG2 embedder LOADS (engine create + probe) while a reply streams;
 /// - a 20-text `embedAll` and a reply started in the middle of it both finish,
 ///   with the same vectors;
-/// - the 440m embeds an image (and a text) while a reply streams.
+/// - the 440m next to the loaded LLM: its vision encoder does not fit — the
+///   module has 4 GB of WebAssembly memory, the 440m's vision engine takes
+///   about 3.3 GB of it and Gemma 4 E2B the rest (measured, @litert-lm/core
+///   0.18.0) — so loading it with images is refused with the reason; loaded
+///   for text it embeds while a reply streams. The day this test fails on the
+///   refusal, the runtime fits both: test images during a reply again.
 /// Timings and the reply go to the response file; a hang fails at a 10-minute
 /// bound instead of the driver's.
 ///
@@ -52,11 +57,8 @@ library;
 
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
-import 'package:flutter_edge_ai_example/image_search/eg2_vision_samples.dart';
 import 'package:flutter_edge_ai_example/models/embedding_model.dart' as catalog;
 import 'package:flutter_edge_ai_litertlm/flutter_edge_ai_litertlm.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -69,7 +71,7 @@ const _tests = [
   'LLM + EG2 text',
   'EG2 load during LLM',
   'embedAll with a reply in the middle',
-  'LLM + EG2 image',
+  'LLM + EG2 440m',
 ];
 
 const _llmUrl = String.fromEnvironment('LLM_MODEL_URL');
@@ -164,11 +166,6 @@ void _start(String name) {
 void _log(String line) {
   // ignore: avoid_print
   print('[web-eg2-llm] $line');
-}
-
-Future<Uint8List> _asset(String key) async {
-  final data = await rootBundle.load(key);
-  return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
 }
 
 // ── A reply in flight ───────────────────────────────────────────────────────
@@ -387,25 +384,46 @@ void main() {
     }
   }, timeout: const Timeout(Duration(minutes: 45)));
 
-  testWidgets('the 440m embeds an image and a text while a reply streams: '
-      'the same vectors as alone', (tester) async {
-    _start('LLM + EG2 image');
+  testWidgets('the 440m next to the LLM: with images it does not fit in the '
+      'page\'s WebAssembly memory and the load says so; for text it embeds '
+      'while a reply streams, the same vectors as alone', (tester) async {
+    _start('LLM + EG2 440m');
     await _ensureEmbedder(_eg2Vision, _eg2VisionUrl);
-    final embedder = await FlutterEdgeAi.getActiveEmbedder(supportImage: true);
-    expect(embedder.activeBackend, PreferredBackend.gpu);
-    final inputs = [
-      EmbeddingInput.image(await _asset(eg2VisionSampleAsset('stop_sign'))),
-      EmbeddingInput.text('a red stop sign'),
-    ];
-    final watch = Stopwatch()..start();
-    final (alone, _) = await _embedEach(
-      embedder,
-      inputs,
-      TaskType.retrievalDocument,
-      watch,
+    final llm = await _ensureLlm();
+
+    EmbeddingLoadException? refusal;
+    try {
+      await FlutterEdgeAi.getActiveEmbedder(supportImage: true).timeout(_bound);
+    } on EmbeddingLoadException catch (e) {
+      refusal = e;
+    }
+    report('images_next_to_llm', refusal?.message);
+    _log('440m with images next to the LLM: ${refusal?.message}');
+    expect(
+      refusal,
+      isNotNull,
+      reason:
+          'the 440m loaded its vision encoder next to the LLM: the runtime '
+          'now fits both on one page — embed an image during a reply here '
+          'again, and update the docs that say it does not fit',
+    );
+    expect(
+      refusal!.message,
+      allOf(
+        contains('with its vision encoder'),
+        contains('If a .litertlm LLM is loaded on this page, close it first'),
+      ),
     );
 
-    final llm = await _ensureLlm();
+    final embedder = await FlutterEdgeAi.getActiveEmbedder();
+    expect(embedder.activeBackend, PreferredBackend.gpu);
+    expect(embedder.modalities, {EmbeddingModality.text});
+    final inputs = [
+      EmbeddingInput.text('a red stop sign'),
+      EmbeddingInput.text('a bar chart of quarterly revenue'),
+    ];
+    final watch = Stopwatch()..start();
+    final (alone, _) = await _embedEach(embedder, inputs, TaskType.none, watch);
     watch.reset();
     final reply = await _Reply.start(llm, watch);
     try {
@@ -413,17 +431,16 @@ void main() {
       final (together, finished) = await _embedEach(
         embedder,
         inputs,
-        TaskType.retrievalDocument,
+        TaskType.none,
         watch,
       );
       final text = await reply.done;
-      report('image_during_reply', {
+      report('text_440m_during_reply', {
         'replyEndMs': reply.endMs,
         'embedFinishedMs': finished,
-        'imageCosVsAlone': cosine(together.first, alone.first),
       });
       _expectSaneText(text);
-      _expectSame(together, alone, 'image/text');
+      _expectSame(together, alone, '440m text');
       expect(finished.reduce(math.min), greaterThanOrEqualTo(reply.endMs!));
     } finally {
       await reply.close();
