@@ -236,7 +236,7 @@ Limits:
   `supportAudio: true` fails with `EmbeddingLoadException`.
 - **Input length.** `maxInputTokens` is the graph's static sequence length, or
   null for a dynamic-shape graph. A static graph is padded, never truncated: a
-  longer input — task prefix, BOS and EOS included — fails with
+  longer input — task prefix and special tokens included — fails with
   `EmbeddingInputTooLongException`.
 - **Task prefixes.** `embed(…, taskType:)` prefixes the text exactly as the
   LiteRT backend does; `TaskType.none` adds no prefix.

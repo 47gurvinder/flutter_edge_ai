@@ -6,8 +6,9 @@
 
 LiteRT-LM on-device engine for [flutter_edge_ai](https://pub.dev/packages/flutter_edge_ai):
 runs `.litertlm` models, EmbeddingGemma 2 `.litertlm` embeddings and LiteRT
-`.tflite` embeddings. Opt-in package — add it only if you run one of them. Android, iOS, macOS, Linux and Windows via `dart:ffi`;
-Web (early preview) via `@litert-lm/core` and LiteRT.js.
+`.tflite` embeddings. Opt-in package — add it only if you run one of them.
+Android, iOS, macOS, Linux and Windows via `dart:ffi`; Web (early preview) via
+`@litert-lm/core` and LiteRT.js.
 
 This package **owns** the shared LiteRT-LM native library (`libLiteRtLm`) and
 exposes the LiteRT C API bindings (`LiteRtBindings`); both are shared by

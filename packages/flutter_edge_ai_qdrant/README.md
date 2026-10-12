@@ -113,8 +113,9 @@ the stable profile of their embedding space (and `documents:` for an image or
 audio location); add, search, remove, and clear refuse an unbound location.
 `getStats()` remains available before binding so migration code can inspect a
 legacy store before explicitly adopting it. The binding is kept in immutable
-record directories next to the shard: the version-1 profile record older
-releases read, plus a version-2 binding record for image and audio — the
+record directories inside the store's `qdrant_edge_v1/` directory: the
+version-1 profile record older releases read, plus a version-2 binding record
+for image and audio — the
 encoding is described in the
 [flutter_edge_ai_rag README](https://pub.dev/packages/flutter_edge_ai_rag#implementing-a-vector-store).
 qdrant 2.0.x refuses a location bound to images or audio.
