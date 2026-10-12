@@ -300,9 +300,17 @@ CREATE TABLE IF NOT EXISTS $sqliteBindingV2Table (
         expect(readSqliteBinding(db), _binding(_profileA));
       });
 
-      test('racing a 2.1 bind: exactly one wins, every time', () async {
+      test('racing a 2.1 bind: exactly one wins, every time, and each side '
+          'wins some rounds', () async {
         db.close();
-        for (var round = 0; round < 24; round++) {
+        var oldWins = 0;
+        var newWins = 0;
+        var round = 0;
+        // At least 40 rounds; more (up to 200) only while one side has not
+        // won an on-time round yet — a loaded machine slows this test down
+        // rather than failing it.
+        for (; round < 200; round++) {
+          if (round >= 40 && oldWins > 0 && newWins > 0) break;
           final file = '${temp.path}/race_$round.db';
           final setup = sqlite3.open(file);
           ensureSqliteEmbeddingProfileTable(setup);
@@ -311,10 +319,23 @@ CREATE TABLE IF NOT EXISTS $sqliteBindingV2Table (
               ? EmbeddingModality.image
               : EmbeddingModality.audio;
 
-          final outcomes = await Future.wait([
-            _inIsolateOldWriter(file),
-            _inIsolateNewWriter(file, documents),
+          // Both racers open their connection, then spin until the same
+          // instant: isolate start-up must not decide the race. A racer that
+          // reaches the start line after that instant reports itself late;
+          // such a round still checks the exactly-one-winner invariant but
+          // does not count toward "each side wins".
+          final startAt =
+              DateTime.now().microsecondsSinceEpoch +
+              const Duration(milliseconds: 300).inMicroseconds;
+          final results = await Future.wait([
+            _inIsolateOldWriter(file, startAt),
+            _inIsolateNewWriter(file, documents, startAt),
           ]);
+          final outcomes = [for (final r in results) r.outcome];
+          if (!results.any((r) => r.late)) {
+            if (outcomes.first == 'bound') oldWins++;
+            if (outcomes.last == 'bound') newWins++;
+          }
 
           expect(
             outcomes.where((outcome) => outcome == 'bound'),
@@ -340,6 +361,13 @@ CREATE TABLE IF NOT EXISTS $sqliteBindingV2Table (
             reader.close();
           }
         }
+        // ignore: avoid_print
+        print(
+          'race: $round rounds; on time, the 2.0.1 writer won $oldWins and '
+          'the 2.1 bind $newWins',
+        );
+        expect(oldWins, greaterThan(0), reason: 'the old writer never won');
+        expect(newWins, greaterThan(0), reason: 'the 2.1 bind never won');
         db = sqlite3.open(path);
       });
     });
@@ -625,28 +653,46 @@ String oldWriterBind(Database db, String id, int dimension) {
 // Top-level, so each closure captures only its arguments: a closure made
 // inside a test captures the test's scope, sqlite handles included, and an
 // isolate cannot be sent those.
-Future<String> _inIsolateOldWriter(String file) =>
-    Isolate.run(() => _raceOldWriter(file));
+typedef _RaceResult = ({String outcome, bool late});
 
-Future<String> _inIsolateNewWriter(String file, EmbeddingModality documents) =>
-    Isolate.run(() => _raceNewWriter(file, documents));
+Future<_RaceResult> _inIsolateOldWriter(String file, int startAt) =>
+    Isolate.run(() => _raceOldWriter(file, startAt));
+
+Future<_RaceResult> _inIsolateNewWriter(
+  String file,
+  EmbeddingModality documents,
+  int startAt,
+) => Isolate.run(() => _raceNewWriter(file, documents, startAt));
+
+/// Spins until [startAt] (µs since epoch); true when it was already past.
+bool _waitForStart(int startAt) {
+  if (DateTime.now().microsecondsSinceEpoch > startAt) return true;
+  while (DateTime.now().microsecondsSinceEpoch < startAt) {}
+  return false;
+}
 
 /// Both racers wait for the database lock instead of failing on it, so each
 /// reaches its own compare-and-set: the case the encoding has to get right.
 Database _racerConnection(String file) =>
     sqlite3.open(file)..execute('PRAGMA busy_timeout = 10000');
 
-String _raceOldWriter(String file) {
+_RaceResult _raceOldWriter(String file, int startAt) {
   final db = _racerConnection(file);
   try {
-    return oldWriterBind(db, 'embedder-a-v1', 4);
+    final late = _waitForStart(startAt);
+    return (outcome: oldWriterBind(db, 'embedder-a-v1', 4), late: late);
   } finally {
     db.close();
   }
 }
 
-Future<String> _raceNewWriter(String file, EmbeddingModality documents) async {
+Future<_RaceResult> _raceNewWriter(
+  String file,
+  EmbeddingModality documents,
+  int startAt,
+) async {
   final db = _racerConnection(file);
+  final late = _waitForStart(startAt);
   try {
     await bindSqliteBinding(
       db,
@@ -655,9 +701,9 @@ Future<String> _raceNewWriter(String file, EmbeddingModality documents) async {
         documents: documents,
       ),
     );
-    return 'bound';
+    return (outcome: 'bound', late: late);
   } on VectorStoreException {
-    return 'refused';
+    return (outcome: 'refused', late: late);
   } finally {
     db.close();
   }
