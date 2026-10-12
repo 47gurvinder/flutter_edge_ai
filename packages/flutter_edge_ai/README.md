@@ -76,11 +76,11 @@ dependencies:
 
 > **Upgrade every flutter_edge_ai package together.** Minimum versions with
 > core 2.3.0: `flutter_edge_ai_litertlm` 1.13.0 · `flutter_edge_ai_embeddings`
-> 2.3.0 · `flutter_edge_ai_onnx` 0.5.7 · `flutter_edge_ai_mediapipe` 1.2.1 ·
-> `flutter_edge_ai_builtin_ai` 0.3.4 · `flutter_edge_ai_speech` 0.5.6 ·
+> 2.3.0 · `flutter_edge_ai_onnx` 0.5.8 · `flutter_edge_ai_mediapipe` 1.2.2 ·
+> `flutter_edge_ai_builtin_ai` 0.3.5 · `flutter_edge_ai_speech` 0.5.6 ·
 > `flutter_edge_ai_agent` 0.2.9 · `flutter_edge_ai_rag` 1.1.0 ·
 > `flutter_edge_ai_sqlite` 2.1.0 · `flutter_edge_ai_qdrant` 2.1.0 ·
-> `genkit_flutter_edge_ai` 0.8.2. An older engine or store fails to compile
+> `genkit_flutter_edge_ai` 0.9.1. An older engine or store fails to compile
 > against 2.3.0; see the [migration guide](MIGRATION.md).
 
 Then complete the platform setup below.
@@ -259,7 +259,9 @@ Future<void> main() async {
 
 ### Install a model
 
-Once per device; installed models survive restarts.
+Once per device; installed models survive restarts, `fromFile` ones included.
+Installing a name again from another source replaces it; core never deletes a
+file you installed with `fromFile`.
 
 ```dart
 await FlutterEdgeAi.installModel(
@@ -288,6 +290,13 @@ await for (final response in chat.generateChatResponseAsync()) {
 
 await model.close();
 ```
+
+`getActiveModel` returns the same model while the active model and its
+arguments stay the same. Another model, or other arguments, builds a new one
+and closes the previous handle. A model is closed from the moment its
+`close()` starts (`model.isClosed`); `getActiveModel` waits for that close to
+finish, then builds a new model. With no model installed it throws
+`NoActiveModelError`, a `StateError`.
 
 Sampling left unset comes from the model: the sampler a native `.litertlm` file
 ships, else the defaults its family publishes (`SamplingParams.forModelType`),

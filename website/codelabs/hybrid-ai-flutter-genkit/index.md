@@ -483,7 +483,7 @@ Add `genkit_flutter_edge_ai` and `flutter_edge_ai`:
 
 ```yaml
   # Step 3: On-device AI (LiteRT-LM engine)
-  genkit_flutter_edge_ai: ^0.8.2
+  genkit_flutter_edge_ai: ^0.9.1
   flutter_edge_ai: ^2.3.0
   # flutter_edge_ai registers no engine by default — opt into LiteRT-LM
   # (.litertlm inference) here.

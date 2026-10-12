@@ -255,7 +255,7 @@ packages:
       path: "../../flutter_edge_ai_builtin_ai"
       relative: true
     source: path
-    version: "0.3.4"
+    version: "0.3.5"
   flutter_edge_ai_diagnostics:
     dependency: "direct dev"
     description:
@@ -283,14 +283,14 @@ packages:
       path: "../../flutter_edge_ai_mediapipe"
       relative: true
     source: path
-    version: "1.2.1"
+    version: "1.2.2"
   flutter_edge_ai_onnx:
     dependency: "direct main"
     description:
       path: "../../flutter_edge_ai_onnx"
       relative: true
     source: path
-    version: "0.5.7"
+    version: "0.5.8"
   flutter_edge_ai_qdrant:
     dependency: "direct main"
     description:
