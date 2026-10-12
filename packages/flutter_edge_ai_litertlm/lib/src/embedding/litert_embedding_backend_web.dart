@@ -9,13 +9,21 @@
 import 'package:flutter_edge_ai/engine.dart';
 import 'package:flutter_edge_ai/engine_web.dart' show resolveWebModelUrl;
 
+import 'vision_budget.dart';
 import 'web/litert_js_embedding_pass.dart';
 import 'web/litert_web_embeddings.dart'
     show WindowLiteRtJsBundle, revokeObjectUrl;
 
 /// LiteRT embedding backend, web: EmbeddingGemma `.tflite` through LiteRT.js.
 final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
-  const LiteRtEmbeddingBackend();
+  /// [visionTokensPerImage] is how many vision tokens an EmbeddingGemma 2
+  /// image gets: 140 (the default) or 70; any other value is refused with
+  /// `EmbeddingLoadException` when a model loads. The same parameter as the
+  /// native arm, so one registration compiles everywhere; the web arm embeds
+  /// no images yet.
+  const LiteRtEmbeddingBackend({this._visionTokensPerImage = 140});
+
+  final int _visionTokensPerImage;
 
   @override
   String get name => 'LiteRT Embedding';
@@ -32,6 +40,7 @@ final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
     EmbeddingModelSpec spec,
     RuntimeConfig config,
   ) async {
+    checkVisionTokensPerImage(_visionTokensPerImage, engine: liteRtJsEngine);
     if (config.supportImage || config.supportAudio) {
       throw EmbeddingLoadException(
         '${spec.files.first.filename} is a text-only model',

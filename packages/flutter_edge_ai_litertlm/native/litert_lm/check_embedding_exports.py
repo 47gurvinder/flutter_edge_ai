@@ -39,6 +39,7 @@ REQUIRED = [
     "litert_lm_embedding_engine_settings_set_cache_dir",
     "litert_lm_embedding_engine_settings_set_max_input_length",
     "litert_lm_embedding_engine_settings_set_num_threads",
+    "litert_lm_embedding_engine_settings_set_vision_tokens_per_image",
     "litert_lm_embedding_engine_create",
     "litert_lm_embedding_engine_delete",
     "litert_lm_embedding_engine_compute_embedding",

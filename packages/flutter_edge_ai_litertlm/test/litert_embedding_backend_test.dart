@@ -159,6 +159,32 @@ void main() {
       expect(tokenizers.asked, 0);
     });
 
+    test(
+      'declared images reach the pass, with the default budget of 140; '
+      'whether the bundle has a vision encoder is the pass\'s question',
+      () async {
+        final descriptor = await backend.describe(
+          _bundle(),
+          _config('/data/eg2.litertlm', supportImage: true),
+        );
+        final config = descriptor.config as LiteRtLmEmbeddingConfig;
+        expect(config.declaredMedia, {EmbeddingModality.image});
+        expect(config.visionTokensPerImage, 140);
+        expect(descriptor.activeBackend, PreferredBackend.cpu);
+        expect(tokenizers.asked, 0);
+      },
+    );
+
+    test('visionTokensPerImage: 70 is the opt-in budget', () async {
+      final descriptor = await const LiteRtEmbeddingBackend(
+        visionTokensPerImage: 70,
+      ).describe(_bundle(), _config('/data/eg2.litertlm', supportImage: true));
+      expect(
+        (descriptor.config as LiteRtLmEmbeddingConfig).visionTokensPerImage,
+        70,
+      );
+    });
+
     test('needs no tokenizer provider at all: an EG2-only app registers '
         'none', () async {
       EmbeddingTokenizerRegistry.instance.reset();
@@ -170,30 +196,71 @@ void main() {
     });
   });
 
-  group('describe() routes on the file core opens', () {
-    test(
-      'a .litertlm bundle with declared media gets the 1.13.0 refusal',
-      () async {
-        for (final (image, audio) in [(true, false), (false, true)]) {
-          await expectLater(
-            backend.describe(
-              _bundle(),
-              _config(
-                '/data/eg2.litertlm',
-                supportImage: image,
-                supportAudio: audio,
-              ),
+  group('visionTokensPerImage: 140 or 70, anything else refused in describe() '
+      '(D25)', () {
+    // Natively 200 and 280 fail to load, while 1, 35, 100 and 141 are
+    // accepted SILENTLY and change the vectors (measured): refused in Dart.
+    for (final budget in [0, -1, 1, 35, 69, 71, 100, 139, 141, 200, 280]) {
+      test('$budget is refused, before routing and before the tokenizer '
+          'registry', () async {
+        final misconfigured = LiteRtEmbeddingBackend(
+          visionTokensPerImage: budget,
+        );
+        await expectLater(
+          misconfigured.describe(
+            _bundle(),
+            _config('/data/eg2.litertlm', supportImage: true),
+          ),
+          _loadRefusal(
+            'LiteRT-LM',
+            allOf(
+              contains('visionTokensPerImage: $budget'),
+              contains('140'),
+              contains('70'),
             ),
-            _loadRefusal(
-              'LiteRT-LM',
-              'flutter_edge_ai_litertlm 1.13.0 embeds text only; images arrive '
-                  'in 1.14.0, audio in 1.16.0',
-            ),
-          );
-        }
+          ),
+        );
+        // Text-only use and a .tflite model too: a backend configured with an
+        // unsupported budget is refused wherever it is used, not first on the
+        // day an image arrives.
+        await expectLater(
+          misconfigured.describe(_bundle(), _config('/data/eg2.litertlm')),
+          throwsA(isA<EmbeddingLoadException>()),
+        );
+        await expectLater(
+          misconfigured.describe(
+            _tflite(),
+            _config('/data/gemma.tflite', tokenizerPath: '/data/t.model'),
+          ),
+          _loadRefusal('LiteRT', contains('visionTokensPerImage: $budget')),
+        );
         expect(tokenizers.asked, 0);
-      },
-    );
+      });
+    }
+  });
+
+  group('describe() routes on the file core opens', () {
+    test('a .litertlm bundle with declared audio gets the 1.14.0 refusal, '
+        'with or without images', () async {
+      for (final image in [false, true]) {
+        await expectLater(
+          backend.describe(
+            _bundle(),
+            _config(
+              '/data/eg2.litertlm',
+              supportImage: image,
+              supportAudio: true,
+            ),
+          ),
+          _loadRefusal(
+            'LiteRT-LM',
+            'flutter_edge_ai_litertlm 1.14.0 embeds text and images; audio '
+                'arrives in 1.16.0',
+          ),
+        );
+      }
+      expect(tokenizers.asked, 0);
+    });
 
     test('the suffix is matched without regard to case', () async {
       final descriptor = await backend.describe(

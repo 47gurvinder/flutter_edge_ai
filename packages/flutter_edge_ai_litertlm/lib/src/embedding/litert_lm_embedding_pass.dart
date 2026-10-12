@@ -14,7 +14,12 @@
 //   from `vision_signature_selection` — never `supports_input_modality`, which
 //   claims vision and audio on the text-only 270m (D23). A declared medium is
 //   refused here, so no engine (and no tower cache) is made for a request that
-//   cannot be served. 1.13.0 embeds text only.
+//   cannot be served. Text, and images on a bundle with a vision encoder (the
+//   440m); audio arrives in 1.16.0.
+// - Images: one encoded file per request, decoded by the engine (stb: JPEG,
+//   PNG, GIF, BMP — reported at load, so core refuses anything else before
+//   sending), at 140 vision tokens per image or the opt-in 70 (D25). Tower
+//   backends stay NULL: the vision tower runs on the main backend (D26).
 // - The input cap is set explicitly to 1024 tokens (D21): the bundles' metadata
 //   says 1024 but no C getter exposes it, and one 8192-token input peaked at
 //   +10.25 GB. `maxInputTokens` is the smallest text signature at or above the
@@ -31,7 +36,10 @@
 //   (InvalidArgument) on the single, well-formed text part this pass built is
 //   an overflow — the only InvalidArgument reachable for such a request at
 //   v0.18.0. The count is not parsed out of the message (owner decision), so
-//   `actualTokens` is null until the response getters land (P3).
+//   `actualTokens` is null until the response getters land (P3). On an image
+//   request code 3 is a decode failure (a corrupt or truncated file; an image
+//   cannot reach the 1024-token cap at 140 tokens), so it stays an engine
+//   error.
 // - Ownership (§4.10): every create has its delete on every path, and the
 //   native error (thread-local) is copied in the same synchronous segment as
 //   the failing call, before any other native call.
@@ -48,14 +56,16 @@ import 'package:flutter_edge_ai/engine.dart';
 
 import '../ffi/litert_lm_embedding_bindings.dart';
 import '../ffi/litert_lm_library.dart';
+import 'embedding_parts.dart';
+import 'vision_budget.dart';
 
 /// The engine's name in messages and errors.
 const liteRtLmEngineTag = 'LiteRT-LM';
 
-/// 1.13.0's answer to any declared medium, from `describe()` and from the pass.
-const liteRtLmTextOnlyRefusal =
-    'flutter_edge_ai_litertlm 1.13.0 embeds text only; images arrive in '
-    '1.14.0, audio in 1.16.0';
+/// 1.14.0's answer to declared audio, from `describe()` and from the pass.
+const liteRtLmNoAudioRefusal =
+    'flutter_edge_ai_litertlm 1.14.0 embeds text and images; audio arrives in '
+    '1.16.0';
 
 /// The explicit text input cap (D21). Never raised on mobile.
 const liteRtLmMaxInputLength = 1024;
@@ -73,6 +83,7 @@ final class LiteRtLmEmbeddingConfig {
     required this.cacheBase,
     this.declaredMedia = const {},
     this.numThreads,
+    this.visionTokensPerImage = liteRtLmDefaultVisionTokensPerImage,
   });
 
   /// The `.litertlm` bundle core resolved for the active spec.
@@ -86,13 +97,29 @@ final class LiteRtLmEmbeddingConfig {
   /// create rebuilds the weight cache.
   final String cacheBase;
 
-  /// The media the caller declared. The pass refuses any of them in 1.13.0,
-  /// from ModelInfo, before creating an engine.
+  /// The media the caller declared. The pass refuses, from ModelInfo and
+  /// before creating an engine, images on a bundle without a vision encoder
+  /// and audio (1.16.0).
   final Set<EmbeddingModality> declaredMedia;
 
   /// Engine threads; null leaves the engine's default (about 4).
   final int? numThreads;
+
+  /// Vision tokens per image (D25): 140 or 70, checked by `describe()`.
+  final int visionTokensPerImage;
 }
+
+/// The image containers LiteRT-LM's stb decoder handles, as measured on our
+/// native-v0.18.0-d dylib (X3): PNG, JPEG, GIF and BMP decode; WebP, TIFF
+/// and garbage fail with code 3; stb has no HEIC decoder. Reported at load, so
+/// core refuses every other container on the caller's isolate, before the
+/// request is sent.
+final liteRtLmImageFormats = Set<EncodedMediaFormat>.unmodifiable({
+  EncodedMediaFormat.jpeg,
+  EncodedMediaFormat.png,
+  EncodedMediaFormat.gif,
+  EncodedMediaFormat.bmp,
+});
 
 /// The descriptor factory: a top-level tear-off, so it survives the trip into
 /// core's worker isolate.
@@ -117,6 +144,7 @@ const liteRtLmEmbeddingSymbols = <String>[
   'litert_lm_embedding_engine_settings_set_cache_dir',
   'litert_lm_embedding_engine_settings_set_max_input_length',
   'litert_lm_embedding_engine_settings_set_num_threads',
+  'litert_lm_embedding_engine_settings_set_vision_tokens_per_image',
   'litert_lm_embedding_engine_create',
   'litert_lm_embedding_engine_delete',
   'litert_lm_embedding_engine_compute_embedding',
@@ -164,7 +192,8 @@ LiteRtLmEmbeddingBindings bindLiteRtLmEmbeddings(
 LiteRtLmEmbeddingBindings _openBindings() =>
     bindLiteRtLmEmbeddings(openLiteRtLmLibrary());
 
-/// The `.litertlm` embedding pass. Text only in 1.13.0; CPU.
+/// The `.litertlm` embedding pass: text, and images on a bundle with a vision
+/// encoder; CPU.
 ///
 /// Built and run inside one isolate: the native handles it holds cannot cross
 /// an isolate boundary — only its [LiteRtLmEmbeddingConfig] does.
@@ -192,6 +221,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
   Pointer<LiteRtLmEmbeddingOptions> _options = nullptr;
   int _dimension = 0;
   int _maxInputTokens = 0;
+  bool _images = false;
   String? _cacheDir;
   bool _loaded = false;
   bool _closed = false;
@@ -224,10 +254,18 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
     final info = _readModelInfo(b);
     final textSignatures = _checkModelInfo(info);
     final (:setting, :maxInputTokens) = liteRtLmInputLimit(textSignatures);
+    final images = _config.declaredMedia.contains(EmbeddingModality.image);
     final cacheDir = _createCacheDir();
 
     try {
-      _engine = _createEngine(b, maxInputLength: setting, cacheDir: cacheDir);
+      _engine = _createEngine(
+        b,
+        maxInputLength: setting,
+        cacheDir: cacheDir,
+        // Only when images will be embedded: the budget means nothing to a
+        // text request, and the bundle's own default is 140 anyway.
+        visionTokensPerImage: images ? _config.visionTokensPerImage : null,
+      );
       _options = _createOptions(b);
     } catch (_) {
       _free();
@@ -239,15 +277,24 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
 
     _dimension = info.dimension;
     _maxInputTokens = maxInputTokens;
+    _images = images;
     _cacheDir = cacheDir;
     _loaded = true;
+    // D23: what the BUNDLE can do. Core keeps the model at what was declared
+    // (text, plus images only when the caller asked for them).
+    final vision = _hasVision(info);
     edgeAiLog(
       '[LiteRtLmEmbeddingPass] loaded $_file: dim=${info.dimension}, '
-      'maxInputTokens=$maxInputTokens, backend=cpu, cache=$cacheDir',
+      'maxInputTokens=$maxInputTokens, backend=cpu, '
+      'vision=${vision ? info.visionSignatures : 'none'}'
+      '${images ? ', ${_config.visionTokensPerImage} tokens/image' : ''}, '
+      'cache=$cacheDir',
     );
     return EmbeddingPassInfo(
       dimension: info.dimension,
       maxInputTokens: maxInputTokens,
+      modalities: {EmbeddingModality.text, if (vision) EmbeddingModality.image},
+      imageFormats: vision ? liteRtLmImageFormats : const {},
     );
   }
 
@@ -260,19 +307,26 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
         engine: liteRtLmEngineTag,
       );
     }
-    final text = input.text;
-    if (text == null || input.modalities.length != 1) {
-      // Core refuses this before sending; reaching it is a host bug.
+    final parts = embeddingParts(input, taskType);
+    final kind = parts.length == 1 ? parts.single.kind : null;
+    if (kind == null ||
+        kind == EmbeddingPartKind.audio ||
+        (kind == EmbeddingPartKind.image && !_images)) {
+      // Core refuses all of these before sending (one modality per vector,
+      // and only the modalities the model was loaded with); reaching here is
+      // a host bug.
       throw EmbeddingEngineException(
-        'flutter_edge_ai_litertlm 1.13.0 embeds text only, got $input',
+        'flutter_edge_ai_litertlm embeds one text or one declared image per '
+        'vector, got $input',
         engine: liteRtLmEngineTag,
       );
     }
+    final image = kind == EmbeddingPartKind.image;
 
     // Everything below is synchronous: the native error state is
     // thread-local, and an `await` could resume this isolate on another
     // thread before it is read.
-    final bytes = utf8.encode('${taskType.prefix}$text');
+    final bytes = parts.single.bytes;
     final buffer = _alloc<Uint8>(math.max(bytes.length, 1));
     final Pointer<LiteRtLmInputData> part;
     try {
@@ -280,7 +334,9 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
       // Copies the bytes (std::string). Returns NULL only for an unknown
       // type, and then sets no error — so none is read.
       part = b.litert_lm_input_data_create(
-        LiteRtLmInputDataType.kLiteRtLmInputDataTypeText,
+        image
+            ? LiteRtLmInputDataType.kLiteRtLmInputDataTypeImage
+            : LiteRtLmInputDataType.kLiteRtLmInputDataTypeText,
         buffer.cast(),
         bytes.length,
       );
@@ -288,27 +344,28 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
       _alloc.free(buffer);
     }
     if (part == nullptr) {
-      throw const EmbeddingEngineException(
-        'litert_lm_input_data_create returned NULL for a text part',
+      throw EmbeddingEngineException(
+        'litert_lm_input_data_create returned NULL for '
+        '${image ? 'an image' : 'a text'} part',
         engine: liteRtLmEngineTag,
       );
     }
 
-    final parts = _alloc<Pointer<LiteRtLmInputData>>();
+    final partArray = _alloc<Pointer<LiteRtLmInputData>>();
     try {
-      parts[0] = part;
+      partArray[0] = part;
       // The error state is per thread and survives successful calls: clear
       // it, so a NULL with nothing reported is never read as an old status.
       b.litert_lm_clear_last_error();
       final response = b.litert_lm_embedding_engine_compute_embedding(
         _engine,
-        parts,
+        partArray,
         1,
         _options,
       );
       if (response == nullptr) {
         final (:code, :message) = _lastError(b);
-        if (code == _statusInvalidArgument) {
+        if (code == _statusInvalidArgument && !image) {
           // §4.8: the only InvalidArgument a single, well-formed text part
           // built here can reach at v0.18.0 is the signature-length check.
           throw EmbeddingInputTooLongException(
@@ -319,7 +376,13 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
           );
         }
         throw EmbeddingEngineException(
-          'compute_embedding failed for $_file: $message',
+          code == _statusInvalidArgument
+              // An image cannot overflow at 140 tokens; stb refusing the
+              // bytes is what InvalidArgument means for one (measured: a
+              // truncated PNG, "outofdata").
+              ? 'LiteRT-LM could not decode the image for $_file (a corrupt '
+                    'or truncated file?): $message'
+              : 'compute_embedding failed for $_file: $message',
           engine: liteRtLmEngineTag,
           nativeCode: code == _statusOk ? null : code,
         );
@@ -341,7 +404,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
       }
     } finally {
       b.litert_lm_input_data_delete(part);
-      _alloc.free(parts);
+      _alloc.free(partArray);
     }
   }
 
@@ -452,20 +515,36 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
     if (text == null || !text.any((length) => length > 0)) {
       _refuse('$_file declares no text signature to embed with.');
     }
-    // D23: from the vision signatures, never supports_input_modality.
     final media = _config.declaredMedia;
-    if (media.contains(EmbeddingModality.image) &&
-        (info.visionSignatures?.isEmpty ?? true)) {
-      _refuse(
-        '$_file has no vision encoder; install '
-        'embeddinggemma-2-text-vision-440m',
-      );
+    if (media.contains(EmbeddingModality.audio)) {
+      _refuse(liteRtLmNoAudioRefusal);
     }
-    if (media.any((m) => m != EmbeddingModality.text)) {
-      _refuse(liteRtLmTextOnlyRefusal);
+    if (media.contains(EmbeddingModality.image)) {
+      // D23: from the vision signatures, never supports_input_modality.
+      if (!_hasVision(info)) {
+        _refuse(
+          '$_file has no vision encoder; install '
+          'embeddinggemma-2-text-vision-440m',
+        );
+      }
+      final budgets = info.visionSignatures!;
+      final budget = _config.visionTokensPerImage;
+      if (!budgets.contains(budget)) {
+        _refuse(
+          '$_file has vision signatures for ${budgets.join(' and ')} tokens '
+          'per image, not $budget: '
+          'LiteRtEmbeddingBackend(visionTokensPerImage: …) must be one of '
+          'them.',
+        );
+      }
     }
     return text;
   }
+
+  /// Whether the bundle has a vision encoder: a non-empty vision signature
+  /// list (`[70, 140]` on the 440m and 740m, -1 on the 270m).
+  static bool _hasVision(_ModelInfo info) =>
+      info.visionSignatures?.any((length) => length > 0) ?? false;
 
   Never _refuse(String message) =>
       throw EmbeddingLoadException(message, engine: liteRtLmEngineTag);
@@ -581,6 +660,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
     LiteRtLmEmbeddingBindings b, {
     required int maxInputLength,
     required String cacheDir,
+    required int? visionTokensPerImage,
   }) {
     final path = _config.modelPath.toNativeUtf8(allocator: _alloc);
     final cpu = 'cpu'.toNativeUtf8(allocator: _alloc);
@@ -626,6 +706,14 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
         b.litert_lm_embedding_engine_settings_set_num_threads(
           settings,
           threads,
+        );
+      }
+      if (visionTokensPerImage != null) {
+        // D25: 140 by default, 70 opt-in; checked against the bundle's vision
+        // signatures from ModelInfo already.
+        b.litert_lm_embedding_engine_settings_set_vision_tokens_per_image(
+          settings,
+          visionTokensPerImage,
         );
       }
       b.litert_lm_clear_last_error();

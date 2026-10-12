@@ -3,9 +3,9 @@
 // in its embedding worker, hosts it, checks every request and closes it.
 //
 // Routing is by the file core actually opens (`config.modelPath`): a
-// `.litertlm` bundle (EmbeddingGemma 2, through LiteRT-LM's EmbeddingEngine)
-// or a `.tflite` graph with a separate tokenizer (EmbeddingGemma 1, Gecko,
-// through the LiteRT C API).
+// `.litertlm` bundle (EmbeddingGemma 2, text and images, through LiteRT-LM's
+// EmbeddingEngine) or a `.tflite` graph with a separate tokenizer
+// (EmbeddingGemma 1, Gecko, text, through the LiteRT C API).
 
 import 'dart:io' show Platform;
 
@@ -14,12 +14,23 @@ import 'package:path_provider/path_provider.dart';
 
 import 'litert_embedding_pass.dart';
 import 'litert_lm_embedding_pass.dart';
+import 'vision_budget.dart';
 
 /// LiteRT embedding backend: `.tflite` embedders (EmbeddingGemma 1, Gecko)
-/// over the LiteRT C API, and `.litertlm` embedding bundles (EmbeddingGemma 2,
-/// text) over LiteRT-LM's EmbeddingEngine.
+/// over the LiteRT C API, and `.litertlm` embedding bundles (EmbeddingGemma 2:
+/// text, and images on a bundle with a vision encoder) over LiteRT-LM's
+/// EmbeddingEngine.
 final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
-  const LiteRtEmbeddingBackend();
+  /// [visionTokensPerImage] is how many vision tokens an EmbeddingGemma 2
+  /// image gets: 140 (the default, closest to the reference model) or 70
+  /// (about twice as fast, slightly less faithful). The two give different
+  /// image vectors, so an image index records which one it was built with —
+  /// give it its own profile id (`…-vis140` or `…-vis70`). Any other value is
+  /// refused with `EmbeddingLoadException` when a model loads. Text vectors
+  /// do not depend on it.
+  const LiteRtEmbeddingBackend({this._visionTokensPerImage = 140});
+
+  final int _visionTokensPerImage;
 
   @override
   String get name => 'LiteRT Embedding';
@@ -41,6 +52,12 @@ final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
   ) async {
     final file = spec.files.first.filename;
     final opensBundle = isLiteRtLmFilename(config.modelPath);
+    // Wherever it is used: a misconfigured backend fails at its first load,
+    // not on the day the first image arrives.
+    checkVisionTokensPerImage(
+      _visionTokensPerImage,
+      engine: opensBundle ? _liteRtLm : _liteRt,
+    );
     if (opensBundle != spec.isSelfContained) {
       throw EmbeddingLoadException(
         'identity corrupt: the active embedder ${spec.name} opens '
@@ -51,7 +68,7 @@ final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
         engine: opensBundle ? _liteRtLm : _liteRt,
       );
     }
-    if (opensBundle) return _describeBundle(config);
+    if (opensBundle) return _describeBundle(config, _visionTokensPerImage);
     return _describeTflite(spec, file, config);
   }
 }
@@ -60,15 +77,17 @@ const _liteRt = 'LiteRT';
 const _liteRtLm = liteRtLmEngineTag;
 
 /// A `.litertlm` embedding bundle (EmbeddingGemma 2) never asks the tokenizer
-/// registry: the bundle carries its own. Declared media are refused here, before
-/// any isolate exists (text only in 1.13.0); whether the bundle has a tower is
-/// the pass's question, answered from the bundle itself at load.
+/// registry: the bundle carries its own. Declared audio is refused here, before
+/// any isolate exists (it arrives in 1.16.0); whether the bundle has a vision
+/// tower for declared images is the pass's question, answered from the bundle
+/// itself at load (the 270m has none).
 Future<EmbeddingPassDescriptor<LiteRtLmEmbeddingConfig>> _describeBundle(
   RuntimeConfig config,
+  int visionTokensPerImage,
 ) async {
-  if (config.supportImage || config.supportAudio) {
+  if (config.supportAudio) {
     throw const EmbeddingLoadException(
-      liteRtLmTextOnlyRefusal,
+      liteRtLmNoAudioRefusal,
       engine: _liteRtLm,
     );
   }
@@ -87,12 +106,11 @@ Future<EmbeddingPassDescriptor<LiteRtLmEmbeddingConfig>> _describeBundle(
       // Short on purpose: the engine's cache file name repeats the model's
       // name below it, and Windows paths must stay under MAX_PATH.
       cacheBase: '$cache${sep}flutter_edge_ai${sep}emb',
-      declaredMedia: {
-        if (config.supportImage) EmbeddingModality.image,
-        if (config.supportAudio) EmbeddingModality.audio,
-      },
+      declaredMedia: {if (config.supportImage) EmbeddingModality.image},
+      visionTokensPerImage: visionTokensPerImage,
     ),
-    // `settings_create(path, "cpu", NULL, NULL)`: the text tower on CPU.
+    // `settings_create(path, "cpu", NULL, NULL)`: the text tower on CPU, and
+    // the vision tower with it (NULL tower backends run on the main one, D26).
     activeBackend: PreferredBackend.cpu,
   );
 }
