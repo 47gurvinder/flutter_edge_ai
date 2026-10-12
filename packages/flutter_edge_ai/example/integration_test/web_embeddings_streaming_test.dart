@@ -1,12 +1,13 @@
 /// Web embeddings under `WebStorageMode.streaming` (R5 §10.1 "Web", the
 /// R5_adjustments C checklist): every installed file is registered as an
 /// `opfs://` path, which `fetch()` cannot open, so each web pass resolves it to
-/// a `blob:` URL (`resolveWebModelUrl`), loads from it, and revokes it. Both
-/// passes are covered — LiteRT.js (EmbeddingGemma 1) and ONNX Runtime Web
-/// (all-MiniLM-L6-v2): LiteRT.js once never resolved `opfs://` at all, and
-/// nothing noticed because only ONNX had a streaming path under test. Each
-/// case embeds AFTER its pass revoked the URLs, which proves nothing reads them
-/// lazily.
+/// a `blob:` URL (`resolveWebModelUrl`), loads from it, and revokes it. Every
+/// web pass is covered — LiteRT.js (EmbeddingGemma 1), ONNX Runtime Web
+/// (all-MiniLM-L6-v2) and `@litert-lm/core`'s EmbeddingEngine (EmbeddingGemma
+/// 2, flutter_edge_ai_litertlm 1.15.0): LiteRT.js once never resolved
+/// `opfs://` at all, and nothing noticed because only ONNX had a streaming
+/// path under test. Each case embeds AFTER its pass revoked the URLs, which
+/// proves nothing reads them lazily.
 ///
 /// A separate file from web_embeddings_test.dart because core keeps the first
 /// `webStorageMode` until the page reloads.
@@ -20,7 +21,9 @@
 ///     --dart-define=HUGGINGFACE_TOKEN=hf_...
 /// then the same with `-d chrome`. Both EG1 files are downloaded here (an
 /// asset never becomes an `opfs://` path), so the token — or
-/// `EG1_MODEL_URL` + `EG1_TOKENIZER_URL` — is needed for both.
+/// `EG1_MODEL_URL` + `EG1_TOKENIZER_URL` — is needed for both. EmbeddingGemma 2
+/// (165 MB, ungated) comes from Hugging Face unless `EG2_MODEL_URL` serves the
+/// same bytes.
 ///
 /// The driver writes this suite's data (the object URLs each pass created and
 /// revoked) to `build/web_embeddings_streaming_response.json`, even when a
@@ -33,12 +36,16 @@
 library;
 
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+import 'package:flutter_edge_ai_example/models/embedding_model.dart' as catalog;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'web_embeddings_support.dart';
 
-const _tests = ['streaming EG1', 'streaming MiniLM'];
+const _tests = ['streaming EG1', 'streaming MiniLM', 'streaming EG2'];
+
+const _eg2 = catalog.EmbeddingModel.embeddingGemma2Text270m;
+const _eg2UrlOverride = String.fromEnvironment('EG2_MODEL_URL');
 
 Future<void> _ensureStreaming() async {
   await ensureInitialized(WebStorageMode.streaming);
@@ -63,12 +70,16 @@ Future<(EmbeddingModel, List<String>, List<String>)> _loadWatchingUrls() async {
   );
 }
 
-/// The load made a `blob:` URL for the model and one for the tokenizer, and
-/// released both before it returned.
-void _expectBothReleased(List<String> created, List<String> revoked) {
+/// The load made a `blob:` URL for each of its [files] (model, and the
+/// tokenizer when there is one), and released them all before it returned.
+void _expectBothReleased(
+  List<String> created,
+  List<String> revoked, {
+  int files = 2,
+}) {
   expect(
     created.where((u) => u.startsWith('blob:')),
-    hasLength(greaterThanOrEqualTo(2)),
+    hasLength(greaterThanOrEqualTo(files)),
     reason: 'no opfs:// path was resolved: the files are not in OPFS',
   );
   expect(
@@ -133,6 +144,35 @@ void main() {
       await model.close();
     },
     timeout: const Timeout(Duration(minutes: 10)),
+  );
+
+  testWidgets(
+    '@litert-lm/core EmbeddingEngine (EmbeddingGemma 2): loads from an '
+    'opfs:// path, revokes its blob: URL, then embeds',
+    (tester) async {
+      _start('streaming EG2');
+      await _ensureStreaming();
+      await FlutterEdgeAi.installEmbedder()
+          .modelFromNetwork(
+            _eg2UrlOverride.isEmpty ? _eg2.url : _eg2UrlOverride,
+            filename: _eg2.filename,
+          )
+          .install();
+      await (await FlutterEdgeAi.getActiveEmbedder()).close();
+
+      final (model, created, revoked) = await _loadWatchingUrls();
+      _expectBothReleased(created, revoked, files: 1);
+      report('streaming_eg2_urls', {'created': created, 'revoked': revoked});
+
+      expect(model.maxInputTokens, 1024);
+      final vector = await model.embed(
+        EmbeddingInput.text('The cat sat on the mat.'),
+        taskType: TaskType.retrievalDocument,
+      );
+      expectUnitVector(vector, 768, what: 'after the URL was revoked');
+      await model.close();
+    },
+    timeout: const Timeout(Duration(minutes: 25)),
   );
 
   testWidgets('every test above started (an absent test reads as a pass '
