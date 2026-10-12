@@ -40,12 +40,27 @@ final class _OpfsPhotoStore implements PhotoStore {
     final extension = sniffEncodedMediaFormat(data)?.name ?? 'bin';
     final stamp = DateTime.now().microsecondsSinceEpoch;
     final fileName = 'photo-$stamp-${_counter++}.$extension';
-    final handle = await (await _directory())
+    final directory = await _directory();
+    final handle = await directory
         .getFileHandle(fileName, web.FileSystemGetFileOptions(create: true))
         .toDart;
-    final writable = await handle.createWritable().toDart;
-    await writable.write(data.toJS).toDart;
-    await writable.close().toDart;
+    try {
+      final writable = await handle.createWritable().toDart;
+      try {
+        await writable.write(data.toJS).toDart;
+      } catch (_) {
+        await _quietly('abort the write of $fileName', writable.abort().toDart);
+        rethrow;
+      }
+      await writable.close().toDart;
+    } catch (_) {
+      // No reference reaches the caller, so nothing else would delete it.
+      await _quietly(
+        'delete the partial copy $fileName',
+        directory.removeEntry(fileName).toDart,
+      );
+      rethrow;
+    }
     return '$_scheme$fileName';
   }
 
@@ -80,6 +95,16 @@ final class _OpfsPhotoStore implements PhotoStore {
           web.FileSystemRemoveOptions(recursive: true),
         )
         .toDart;
+  }
+}
+
+/// Runs a clean-up step whose failure must not hide the error being
+/// rethrown: it is logged instead.
+Future<void> _quietly(String what, Future<Object?> step) async {
+  try {
+    await step;
+  } on Object catch (e) {
+    debugPrint('[ImageSearch] could not $what: $e');
   }
 }
 
