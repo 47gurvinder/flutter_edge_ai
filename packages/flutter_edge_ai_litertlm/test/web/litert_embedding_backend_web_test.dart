@@ -67,18 +67,18 @@ void main() {
 
   test('describe() hands core the EmbeddingGemma 2 pass for a .litertlm '
       'bundle: the raw path, the file name, the real runtime, resolver and '
-      'revoker, CPU', () async {
+      'revoker, GPU', () async {
     final descriptor = await backend.describe(_eg2, _bundleConfig());
     final config = descriptor.config as LiteRtLmWebEmbeddingConfig;
 
     expect(descriptor.engineTag, 'LiteRT-LM');
-    expect(descriptor.activeBackend, PreferredBackend.cpu);
+    expect(descriptor.activeBackend, PreferredBackend.gpu);
     expect(config.modelPath, 'opfs://eg2.litertlm');
     expect(config.fileName, 'eg2.litertlm');
     expect(config.runtime, isA<WindowLiteRtLmWebRuntime>());
     expect(config.resolveUrl == resolveWebModelUrl, isTrue);
     expect(config.revokeUrl == revokeObjectUrl, isTrue);
-    expect(config.backend, LiteRtLmWebBackend.cpu);
+    expect(config.backend, LiteRtLmWebBackend.gpu);
     expect(config.declaredMedia, isEmpty);
     expect(config.visionTokensPerImage, 140);
     expect(descriptor.build(), isA<LiteRtLmWebEmbeddingPass>());

@@ -433,9 +433,12 @@ window.litertLmReady = (async () => {
 ```
 
 `window.Engine` runs `.litertlm` LLMs. `window.EmbeddingEngine` (litertlm
-1.15.0+) runs EmbeddingGemma 2 `.litertlm` embedders, text and images, on the
-CPU (WebAssembly); without that line such an embedder fails to load with an
-`EmbeddingLoadException` that names it.
+1.15.0+) runs EmbeddingGemma 2 `.litertlm` embedders, text and images, on
+WebGPU; without that line such an embedder fails to load with an
+`EmbeddingLoadException` that names it. Both need a browser with WebGPU: the
+CPU (WebAssembly) path of `@litert-lm/core` 0.18.0 cannot read the EmbeddingGemma
+2 bundles' external weights, so without WebGPU the embedder's load fails with an
+`EmbeddingLoadException` that says so — there is no CPU fallback.
 
 **`flutter_edge_ai_onnx`** (ONNX models on Web): generation runs on
 [Transformers.js](https://huggingface.co/docs/transformers.js) v4, embeddings

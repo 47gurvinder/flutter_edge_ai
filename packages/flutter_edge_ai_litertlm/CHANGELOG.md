@@ -2,7 +2,7 @@
 - EmbeddingGemma 2 per-SoC bundles run on Qualcomm NPUs (Android, Linux arm64).
 
 ## 1.15.0
-- Web: EmbeddingGemma 2 text and image embeddings via @litert-lm/core 0.18.0.
+- Web: EmbeddingGemma 2 text and image embeddings on WebGPU via @litert-lm/core 0.18.0.
 
 ## 1.14.0
 - EmbeddingGemma 2 image embeddings on native platforms.

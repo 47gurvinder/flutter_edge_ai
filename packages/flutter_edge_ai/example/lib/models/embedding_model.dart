@@ -112,9 +112,9 @@ enum EmbeddingModel implements EmbeddingModelInterface {
 
   // EmbeddingGemma 2 text (270M): ONE self-contained `.litertlm` bundle that
   // carries its own tokenizer, so there is no tokenizer file. Ungated.
-  // Android, iOS, macOS, Linux, Windows, and the web (CPU/WebAssembly, since
-  // flutter_edge_ai_litertlm 1.15.0). Input cap 1024 tokens (prefix, BOS and
-  // EOS included) — keep RAG chunks at 512 or below.
+  // Android, iOS, macOS, Linux, Windows (CPU), and the web (WebGPU, since
+  // flutter_edge_ai_litertlm 1.15.0; no CPU path there). Input cap 1024 tokens
+  // (prefix, BOS and EOS included) — keep RAG chunks at 512 or below.
   embeddingGemma2Text270m(
     url:
         'https://huggingface.co/litert-community/embeddinggemma-2-text-270m-litert-lm/resolve/9be6e8b90982095dc05c2bd162e4b954ee4dbac7/embeddinggemma-2-text-270m.litertlm',

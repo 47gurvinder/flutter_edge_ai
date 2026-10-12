@@ -23,8 +23,9 @@ import 'web/litert_web_embeddings.dart'
 
 /// LiteRT embedding backend, web: EmbeddingGemma 2 `.litertlm` bundles (text,
 /// and images on a bundle with a vision encoder) through `@litert-lm/core`'s
-/// EmbeddingEngine on CPU/WebAssembly, and EmbeddingGemma 1 `.tflite` through
-/// LiteRT.js.
+/// EmbeddingEngine on WebGPU — a browser without WebGPU is refused with
+/// `EmbeddingLoadException`, as there is no CPU path for these bundles in
+/// `@litert-lm/core` 0.18.0 — and EmbeddingGemma 1 `.tflite` through LiteRT.js.
 final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
   /// [visionTokensPerImage] is how many vision tokens an EmbeddingGemma 2
   /// image gets: 140 (the default) or 70; any other value is refused with
@@ -143,9 +144,10 @@ EmbeddingPassDescriptor<LiteRtLmWebEmbeddingConfig> _describeBundle(
       declaredMedia: {if (config.supportImage) EmbeddingModality.image},
       visionTokensPerImage: visionTokensPerImage,
     ),
-    // The pass asks for the CPU (WebAssembly) backend by name, for the text
-    // tower and the vision tower alike, so this is known — unlike LiteRT.js,
-    // which picks its own accelerator.
-    activeBackend: PreferredBackend.cpu,
+    // The pass asks for the GPU (WebGPU) backend by name, for the text tower
+    // and the vision tower alike, and refuses a page without WebGPU rather
+    // than fall back — so this is known, unlike LiteRT.js, which picks its
+    // own accelerator.
+    activeBackend: PreferredBackend.gpu,
   );
 }
