@@ -229,11 +229,12 @@ class _ModelCard extends StatelessWidget {
             for (final line in lines) Text(line, style: _muted),
             const SizedBox(height: 6),
             const Text(
-              'Cost of images (440M, CPU): the bundle writes a 218 MB vision '
-              'cache every time it loads, and the first image adds about '
-              '400-500 MB of RAM. Per image at 140 vision tokens: about 0.35 s '
-              'on an Apple-silicon Mac, about 2 s on an Android flagship, more '
-              'on mid-range phones. For text alone the 270M is lighter.',
+              'Cost of images (440M, CPU): natively the bundle writes a 218 MB '
+              'vision cache every time it loads, and the first image adds '
+              'about 400-500 MB of RAM. Per image at 140 vision tokens: about '
+              '0.35 s on an Apple-silicon Mac, about 2 s on an Android '
+              'flagship, more on mid-range phones and in a browser '
+              '(WebAssembly). For text alone the 270M is lighter.',
               style: TextStyle(color: Colors.white54, fontSize: 12),
             ),
           ],

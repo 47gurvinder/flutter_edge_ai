@@ -15,11 +15,17 @@
 // It also widens what the screen takes: anything Flutter decodes on this
 // platform (WebP everywhere, HEIC on Android) becomes a BMP the model accepts;
 // what Flutter cannot decode is a [PhotoDecodeException].
+//
+// Every platform, the web included: there the codec is CanvasKit's or skwasm's
+// (the browser decodes), and the BMP is written on the page itself — `compute`
+// runs inline on the web, where there are no isolates; `Isolate.run` would
+// throw there.
 
-import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart' show compute;
 
 /// The longest side a photo is given to the model with. Never scaled up.
 const kMaxPhotoSide = 1024;
@@ -44,7 +50,8 @@ final class PhotoDecodeException implements Exception {
 
 /// Decodes [encoded] with Flutter's codec — EXIF orientation applied, the long
 /// side scaled down to at most [maxSide] — and re-encodes it as a 24-bit BMP.
-/// The pixel loop runs on a short-lived isolate, not on this one.
+/// The pixel loop runs on a short-lived isolate on native platforms, and on
+/// the page on the web (`compute`).
 ///
 /// Throws [PhotoDecodeException] when Flutter cannot decode the bytes.
 Future<PreparedPhoto> preparePhotoForEmbedding(
@@ -94,10 +101,11 @@ Future<PreparedPhoto> preparePhotoForEmbedding(
         rgba.offsetInBytes,
         rgba.lengthInBytes,
       );
-      final bmp = await Isolate.run(
-        () => encodeBmp24(pixels, width: width, height: height),
-        debugName: 'photo-bmp',
-      );
+      final bmp = await compute(_encodeBmp24Message, (
+        pixels,
+        width,
+        height,
+      ), debugLabel: 'photo-bmp');
       return (
         bytes: bmp,
         width: width,
@@ -111,6 +119,12 @@ Future<PreparedPhoto> preparePhotoForEmbedding(
   } finally {
     codec.dispose();
   }
+}
+
+/// [encodeBmp24] as `compute` calls it: one message, a top-level function.
+Uint8List _encodeBmp24Message((Uint8List, int, int) message) {
+  final (rgba, width, height) = message;
+  return encodeBmp24(rgba, width: width, height: height);
 }
 
 /// A 24-bit, bottom-up, uncompressed (BI_RGB) BMP of [rgba] — straight RGBA,

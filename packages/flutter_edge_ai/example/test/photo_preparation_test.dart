@@ -146,4 +146,17 @@ void main() {
       );
     });
   });
+
+  test('the preparation runs on the web too: no isolate API, the BMP is '
+      'written through compute (inline on the web)', () {
+    // `Isolate.run` throws on the web, and the Image Search screen runs there
+    // (P2w); the browser half is example/integration_test/web_eg2_test.dart.
+    final source = File(
+      'lib/image_search/photo_preparation.dart',
+    ).readAsStringSync();
+    expect(source, isNot(contains("'dart:isolate'")));
+    expect(source, isNot(contains('Isolate.run(')));
+    expect(source, isNot(contains('Isolate.spawn(')));
+    expect(source, contains('compute('));
+  });
 }
