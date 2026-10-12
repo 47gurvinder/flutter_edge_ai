@@ -58,13 +58,6 @@ abstract interface class FileSystemService {
   /// Writers must use [getWriteTargetPath] instead.
   Future<String> getReadTargetPath(String filename);
 
-  /// Deprecated. Use [getReadTargetPath] for reads or [getWriteTargetPath]
-  /// for writes to route paths correctly.
-  @Deprecated(
-    'Use getReadTargetPath for reads or getWriteTargetPath for writes',
-  )
-  Future<String> getTargetPath(String filename);
-
   /// Gets the path to a bundled native resource
   ///
   /// This is platform-specific:

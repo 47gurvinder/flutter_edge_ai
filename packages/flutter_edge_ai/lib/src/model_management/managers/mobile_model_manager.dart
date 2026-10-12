@@ -195,7 +195,7 @@ class MobileModelManager extends ModelFileManager
     }
 
     if (fileType == ModelFileType.builtIn) {
-      // Built-in OS models have no file at getTargetPath. Reconstruct the
+      // Built-in OS models have no file at getReadTargetPath. Reconstruct the
       // inert bundled-source carrier persisted at install time.
       _activeInferenceModel = InferenceModelSpec(
         name: filename,
@@ -866,21 +866,6 @@ class MobileModelManager extends ModelFileManager
     await release.run(this, spec);
   }
 
-  /// Legacy API: Ensures a model is ready for use
-  @Deprecated('Use ensureModelReadyFromSpec with ModelSource instead')
-  @override
-  Future<void> ensureModelReady(String filename, String url) async {
-    // Create spec from legacy parameters and delegate to internal method
-    final spec = InferenceModelSpec.fromLegacyUrl(
-      name: filename,
-      modelUrl: url,
-    );
-    final release = await _ensureModelReadySpec(spec);
-    // Set as active inference model after ensuring it's ready
-    await _activateModel(spec);
-    await release.run(this, spec);
-  }
-
   /// Downloads a model with progress tracking
   @override
   Stream<DownloadProgress> downloadModelWithProgress(
@@ -1304,36 +1289,6 @@ class MobileModelManager extends ModelFileManager
     }
   }
 
-  /// Creates an inference model specification from parameters
-  static InferenceModelSpec createInferenceSpec({
-    required String name,
-    required String modelUrl,
-    String? loraUrl,
-    ModelReplacePolicy replacePolicy = ModelReplacePolicy.replace,
-  }) {
-    return InferenceModelSpec.fromLegacyUrl(
-      name: name,
-      modelUrl: modelUrl,
-      loraUrl: loraUrl,
-      replacePolicy: replacePolicy,
-    );
-  }
-
-  /// Creates an embedding model specification from parameters
-  static EmbeddingModelSpec createEmbeddingSpec({
-    required String name,
-    required String modelUrl,
-    required String tokenizerUrl,
-    ModelReplacePolicy replacePolicy = ModelReplacePolicy.keep,
-  }) {
-    return EmbeddingModelSpec.fromLegacyUrl(
-      name: name,
-      modelUrl: modelUrl,
-      tokenizerUrl: tokenizerUrl,
-      replacePolicy: replacePolicy,
-    );
-  }
-
   /// Creates a bundled inference model specification (for production builds)
   ///
   /// Use this for models packaged with your app in native platform assets:
@@ -1399,74 +1354,6 @@ class MobileModelManager extends ModelFileManager
 
   /// Ensures the manager is initialized
   Future<void> _ensureInitialized() => initialize();
-
-  // === Legacy Asset Loading Methods Implementation ===
-
-  @override
-  Future<void> installModelFromAsset(String path, {String? loraPath}) async {
-    if (kReleaseMode) {
-      throw UnsupportedError(
-        "Asset model loading is not supported in release builds",
-      );
-    }
-
-    await _ensureInitialized();
-
-    final spec = InferenceModelSpec.fromLegacyUrl(
-      name: ModelFileSystemManager.getBaseName(path.split('/').last),
-      modelUrl: 'asset://$path',
-      loraUrl: loraPath != null ? 'asset://$loraPath' : null,
-    );
-
-    await _ensureModelReadySpec(spec);
-  }
-
-  @override
-  Stream<int> installModelFromAssetWithProgress(
-    String path, {
-    String? loraPath,
-  }) async* {
-    if (kReleaseMode) {
-      throw UnsupportedError(
-        "Asset model loading is not supported in release builds",
-      );
-    }
-
-    await _ensureInitialized();
-
-    final spec = InferenceModelSpec.fromLegacyUrl(
-      name: ModelFileSystemManager.getBaseName(path.split('/').last),
-      modelUrl: 'asset://$path',
-      loraUrl: loraPath != null ? 'asset://$loraPath' : null,
-    );
-
-    // Since assets are copied instantly, we'll simulate progress
-    for (int progress = 0; progress <= 100; progress += 10) {
-      yield progress;
-      if (progress < 100) {
-        await Future.delayed(const Duration(milliseconds: 50));
-      }
-    }
-
-    await _ensureModelReadySpec(spec);
-  }
-
-  // === Legacy Direct Path Methods Implementation ===
-
-  @override
-  Future<void> setModelPath(String path, {String? loraPath}) async {
-    await _ensureInitialized();
-
-    final spec = InferenceModelSpec.fromLegacyUrl(
-      name: ModelFileSystemManager.getBaseName(path.split('/').last),
-      modelUrl: 'file://$path',
-      loraUrl: loraPath != null ? 'file://$loraPath' : null,
-    );
-
-    final release = await _ensureModelReadySpec(spec);
-    await _activateModel(spec);
-    await release.run(this, spec);
-  }
 
   @override
   Future<void> clearModelCache() async {
@@ -1554,11 +1441,6 @@ class MobileModelManager extends ModelFileManager
   /// Gets the currently active TTS model specification
   @override
   ModelSpec? get activeTtsModel => _activeTtsModel;
-
-  /// Gets the currently active model specification (backward compatibility)
-  @Deprecated('Use activeInferenceModel or activeEmbeddingModel instead')
-  ModelSpec? get currentActiveModel =>
-      _activeInferenceModel ?? _activeEmbeddingModel;
 
   Future<void> _activateModel(ModelSpec spec) async {
     if (spec is InferenceModelSpec) {
@@ -1675,71 +1557,6 @@ class MobileModelManager extends ModelFileManager
     } catch (e, stackTrace) {
       edgeAiLog('[ModelManager] persistActiveTtsIdentity failed: $e');
       Error.throwWithStackTrace(e, stackTrace);
-    }
-  }
-
-  @override
-  Future<void> setLoraWeightsPath(String path) async {
-    await _ensureInitialized();
-
-    if (_activeInferenceModel == null) {
-      throw Exception(
-        'No active inference model to apply LoRA weights to. Use setModelPath first.',
-      );
-    }
-
-    // Create updated spec with new LoRA path
-    final current = _activeInferenceModel as InferenceModelSpec;
-    final updatedSpec = InferenceModelSpec.fromLegacyUrl(
-      name: current.name,
-      modelUrl: current.modelUrl,
-      loraUrl: path.startsWith('/') ? 'file://$path' : path,
-      replacePolicy: current.replacePolicy,
-    );
-
-    final release = await _ensureModelReadySpec(updatedSpec);
-    await _activateModel(updatedSpec);
-    await release.run(this, updatedSpec);
-  }
-
-  @override
-  Future<void> deleteLoraWeights() async {
-    await _ensureInitialized();
-
-    if (_activeInferenceModel == null) {
-      throw Exception('No active inference model to remove LoRA weights from');
-    }
-
-    // Create updated spec without LoRA
-    final current = _activeInferenceModel as InferenceModelSpec;
-    final updatedSpec = InferenceModelSpec.fromLegacyUrl(
-      name: current.name,
-      modelUrl: current.modelUrl,
-      loraUrl: null, // Remove LoRA
-      replacePolicy: current.replacePolicy,
-    );
-
-    final release = await _ensureModelReadySpec(updatedSpec);
-    await _activateModel(updatedSpec);
-    await release.run(this, updatedSpec);
-  }
-
-  // === Legacy Model Management Implementation ===
-
-  @override
-  Future<void> deleteCurrentModel() async {
-    await _ensureInitialized();
-
-    // Delete active inference model if exists
-    if (_activeInferenceModel != null) {
-      await deleteModel(_activeInferenceModel!);
-      _activeInferenceModel = null;
-    }
-
-    // Delete active embedding model if exists
-    if (_activeEmbeddingModel != null) {
-      await deleteModel(_activeEmbeddingModel!);
-      _activeEmbeddingModel = null;
     }
   }
 

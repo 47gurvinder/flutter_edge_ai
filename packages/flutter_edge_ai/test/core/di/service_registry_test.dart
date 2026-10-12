@@ -26,9 +26,6 @@ class MockFileSystemService implements FileSystemService {
   Future<int> getFileSize(String path) async => 0;
 
   @override
-  Future<String> getTargetPath(String filename) async => '';
-
-  @override
   Future<String> getReadTargetPath(String filename) async => '';
 
   @override

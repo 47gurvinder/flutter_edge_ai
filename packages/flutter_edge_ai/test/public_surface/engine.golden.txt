@@ -100,7 +100,6 @@ SkillExecutorProvider class abstract
 SkillExecutorRegistry class
 SpeechRecognizer class abstract
 SpeechSynthesizer class abstract
-StopTokenFilter class deprecated
 StorageStats class
 SttBackendProvider class abstract
 SttInstallation class

@@ -974,17 +974,20 @@ void main() {
   // Mobile (Android, iOS) skips this group entirely — Documents is
   // sandboxed there and never cloud-synced.
   group('Desktop storage path (#179)', () {
-    testWidgets('getTargetPath resolves into Application Support', (t) async {
+    testWidgets('getWriteTargetPath resolves into Application Support', (
+      t,
+    ) async {
       if (Platform.isAndroid || Platform.isIOS) {
         print('[Desktop storage] SKIP: mobile path unchanged');
         return;
       }
 
       // No install required — we just inspect what path the plugin would
-      // hand back for a synthetic filename. This is the exact call site
-      // that NetworkSourceHandler / fromNetwork uses to decide where to
-      // write the downloaded bytes (and that getActiveModel uses to
-      // locate the model file at inference time).
+      // hand back for a synthetic filename. getWriteTargetPath is the exact
+      // call site that NetworkSourceHandler / fromNetwork uses to decide
+      // where to write the downloaded bytes; getReadTargetPath is what
+      // getActiveModel uses to locate the model file at inference time, and
+      // for a file with no pre-0.15.1 copy in Documents the two agree.
       //
       // Routing through ServiceRegistry mirrors the plugin's own
       // dependency-injection order, so we exercise the production path,
@@ -992,7 +995,12 @@ void main() {
       final fs = ServiceRegistry.instance.fileSystemService;
       final filename =
           'storage_path_probe_${DateTime.now().millisecondsSinceEpoch}.litertlm';
-      final resolved = await fs.getTargetPath(filename);
+      final resolved = await fs.getWriteTargetPath(filename);
+      expect(
+        await fs.getReadTargetPath(filename),
+        resolved,
+        reason: 'read and write targets must agree when no legacy copy exists',
+      );
 
       final docsDir = await getApplicationDocumentsDirectory();
       final supportDir = await getApplicationSupportDirectory();

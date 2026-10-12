@@ -532,16 +532,6 @@ void main() {
       expect(await sourceOf('model.task'), FileSource(picked.path));
     });
 
-    test('so does the legacy setModelPath', () async {
-      final copy = await downloaded();
-      final picked = userFile('p/model.task', _model(2));
-
-      // ignore: deprecated_member_use_from_same_package
-      await FlutterEdgeAiPlugin.instance.modelManager.setModelPath(picked.path);
-
-      expect(copy.existsSync(), isFalse);
-    });
-
     test('reports a failed install as a ModelStorageException', () async {
       downloads.fail = true;
 

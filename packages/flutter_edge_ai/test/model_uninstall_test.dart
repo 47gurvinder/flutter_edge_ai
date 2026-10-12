@@ -34,9 +34,6 @@ class MockFileSystemService implements FileSystemService {
       _files.contains(path) ? 1024 : 0;
 
   @override
-  Future<String> getTargetPath(String filename) async => '/models/$filename';
-
-  @override
   Future<String> getReadTargetPath(String filename) async =>
       '/models/$filename';
 

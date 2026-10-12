@@ -84,7 +84,6 @@ SessionMetrics class
 SkillExecutorProvider class abstract
 SpeechRecognizer class abstract
 SpeechSynthesizer class abstract
-StopTokenFilter class deprecated
 StorageStats class
 SttBackendProvider class abstract
 SttInstallation class

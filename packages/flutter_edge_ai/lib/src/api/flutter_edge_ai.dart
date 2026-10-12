@@ -116,8 +116,6 @@ class FlutterEdgeAi {
   ///   - streaming: OPFS with streaming (for models >2GB like E4B, 7B, 27B)
   ///   - none: No caching (ephemeral, for development)
   ///   Note: This parameter only affects web platform, ignored on mobile
-  /// - [enableWebCache]: DEPRECATED - Use webStorageMode instead.
-  ///   Converts to webStorageMode internally; still accepted in 2.0.
   ///
   /// Example:
   /// ```dart
@@ -139,7 +137,6 @@ class FlutterEdgeAi {
     String? huggingFaceToken,
     int maxDownloadRetries = 10,
     WebStorageMode webStorageMode = WebStorageMode.cacheApi,
-    @Deprecated('Use webStorageMode instead.') bool? enableWebCache,
     // Opt-in registration. Engines/backends are FULLY opt-in: core registers
     // NONE by default. Pass the providers from the packages you use, e.g.
     // `LiteRtLmEngine()` (flutter_edge_ai_litertlm), `MediaPipeEngine()`
@@ -195,15 +192,10 @@ class FlutterEdgeAi {
     /// implementation from your app or tests.
     FileSystemService? fileSystemService,
   }) async {
-    // Migration: enableWebCache takes precedence if provided (for backward compatibility)
-    final effectiveStorageMode = enableWebCache != null
-        ? (enableWebCache ? WebStorageMode.cacheApi : WebStorageMode.none)
-        : webStorageMode;
-
     await ServiceRegistry.initialize(
       huggingFaceToken: huggingFaceToken,
       maxDownloadRetries: maxDownloadRetries,
-      webStorageMode: effectiveStorageMode,
+      webStorageMode: webStorageMode,
       downloadUpdatesStream: downloadUpdatesStream,
       fileSystemService: fileSystemService,
     );

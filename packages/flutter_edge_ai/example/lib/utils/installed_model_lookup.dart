@@ -1,37 +1,10 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
-// ignore: implementation_imports — example app resolves installed files through core's model repository (no public API)
-import 'package:flutter_edge_ai/src/di/service_registry.dart'
-    show ServiceRegistry;
 import 'package:flutter_edge_ai_example/models/base_model.dart';
 import 'package:flutter_edge_ai_example/models/embedding_model.dart'
     as example_embedding;
 import 'package:flutter_edge_ai_example/models/model.dart';
 import 'package:flutter_edge_ai_example/models/translate_model.dart';
 import 'package:flutter_edge_ai_example/services/embedding_catalog_provenance.dart';
-
-/// Resolves the on-disk path (or web URL) for an installed model file.
-Future<String> resolveInstalledModelPath(String installedId) async {
-  final registry = ServiceRegistry.instance;
-  final info = await registry.modelRepository.loadModel(installedId);
-  final source = info?.source;
-  if (source != null) {
-    switch (source) {
-      case FileSource(:final path):
-        return path;
-      case NetworkSource(:final url) when kIsWeb:
-        return url;
-      case AssetSource(:final path) when kIsWeb:
-        return path;
-      case BundledSource(:final resourceName):
-        return registry.fileSystemService.getBundledResourcePath(resourceName);
-      case NetworkSource():
-      case AssetSource():
-        break;
-    }
-  }
-  return registry.fileSystemService.getReadTargetPath(installedId);
-}
 
 bool isInferenceOrTranslationArtifact(String id) {
   final lower = id.toLowerCase();

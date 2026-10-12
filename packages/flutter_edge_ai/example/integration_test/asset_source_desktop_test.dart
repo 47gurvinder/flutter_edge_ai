@@ -53,7 +53,7 @@ void main() {
     // On desktop this is Application Support/flutter_edge_ai/ (not Documents),
     // so we ask FileSystemService for the correct expected path.
     final expectedPath = await ServiceRegistry.instance.fileSystemService
-        .getTargetPath(fixtureBasename);
+        .getWriteTargetPath(fixtureBasename);
     final installed = File(expectedPath);
     expect(
       installed.existsSync(),

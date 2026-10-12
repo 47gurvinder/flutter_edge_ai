@@ -154,10 +154,16 @@ void main() {
         ).fromAsset(assetPath).install();
 
         // Resolve the expected path through FileSystemService — this is the fix:
-        // both the writer (AssetSourceHandler via writeFile) and this reader use
-        // the same getTargetPath() call.
-        final expectedPath = await ServiceRegistry.instance.fileSystemService
-            .getTargetPath(assetBasename);
+        // the writer (AssetSourceHandler via writeFile) uses
+        // getWriteTargetPath(), the validator (isModelInstalled) uses
+        // getReadTargetPath(), and both must name the same file.
+        final fileSystem = ServiceRegistry.instance.fileSystemService;
+        final expectedPath = await fileSystem.getReadTargetPath(assetBasename);
+        expect(
+          await fileSystem.getWriteTargetPath(assetBasename),
+          expectedPath,
+          reason: 'The writer and the validator must resolve the same path',
+        );
         final installedFile = File(expectedPath);
 
         expect(
@@ -165,7 +171,7 @@ void main() {
           isTrue,
           reason:
               'AssetSource must write to the path reported by '
-              'FileSystemService.getTargetPath()',
+              'FileSystemService.getReadTargetPath()',
         );
         expect(
           installedFile.lengthSync(),
@@ -180,7 +186,8 @@ void main() {
           p.dirname(expectedPath),
           equals(storageDir),
           reason:
-              'getTargetPath() parent must equal getModelStorageDirectory()',
+              'getReadTargetPath() parent must equal '
+              'getModelStorageDirectory()',
         );
 
         await FlutterEdgeAi.uninstallModel(assetBasename);

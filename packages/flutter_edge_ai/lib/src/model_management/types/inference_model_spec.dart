@@ -1,5 +1,27 @@
 part of '../model_specs.dart';
 
+/// Maps a legacy URL string to a [ModelSource]: `http(s)://` is a network
+/// source, `asset://` an asset, `native://` a bundled resource, `file://` a
+/// file, and a schemeless string an asset.
+///
+/// The deprecated [InferenceModelSpec.fromLegacyUrl] builds its sources here
+/// until its removal in 2.5.0. Not exported.
+@internal
+ModelSource modelSourceFromLegacyUrl(String url) {
+  if (url.startsWith('https://') || url.startsWith('http://')) {
+    return ModelSource.network(url);
+  } else if (url.startsWith('asset://')) {
+    return ModelSource.asset(url.replaceFirst('asset://', ''));
+  } else if (url.startsWith('native://')) {
+    return ModelSource.bundled(url.replaceFirst('native://', ''));
+  } else if (url.startsWith('file://')) {
+    return ModelSource.file(url.replaceFirst('file://', ''));
+  } else {
+    // Schemeless = asset for backward compatibility
+    return ModelSource.asset(url);
+  }
+}
+
 /// Model file for inference models (.bin, .task files)
 class InferenceModelFile extends ModelFile {
   final ModelSource _source;
@@ -208,7 +230,18 @@ class InferenceModelSpec extends ModelSpec {
     }
   }
 
-  /// Legacy compatibility constructor for String URLs
+  /// Legacy compatibility constructor for String URLs.
+  ///
+  /// `http(s)://` becomes a network source, `asset://` an asset, `native://` a
+  /// bundled resource, `file://` a file, and a schemeless string an asset.
+  @Deprecated(
+    'Use InferenceModelSpec(modelSource: …, modelType: …) with the source '
+    'that matches the URL: ModelSource.network(url) for http(s)://, '
+    'ModelSource.asset(path) for asset:// or a bare path, '
+    'ModelSource.bundled(name) for native://, ModelSource.file(path) for '
+    'file://. This factory defaulted to modelType: ModelType.general; pass '
+    'it explicitly. Removed in 2.5.0.',
+  )
   factory InferenceModelSpec.fromLegacyUrl({
     required String name,
     required String modelUrl,
@@ -219,8 +252,8 @@ class InferenceModelSpec extends ModelSpec {
   }) {
     return InferenceModelSpec(
       name: name,
-      modelSource: _urlToSource(modelUrl),
-      loraSource: loraUrl != null ? _urlToSource(loraUrl) : null,
+      modelSource: modelSourceFromLegacyUrl(modelUrl),
+      loraSource: loraUrl != null ? modelSourceFromLegacyUrl(loraUrl) : null,
       replacePolicy: replacePolicy,
       modelType: modelType,
       fileType: fileType,
@@ -263,39 +296,6 @@ class InferenceModelSpec extends ModelSpec {
   ModelSource? get loraSource => _loraSource;
   ModelType get modelType => _modelType;
   ModelFileType get fileType => _fileType;
-
-  /// Legacy getters for backward compatibility (WEB PLATFORM ONLY)
-  @Deprecated('Use modelSource instead. Web platform compatibility only.')
-  String get modelUrl => _sourceToUrl(_modelSource);
-
-  @Deprecated('Use loraSource instead. Web platform compatibility only.')
-  String? get loraUrl => _loraSource != null ? _sourceToUrl(_loraSource) : null;
-
-  /// Converts ModelSource to legacy URL string (for web platform compatibility)
-  static String _sourceToUrl(ModelSource source) {
-    return switch (source) {
-      NetworkSource(:final url) => url,
-      AssetSource(:final path) => 'asset://$path',
-      BundledSource(:final resourceName) => 'native://$resourceName',
-      FileSource(:final path) => 'file://$path',
-    };
-  }
-
-  /// Converts legacy URL string to ModelSource (for fromLegacyUrl constructor)
-  static ModelSource _urlToSource(String url) {
-    if (url.startsWith('https://') || url.startsWith('http://')) {
-      return ModelSource.network(url);
-    } else if (url.startsWith('asset://')) {
-      return ModelSource.asset(url.replaceFirst('asset://', ''));
-    } else if (url.startsWith('native://')) {
-      return ModelSource.bundled(url.replaceFirst('native://', ''));
-    } else if (url.startsWith('file://')) {
-      return ModelSource.file(url.replaceFirst('file://', ''));
-    } else {
-      // Schemeless = asset for backward compatibility
-      return ModelSource.asset(url);
-    }
-  }
 
   /// Value signature of the directory bundle (ordered member filenames), or
   /// null for a single-file model. Folded into [==]/[hashCode] so two directory

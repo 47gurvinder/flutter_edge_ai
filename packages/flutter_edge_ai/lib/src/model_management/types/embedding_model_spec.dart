@@ -120,21 +120,6 @@ class EmbeddingModelSpec extends ModelSpec {
     _rejectEmbeddingFilenameCollision(this);
   }
 
-  /// Legacy compatibility constructor for String URLs
-  factory EmbeddingModelSpec.fromLegacyUrl({
-    required String name,
-    required String modelUrl,
-    required String tokenizerUrl,
-    ModelReplacePolicy replacePolicy = ModelReplacePolicy.keep,
-  }) {
-    return EmbeddingModelSpec(
-      name: name,
-      modelSource: InferenceModelSpec._urlToSource(modelUrl),
-      tokenizerSource: InferenceModelSpec._urlToSource(tokenizerUrl),
-      replacePolicy: replacePolicy,
-    );
-  }
-
   @override
   ModelManagementType get type => ModelManagementType.embedding;
 
@@ -167,13 +152,6 @@ class EmbeddingModelSpec extends ModelSpec {
   ModelSource get tokenizerSource => _tokenizerSource;
   String? get modelFilename => _modelFilename;
   String? get tokenizerFilename => _tokenizerFilename;
-
-  /// Legacy getters for backward compatibility (WEB PLATFORM ONLY)
-  @Deprecated('Use modelSource instead. Web platform compatibility only.')
-  String get modelUrl => InferenceModelSpec._sourceToUrl(_modelSource);
-
-  @Deprecated('Use tokenizerSource instead. Web platform compatibility only.')
-  String get tokenizerUrl => InferenceModelSpec._sourceToUrl(_tokenizerSource);
 
   @override
   bool operator ==(Object other) {

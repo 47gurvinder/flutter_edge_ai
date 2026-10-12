@@ -44,12 +44,6 @@ class FunctionCallParser {
     ).isFunctionCallStart(buffer);
   }
 
-  /// DEPRECATED: Use isFunctionCallStart instead
-  @Deprecated('Use isFunctionCallStart with modelType parameter')
-  static bool isJsonStart(String buffer) {
-    return isFunctionCallStart(buffer);
-  }
-
   /// Checks if buffer looks definitely like text (not a function call)
   static bool isDefinitelyText(String buffer, {ModelType? modelType}) {
     return FunctionCallFormatFactory.create(modelType).isDefinitelyText(buffer);
@@ -60,12 +54,6 @@ class FunctionCallParser {
     return FunctionCallFormatFactory.create(
       modelType,
     ).isFunctionCallComplete(buffer);
-  }
-
-  /// DEPRECATED: Use isFunctionCallComplete instead
-  @Deprecated('Use isFunctionCallComplete with modelType parameter')
-  static bool isJsonComplete(String buffer) {
-    return isFunctionCallComplete(buffer);
   }
 
   /// Parse a single function call based on model type

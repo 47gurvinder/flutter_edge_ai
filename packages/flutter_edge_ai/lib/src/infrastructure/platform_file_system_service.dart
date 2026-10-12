@@ -104,12 +104,6 @@ class PlatformFileSystemService implements FileSystemService {
     return newPath;
   }
 
-  @Deprecated(
-    'Use getReadTargetPath for reads or getWriteTargetPath for writes',
-  )
-  @override
-  Future<String> getTargetPath(String filename) => getReadTargetPath(filename);
-
   @override
   Future<String> getModelStorageDirectory() async {
     final dir = await _getDocumentsDirectory();
