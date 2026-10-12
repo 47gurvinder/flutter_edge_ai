@@ -384,7 +384,7 @@ enum EmbeddingModel implements EmbeddingModelInterface {
   final bool embedsImages;
 
   /// Whether the model embeds audio (a bundle with an audio encoder; native
-  /// platforms only).
+  /// platforms, and the web from flutter_edge_ai_litertlm 1.13.2).
   final bool embedsAudio;
 
   /// The Qualcomm SoC a per-SoC EmbeddingGemma 2 bundle is compiled for, or
