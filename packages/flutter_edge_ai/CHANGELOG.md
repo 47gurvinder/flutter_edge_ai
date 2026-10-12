@@ -1,3 +1,12 @@
+## 2.3.0
+- `getActiveModel` waits for a closing model to finish, then builds the next one.
+- A LoRA added to an installed model is downloaded, and `getActiveModel` reloads the model.
+- No installed model throws `NoActiveModelError`, a `StateError` callers can tell apart.
+- **Breaking for `implements InferenceModel`:** add `isClosed`; `extends` inherits the default.
+
+## 2.2.1
+- Web reuses the loaded model when the active model and arguments are unchanged.
+
 ## 2.2.0
 - **Breaking:** unset sampling values come from the model file, then its family, not greedy `topK: 1` (#572).
 

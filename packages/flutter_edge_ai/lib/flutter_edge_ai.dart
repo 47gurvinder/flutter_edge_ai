@@ -53,6 +53,7 @@ export 'src/registry/hugging_face_resolver.dart'
 
 export 'src/domain/platform_types.dart'
     show ActivationDataType, PreferredBackend;
+export 'src/domain/no_active_model_error.dart' show NoActiveModelError;
 export 'src/message.dart' show Message, MessageType;
 export 'src/model.dart' show ModelFileType, ModelType;
 // Sampling a session asks for, and the fully resolved set an engine sends.
