@@ -160,6 +160,14 @@ For precomputed batches, generate with `TaskType.retrievalDocument`, then use
 it is required for qdrant durability, a Web SQLite durability fence, and a
 no-op on native SQLite.
 
+Chunk text below the embedder's input limit,
+`(await FlutterEdgeAi.getActiveEmbedder()).maxInputTokens` — 256 tokens for the
+EmbeddingGemma seq256 file above, task prefix, BOS and EOS included. A longer
+chunk or query is never truncated: `addText` and `searchText` throw
+`EmbeddingInputTooLongException`, whose `maxInputTokens` and `actualTokens`
+say by how much. A null `maxInputTokens` means the model file declares no
+limit.
+
 ## Vector-only and custom embedders
 
 RAG can run without `FlutterEdgeAi.initialize()`.
@@ -366,13 +374,18 @@ location.
 
 - Copy `web/rag/sqlite3.wasm` from `flutter_edge_ai_sqlite` to the same path in
   the app. Copy the four matching LiteRT embedding files from
-  `flutter_edge_ai_litertlm/web/` when that runtime is used.
+  `flutter_edge_ai_litertlm/web/` when that runtime is used, and copy them
+  again after upgrading it: a stale `litert_embeddings.js` fails
+  `getActiveEmbedder()` with an `EmbeddingLoadException` that names the file.
 - A filter with no effect usually names a field omitted from `filterSchema`.
   SQLite names must match `^[A-Za-z][A-Za-z0-9_]*$` and avoid reserved columns.
 - A profile mismatch means model/preprocessing bytes changed or the wrong
   location was opened. Do not bypass it; choose the correct profile/location.
 - A first `addVector` on an empty store needs `embeddingProfile`; raw numbers
   cannot identify their embedding space.
+- `EmbeddingInputTooLongException` from `addText` or `searchText`: the text is
+  longer than the embedder's `maxInputTokens`. Split it into smaller chunks;
+  older releases truncated it silently.
 - A text operation using the default embedder needs `activeEmbedderProfileId`
   on `open()`. `open()` pins the embedder that is active at that moment:
   install the embedder before opening the index, and after switching embedders

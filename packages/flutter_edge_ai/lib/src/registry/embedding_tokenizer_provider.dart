@@ -41,8 +41,8 @@ abstract class EmbeddingTokenizerProvider {
   /// the factory below — not here, where the file has not been read yet.
   bool canHandle(EmbeddingModelSpec spec);
 
-  /// A top-level function tear-off, never a closure over instance state: the
-  /// worker sends this across an isolate boundary, and a closure would not
-  /// survive the trip.
+  /// A top-level function tear-off, never a closure over instance state: on
+  /// native core sends it into its embedding worker isolate, and a closure
+  /// would not survive the trip.
   EmbeddingTokenizerFactory get factory;
 }

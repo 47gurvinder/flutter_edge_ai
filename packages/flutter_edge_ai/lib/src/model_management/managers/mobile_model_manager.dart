@@ -426,19 +426,28 @@ class MobileModelManager extends ModelFileManager
     if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
     final encodedRecord = lease.encodedRecord;
     if (encodedRecord != null) {
-      final record = ActiveEmbeddingIdentityRecord.tryDecode(encodedRecord);
+      final decoded = ActiveEmbeddingIdentityRecord.decode(encodedRecord);
+      final record = decoded.record;
       if (record != null) {
         if (!record.active) return;
         // Each file is found through its own repository record, as for
         // inference and STT. An uninstall keeps a `fromFile` file, so the file
         // being there does not mean the embedder still is; its records do.
+        // A self-contained record (schema v2, a .litertlm bundle) has no
+        // tokenizer file to find.
         final modelPath = await _installedFileLocation(record.modelFilename!);
         if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
-        final tokenizerPath = await _installedFileLocation(
-          record.tokenizerFilename!,
-        );
-        if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
-        if (modelPath == null || tokenizerPath == null) {
+        String? tokenizerPath;
+        if (!record.isSelfContained) {
+          tokenizerPath = await _installedFileLocation(
+            record.tokenizerFilename!,
+          );
+          if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) {
+            return;
+          }
+        }
+        if (modelPath == null ||
+            (!record.isSelfContained && tokenizerPath == null)) {
           edgeAiLog(
             '[ModelManager] active embedding record: ${record.modelFilename} '
             'or ${record.tokenizerFilename} is not installed or missing — '
@@ -448,7 +457,9 @@ class MobileModelManager extends ModelFileManager
         }
         final restoredSpec = record.toSpec(
           runtimeModelSource: FileSource(modelPath),
-          runtimeTokenizerSource: FileSource(tokenizerPath),
+          runtimeTokenizerSource: tokenizerPath == null
+              ? null
+              : FileSource(tokenizerPath),
         );
         if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
         _publishCommittedEmbeddingSpec(restoredSpec, lease.generation);
@@ -461,6 +472,9 @@ class MobileModelManager extends ModelFileManager
       edgeAiLog(
         '[ModelManager] active embedding record malformed or unsupported — '
         'failing closed',
+      );
+      reportRejectedActiveEmbeddingIdentity(
+        decoded.rejection ?? 'it could not be decoded',
       );
       return;
     }
@@ -521,30 +535,43 @@ class MobileModelManager extends ModelFileManager
       return;
     }
 
-    final runtimeSpec = EmbeddingModelSpec(
-      name: modelFilename,
-      modelSource: FileSource(modelPath),
-      tokenizerSource: FileSource(tokenizerPath),
-      modelFilename: modelFilenameExplicit ? modelFilename : null,
-      tokenizerFilename: tokenizerFilenameExplicit
-          ? effectiveTokenizerFilename
-          : null,
-    );
-    final originalModelSource = ModelSource.tryDecode(
-      prefs.getString(PreferencesKeys.activeEmbeddingSource) ?? '',
-    );
-    final originalTokenizerSource = ModelSource.tryDecode(
-      prefs.getString(PreferencesKeys.activeEmbeddingTokenizerSource) ?? '',
-    );
-    final identitySpec = EmbeddingModelSpec(
-      name: modelFilename,
-      modelSource: originalModelSource ?? runtimeSpec.modelSource,
-      tokenizerSource: originalTokenizerSource ?? runtimeSpec.tokenizerSource,
-      modelFilename: modelFilenameExplicit ? modelFilename : null,
-      tokenizerFilename: tokenizerFilenameExplicit
-          ? effectiveTokenizerFilename
-          : null,
-    );
+    // The 2.3 spec rules can refuse what 2.2 wrote under these keys (a
+    // .litertlm paired with a tokenizer). Fail closed and say why, as the
+    // record path does — never let it escape and skip the restores after it.
+    final EmbeddingModelSpec runtimeSpec;
+    final EmbeddingModelSpec identitySpec;
+    try {
+      runtimeSpec = EmbeddingModelSpec(
+        name: modelFilename,
+        modelSource: FileSource(modelPath),
+        tokenizerSource: FileSource(tokenizerPath),
+        modelFilename: modelFilenameExplicit ? modelFilename : null,
+        tokenizerFilename: tokenizerFilenameExplicit
+            ? effectiveTokenizerFilename
+            : null,
+      );
+      final originalModelSource = ModelSource.tryDecode(
+        prefs.getString(PreferencesKeys.activeEmbeddingSource) ?? '',
+      );
+      final originalTokenizerSource = ModelSource.tryDecode(
+        prefs.getString(PreferencesKeys.activeEmbeddingTokenizerSource) ?? '',
+      );
+      identitySpec = EmbeddingModelSpec(
+        name: modelFilename,
+        modelSource: originalModelSource ?? runtimeSpec.modelSource,
+        tokenizerSource: originalTokenizerSource ?? runtimeSpec.tokenizerSource,
+        modelFilename: modelFilenameExplicit ? modelFilename : null,
+        tokenizerFilename: tokenizerFilenameExplicit
+            ? effectiveTokenizerFilename
+            : null,
+      );
+    } on ArgumentError catch (e) {
+      reportRejectedActiveEmbeddingIdentity(
+        'its pre-2.3 identity keys name a model the 2.3 rules refuse: '
+        '${e.message}',
+      );
+      return;
+    }
     if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
     final mutation = _activeEmbeddingIdentityCoordinator.enqueueOrThrow(
       ActiveEmbeddingIdentityRecord.fromSpec(identitySpec),
@@ -1244,49 +1271,46 @@ class MobileModelManager extends ModelFileManager
   Future<Map<String, String>?> getModelFilePaths(ModelSpec spec) async {
     await _ensureInitialized();
 
-    try {
-      if (!await isModelInstalled(spec)) {
-        return null;
-      }
-
-      final filePaths = <String, String>{};
-
-      final registry = ServiceRegistry.instance;
-      final fileSystem = registry.fileSystemService;
-
-      for (final file in spec.files) {
-        // Get path based on source type
-        final String path;
-        if (file is DirectoryBundleFile) {
-          // Directory (ORT-GenAI) member: its identity is the explicit subpath
-          // `<modelId>/<bareLeaf>` under the model storage dir — resolve by
-          // filename regardless of the carrier source type (a restored bundle
-          // may carry a network/file source, but the on-disk location is always
-          // the subdir).
-          path = await ModelFileSystemManager.getModelFilePath(file.filename);
-        } else if (file.source is FileSource) {
-          // External file - use path from source
-          path = (file.source as FileSource).path;
-        } else if (file.source is BundledSource) {
-          // Bundled source - get platform-specific bundled path
-          final bundledSource = file.source as BundledSource;
-          path = await fileSystem.getBundledResourcePath(
-            bundledSource.resourceName,
-          );
-        } else {
-          // Downloaded/Asset file - use standard app directory
-          path = await ModelFileSystemManager.getModelFilePath(file.filename);
-        }
-        filePaths[file.prefsKey] = path;
-      }
-
-      return filePaths;
-    } catch (e) {
-      edgeAiLog(
-        'UnifiedModelManager: Failed to get file paths for ${spec.name}: $e',
-      );
+    // Null means "not installed" and nothing else. A lookup that FAILS — the
+    // repository or the file system throwing — surfaces its own error: turned
+    // into null it read as a missing model, and the caller was told to
+    // install something that was installed all along.
+    if (!await _isModelInstalled(spec)) {
       return null;
     }
+
+    final filePaths = <String, String>{};
+
+    final registry = ServiceRegistry.instance;
+    final fileSystem = registry.fileSystemService;
+
+    for (final file in spec.files) {
+      // Get path based on source type
+      final String path;
+      if (file is DirectoryBundleFile) {
+        // Directory (ORT-GenAI) member: its identity is the explicit subpath
+        // `<modelId>/<bareLeaf>` under the model storage dir — resolve by
+        // filename regardless of the carrier source type (a restored bundle
+        // may carry a network/file source, but the on-disk location is always
+        // the subdir).
+        path = await ModelFileSystemManager.getModelFilePath(file.filename);
+      } else if (file.source is FileSource) {
+        // External file - use path from source
+        path = (file.source as FileSource).path;
+      } else if (file.source is BundledSource) {
+        // Bundled source - get platform-specific bundled path
+        final bundledSource = file.source as BundledSource;
+        path = await fileSystem.getBundledResourcePath(
+          bundledSource.resourceName,
+        );
+      } else {
+        // Downloaded/Asset file - use standard app directory
+        path = await ModelFileSystemManager.getModelFilePath(file.filename);
+      }
+      filePaths[file.prefsKey] = path;
+    }
+
+    return filePaths;
   }
 
   /// Creates a bundled inference model specification (for production builds)

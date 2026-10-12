@@ -1,5 +1,4 @@
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
-import 'package:flutter_edge_ai_example/models/base_model.dart';
 import 'package:flutter_edge_ai_example/models/embedding_model.dart'
     as example_embedding;
 import 'package:flutter_edge_ai_example/models/model.dart';
@@ -81,43 +80,11 @@ String? activeEmbeddingModelId() {
 /// Both sources must match a catalog entry. This deliberately refuses custom
 /// files and stale mutable URLs: a filename, path, URL, or vector dimension is
 /// not enough to prove that two embeddings inhabit the same space.
-String? embeddingProfileIdForSpec(EmbeddingModelSpec spec) {
-  for (final model in example_embedding.EmbeddingModel.values) {
-    final files = spec.files;
-    if (files.length == 2 &&
-        files[0].filename == model.filename &&
-        files[1].filename == model.tokenizerFilename &&
-        _sourceMatchesCatalogModel(
-          spec.modelSource,
-          model.url,
-          model.sourceType,
-        ) &&
-        _sourceMatchesCatalogModel(
-          spec.tokenizerSource,
-          model.tokenizerUrl,
-          model.sourceType,
-        )) {
-      return model.ragProfileId;
-    }
-  }
-  return null;
-}
+String? embeddingProfileIdForSpec(EmbeddingModelSpec spec) =>
+    embeddingCatalogProfileForSpec(spec);
 
 Future<String?> activeEmbeddingProfileId() =>
     resolveActiveEmbeddingCatalogProfile();
-
-bool _sourceMatchesCatalogModel(
-  ModelSource source,
-  String catalogLocation,
-  ModelSourceType sourceType,
-) => switch ((source, sourceType)) {
-  (NetworkSource(:final url), ModelSourceType.network) =>
-    url == catalogLocation,
-  (AssetSource(:final path), ModelSourceType.asset) => path == catalogLocation,
-  (BundledSource(:final resourceName), ModelSourceType.bundled) =>
-    resourceName == catalogLocation,
-  _ => false,
-};
 
 /// Filenames marked active in the plugin (inference + embedding).
 Set<String> activeModelIds() {

@@ -16,7 +16,7 @@ class PlatformServiceImpl : NSObject, PlatformService, FlutterStreamHandler {
 
     // 0.15.2: embedding migrated to the shared Dart-FFI + LiteRT path
     // (today: core's `CommonEmbeddingModel` over flutter_edge_ai_litertlm's
-    // `lib/src/embedding/litert_embedding_forward_pass.dart`). The pigeon
+    // `lib/src/embedding/litert_embedding_pass.dart`). The pigeon
     // surface below is preserved for ABI continuity but no longer
     // backs the runtime path — Dart runs the embedder itself and never
     // calls these methods.
@@ -474,7 +474,7 @@ class PlatformServiceImpl : NSObject, PlatformService, FlutterStreamHandler {
 
     // 0.15.2: embedding pigeon methods dropped from PlatformService.
     // Dart talks to LiteRT C API directly via dart:ffi
-    // (flutter_edge_ai_litertlm's lib/src/embedding/litert_embedding_forward_pass.dart).
+    // (flutter_edge_ai_litertlm's lib/src/embedding/litert_embedding_pass.dart).
 
     public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         self.eventSink = events

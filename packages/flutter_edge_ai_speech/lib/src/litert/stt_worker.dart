@@ -3,7 +3,7 @@
 // teardown) and the HF tokenizer. The forward passes (`LiteRtRunCompiledModel`,
 // called once for encode and once per decode step) are blocking synchronous
 // FFI calls; running them here keeps the UI isolate's event loop free,
-// mirroring `litert_embedding_worker.dart` (#299).
+// mirroring core's embedding worker (`embedding_host_io.dart`, #299).
 //
 // Why a long-lived worker and not `Isolate.run` per call:
 //   - The compiled model is expensive to build but cheap to run, so it MUST

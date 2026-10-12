@@ -26,9 +26,10 @@ export 'src/utils/edge_ai_log.dart' show edgeAiLog, edgeAiLogLevel;
 // File naming (top-level functions over FileNameUtils, which stays internal).
 export 'src/utils/file_names.dart' show isLiteRtLmFilename, sanitizeHfDirName;
 
-// Media sniffing for LLM web arms. Pure Dart, so it is web-safe and lives here
-// rather than in engine_web.dart.
-export 'src/web/web_image_format.dart' show detectImageMimeType;
+// Media sniffing for LLM web arms (sniffEncodedMediaFormat is in the app
+// library). Pure Dart, so it is web-safe and lives here rather than in
+// engine_web.dart.
+export 'src/media/encoded_media_format.dart' show detectImageMimeType;
 
 // Inference-engine helpers. (`supportedLoraRanks` and
 // `defaultMaxFunctionBufferLength` reach engines through the app library.)
@@ -37,20 +38,15 @@ export 'src/parsing/sdk_response_parser.dart' show SdkResponseParser;
 export 'src/parsing/sdk_text_extractor.dart' show SdkTextExtractor;
 export 'src/model_management/model_specs.dart' show TtsModelTypeManifest;
 
-// Embedding seam: the contracts an embedding engine implements, the pooling
-// helper, and the worker-isolate facade core hosts them in.
-export 'src/embedding/forward_pass.dart'
-    show
-        EmbeddingForwardPass,
-        EmbeddingForwardPassFactory,
-        EmbeddingOutputContract,
-        ForwardPassDescriptor,
-        ForwardResult;
+// Embedding SPI. Core builds, hosts and closes every embedding model from
+// what a backend's describe() returns; CommonEmbeddingModel, the hosts and the
+// embedder cache stay internal.
+export 'src/embedding/embedding_pass.dart'
+    show EmbeddingPass, EmbeddingPassDescriptor, EmbeddingPassInfo;
+export 'src/embedding/token_embedding_pass.dart'
+    show TokenEmbeddingPass, TokenPassGraph;
+export 'src/embedding/forward_result.dart'
+    show EmbeddingOutputContract, ForwardResult, finalizeEmbedding;
 export 'src/embedding/pooling.dart' show meanPoolAndNormalize;
 export 'src/embedding/tokenizer_adapter.dart'
     show EmbeddingTokenizer, EmbeddingTokenizerFactory, TokenizedInput;
-// Real arm by default, web stub under js_interop: the worker needs
-// dart:isolate, and web engine arms build their own EmbeddingModel.
-export 'src/embedding/common_embedding_model.dart'
-    if (dart.library.js_interop) 'src/embedding/common_embedding_model_stub.dart'
-    show CommonEmbeddingModel;

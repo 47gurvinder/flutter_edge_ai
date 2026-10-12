@@ -1,10 +1,28 @@
 import 'dart:async';
 
+import 'package:flutter_edge_ai/src/embedding/embedding_exceptions.dart'
+    show EmbedderCloseTimeoutException;
+import 'package:flutter_edge_ai/src/embedding/embedding_model.dart'
+    show EmbeddingModel;
 import 'package:flutter_edge_ai/src/registry/runtime_config.dart'
     show ActiveEmbedderParams;
 import 'package:flutter_edge_ai/src/utils/edge_ai_log.dart';
-import 'package:flutter_edge_ai/src/interface.dart' show EmbeddingModel;
 import 'package:meta/meta.dart';
+
+/// What [EmbedderCache.reuseOrInvalidate] decided: hand out [reuse], or —
+/// when it is null — build an embedder from [build].
+final class EmbedderCacheDecision {
+  const EmbedderCacheDecision._(this.reuse, this.build);
+
+  /// The cached embedder, which serves the request as it is.
+  final EmbeddingModel? reuse;
+
+  /// What to build when [reuse] is null: the request — or, when only the
+  /// declared media differ, the cached embedder with the UNION of its media
+  /// and the request's, so declarations only ever widen (R5 §4.6 step 3).
+  /// When [reuse] is set, the params it was built from.
+  final ActiveEmbedderParams build;
+}
 
 /// The cached embedder, the rule for reusing it, and the serialisation that
 /// makes the rule mean anything.
@@ -93,7 +111,7 @@ class EmbedderCache {
   /// silently widened that window once already.
   ///
   /// Not reentrant: a [body] that calls back into the same entry point waits
-  /// for itself. Nothing in the plugin does; a backend's `createModel` that
+  /// for itself. Nothing in the plugin does; a backend's `describe()` that
   /// called `getActiveEmbedder` would.
   Future<T> serialize<T>(Future<T> Function() body) {
     final previous = _lane;
@@ -108,10 +126,28 @@ class EmbedderCache {
     return previous.then((_) => body()).whenComplete(gate.complete);
   }
 
-  /// The cached embedder when it matches [requested], else null for "build one".
+  /// The cached embedder when it can serve [requested], else what to build
+  /// (R5 §4.6):
+  ///
+  ///  1. the cached model is closed → forget it, build [requested];
+  ///  2. it serves [requested] (same identity, its media cover the request)
+  ///     → reuse it;
+  ///  3. same identity, media not covered → close it and build with the union
+  ///     of both media — an image index opening never closes a text index's
+  ///     embedder for good, and declarations only ever widen;
+  ///  4. a different identity → close it and build [requested].
   ///
   /// A mismatch closes the cached model before returning, so the caller only
-  /// ever has to handle "reuse this" or "build a new one".
+  /// ever has to handle "reuse this" or "build that".
+  ///
+  /// [prepare], when given, runs once a build is decided, with what will be
+  /// built, and BEFORE the cached model is closed for it. If it throws,
+  /// nothing is closed: the cached model stays cached and keeps serving what
+  /// it served, and the error reaches the caller. The loader has the backend
+  /// describe the pass there, so a request the backend refuses costs the app
+  /// nothing it had. What only the pass's own load can refuse (a `.litertlm`
+  /// pass reading from the bundle that a declared medium has no tower, for
+  /// one) still costs a reload — by then the old model is closed.
   ///
   /// "Build one" is never answered while a close the cache started or joined
   /// is still running, so a replacement never shares memory with the model it
@@ -124,14 +160,15 @@ class EmbedderCache {
   /// warning says so.
   ///
   /// The wait is bounded by one deadline, set when the close starts: callers
-  /// share it rather than each waiting the full limit. Past it a caller gets a
-  /// [TimeoutException] naming the model still closing, at once and until the
-  /// close finishes. That close keeps running — nothing is killed, since a
+  /// share it rather than each waiting the full limit. Past it a caller gets an
+  /// [EmbedderCloseTimeoutException] naming the model still closing, at once
+  /// and until the close finishes. That close keeps running — nothing is killed, since a
   /// killed worker never frees its native model. Unbounded, one wedged native
   /// call would hang every embedder request in the process behind [serialize].
-  Future<EmbeddingModel?> reuseOrInvalidate(
+  Future<EmbedderCacheDecision> reuseOrInvalidate(
     ActiveEmbedderParams requested, {
     required String label,
+    Future<void> Function(ActiveEmbedderParams build)? prepare,
   }) async {
     // A close that outlived an earlier caller's wait is still running. With it
     // pending there is no cached model, so this caller would build — and must
@@ -139,48 +176,90 @@ class EmbedderCache {
     await _awaitPendingClose(label);
 
     final cached = _cached;
-    if (cached == null) return null;
+    if (cached == null) {
+      await prepare?.call(requested);
+      return EmbedderCacheDecision._(null, requested);
+    }
 
     // Checked, not trusted. Eviction rides the close listener, so a model that
     // never fires one — or that was already closed when it was recorded, after
     // which `fireCloseListeners` has nothing left to call — would be handed to
-    // every later caller, and every `generateEmbedding` on it throws. Only as
-    // good as the model's own `isClosed`: the interface default is false, for
-    // implementations that predate it.
+    // every later caller, and every request on it fails. Only as good as the
+    // model's own `isClosed` — which core's CommonEmbeddingModel answers from
+    // the moment close() is called.
     if (cached.model.isClosed) {
       edgeAiLog('ℹ️  Cached embedder is closed; building a new one for $label');
       _cached = null;
       // Closed by someone else — the app, often without awaiting, or a worker
       // that died — so its teardown may still be running. `close()` again
       // joins it (CommonEmbeddingModel hands every caller the same teardown),
-      // and the rebuild waits for it like any other.
+      // and the rebuild waits for it like any other. Nothing is left to keep,
+      // so [prepare] runs after.
       await _closeAndWait(cached, label);
-      return null;
+      await prepare?.call(requested);
+      return EmbedderCacheDecision._(null, requested);
+    }
+
+    if (cached.params.canServe(requested)) {
+      edgeAiLog('ℹ️  Reusing existing embedding model instance for $label');
+      return EmbedderCacheDecision._(cached.model, cached.params);
     }
 
     final changedParam = cached.params.firstDifference(requested);
+    final ActiveEmbedderParams build;
     if (changedParam == null) {
-      edgeAiLog('ℹ️  Reusing existing embedding model instance for $label');
-      return cached.model;
+      build = cached.params.withMedia({
+        ...cached.params.media,
+        ...requested.media,
+      });
+      edgeAiLog(
+        '⚠️  Embedder for $label must also serve '
+        '${requested.media.difference(cached.params.media).map((m) => m.name).join(', ')}'
+        ' — rebuilding with ${build.media.map((m) => m.name).join(', ')}',
+      );
+    } else {
+      build = requested;
+      edgeAiLog(
+        '⚠️  Embedder config changed ($changedParam) for $label — rebuilding',
+      );
     }
-
-    edgeAiLog(
-      '⚠️  Embedder config changed ($changedParam) for $label — rebuilding',
-    );
+    // Before anything is closed: if the build cannot happen, the cached model
+    // is still the best answer there is.
+    await prepare?.call(build);
     // Dropped BEFORE the await, not after: while a close is in flight the
     // cached model is no longer a valid answer to anybody.
     _cached = null;
     edgeAiLog('🔄 Closing old embedding model and creating new one...');
     await _closeAndWait(cached, label);
-    return null;
+    return EmbedderCacheDecision._(null, build);
   }
 
   /// Starts closing [old], records it as the pending close with its deadline,
   /// and waits for it. The pending close clears itself whenever it ends,
   /// waited for or not.
   Future<void> _closeAndWait(_CachedEmbedder old, String label) async {
-    final pending = _PendingClose(old.params);
-    pending.done = _closeReportingFailure(old.model, old.params, label);
+    _track(_closeReportingFailure(old.model, old.params, label), old.params);
+    await _awaitPendingClose(label);
+  }
+
+  /// Records [cleanup] — the close of a pass whose load failed, which the
+  /// host runs behind the load's error — as the pending close: no embedder is
+  /// built until it ends, and the next caller waits for it under the same
+  /// bound as for a replaced embedder. Two native models are therefore never
+  /// resident at once, not even right after a failed load. A cleanup that
+  /// fails releases the wait (the host has already reported why).
+  void trackFailedLoadCleanup(
+    Future<void> cleanup,
+    ActiveEmbedderParams params,
+  ) => _track(
+    cleanup.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    params,
+  );
+
+  /// Makes [done] the pending close, clearing itself whenever it ends.
+  void _track(Future<void> done, ActiveEmbedderParams params) {
+    final pending = _PendingClose(params);
+    pending.done = done;
     _pendingClose = pending;
     unawaited(
       pending.done.whenComplete(() {
@@ -189,34 +268,37 @@ class EmbedderCache {
           // The callers it held were told to retry; say when that works.
           // ignore: avoid_print
           print(
-            '[flutter_edge_ai] the previous embedder (${old.params.modelPath}) '
+            '[flutter_edge_ai] the previous embedder (${params.modelPath}) '
             'finished closing after ${_seconds(pending.elapsed)}, past the '
             '${_seconds(_closeWaitLimit)} wait; embedders can be built again.',
           );
         }
       }),
     );
-    await _awaitPendingClose(label);
   }
 
   /// Waits for the pending close, if any, until its deadline — whatever is
-  /// left of it, not a fresh limit per caller.
+  /// left of it, not a fresh limit per caller. The exception's `waited` is
+  /// what this caller waited: about the limit for one that came early, zero
+  /// for one that came after the deadline.
   Future<void> _awaitPendingClose(String label) async {
     final pending = _pendingClose;
     if (pending == null) return;
     final remaining = _closeWaitLimit - pending.elapsed;
+    final waiting = Stopwatch()..start();
     try {
       if (remaining <= Duration.zero) throw TimeoutException(null);
       await pending.done.timeout(remaining);
     } on TimeoutException {
       pending.timedOutACaller = true;
-      throw TimeoutException(
+      throw EmbedderCloseTimeoutException(
         'The previous embedder (${pending.params.modelPath}) has not finished '
-        'closing after ${_seconds(_closeWaitLimit)}, so no new embedder is '
-        'built for $label: two native models must not be resident at once. '
-        'Its close keeps running — usually a native call that has not '
-        'returned — and a request made after it finishes will succeed.',
-        _closeWaitLimit,
+        'closing ${_seconds(pending.elapsed)} after it started (the limit is '
+        '${_seconds(_closeWaitLimit)}), so no new embedder is built for '
+        '$label: two native models must not be resident at once. Its close '
+        'keeps running — usually a native call that has not returned — and a '
+        'request made after it finishes will succeed.',
+        waited: waiting.elapsed,
       );
     }
   }
@@ -320,8 +402,8 @@ class _PendingClose {
   final Stopwatch _since = Stopwatch()..start();
   late final Future<void> done;
 
-  /// Set once a caller got a [TimeoutException] for this close, so its end is
-  /// announced: they were told to retry.
+  /// Set once a caller got an [EmbedderCloseTimeoutException] for this close,
+  /// so its end is announced: they were told to retry.
   bool timedOutACaller = false;
 
   Duration get elapsed => _since.elapsed;

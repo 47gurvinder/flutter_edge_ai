@@ -132,6 +132,6 @@ abstract class PlatformService {
   // 0.15.2: embedding methods removed from the pigeon contract — Android
   // and iOS now run embedding inference in Dart (today: core's
   // CommonEmbeddingModel over flutter_edge_ai_litertlm's
-  // lib/src/embedding/litert_embedding_forward_pass.dart). No platform channel
+  // lib/src/embedding/litert_embedding_pass.dart). No platform channel
   // hop on either OS.
 }

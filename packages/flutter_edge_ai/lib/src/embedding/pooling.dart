@@ -2,11 +2,11 @@
 //
 // Pure function, no engine/isolate/native dependency — the runtime-agnostic
 // half of the embedding pipeline (design doc §2). Exercised entirely with
-// fake `ForwardResult`s in `test/pooling_test.dart`.
+// fixed `ForwardResult`s in `test/embedding/pooling_test.dart`.
 
 import 'dart:math' as math;
 
-import 'forward_pass.dart';
+import 'forward_result.dart';
 
 /// Mean-pools a **token-level** [ForwardResult] over the sequence axis and
 /// L2-normalizes it into a single embedding vector of length `dim`.

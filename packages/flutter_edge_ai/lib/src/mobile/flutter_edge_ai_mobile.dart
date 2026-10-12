@@ -26,13 +26,13 @@ import '../model_management/utils/local_file.dart';
 import '../model_management/utils/download_temp_reclaim.dart';
 import '../utils/file_name_utils.dart';
 import '../registry/engine_registry.dart';
-import '../registry/embedding_registry.dart';
 import '../registry/stt_registry.dart';
 import '../registry/tts_registry.dart';
 import '../registry/runtime_config.dart';
 import '../model_management/model_specs.dart';
 import 'package:flutter_edge_ai/src/embedding/embedder_backend_notice.dart';
 import 'package:flutter_edge_ai/src/embedding/embedder_cache.dart';
+import 'package:flutter_edge_ai/src/embedding/embedder_loader.dart';
 // Re-export the spec value types so existing importers of this library (tests,
 // example, and any external code that imported the mobile lib directly) keep
 // seeing InferenceModelSpec/EmbeddingModelSpec/etc. — they used to be `part`s
@@ -231,9 +231,9 @@ class FlutterEdgeAiMobile extends FlutterEdgeAiPlugin {
 
   @override
   Future<EmbeddingModel> createEmbeddingModel({
-    String? modelPath,
-    String? tokenizerPath,
     PreferredBackend? preferredBackend,
+    bool supportImage = false,
+    bool supportAudio = false,
   }) {
     // FIRST statement, before every guard. It is idempotent and one-shot, so
     // it needs neither resolved paths nor cache state — and putting it in a
@@ -247,148 +247,15 @@ class FlutterEdgeAiMobile extends FlutterEdgeAiPlugin {
     // interleaved, two callers both finish deciding before either records a
     // model, and one of the two builds is orphaned with nobody to close it.
     return _embedderCache.serialize(
-      () => _reuseOrBuildEmbedder(
-        modelPath: modelPath,
-        tokenizerPath: tokenizerPath,
+      () => loadActiveEmbedder(
+        manager: _unifiedManager,
+        cache: _embedderCache,
         preferredBackend: preferredBackend,
+        supportImage: supportImage,
+        supportAudio: supportAudio,
+        verifyInstalled: true,
       ),
     );
-  }
-
-  /// Runs inside [EmbedderCache.serialize], so it may assume nothing else is
-  /// touching the cache while it awaits.
-  Future<EmbeddingModel> _reuseOrBuildEmbedder({
-    String? modelPath,
-    String? tokenizerPath,
-    PreferredBackend? preferredBackend,
-  }) async {
-    String label = 'explicit paths';
-
-    // Modern API: Use active embedding model if paths not provided
-    if (modelPath == null || tokenizerPath == null) {
-      final manager = _unifiedManager;
-      final activeModel = manager.activeEmbeddingModel;
-
-      // No active embedding model - user must set one first
-      if (activeModel == null) {
-        throw NoActiveModelError(
-          'No active embedding model set. Use `FlutterEdgeAi.installEmbedder()` or `modelManager.ensureModelReadyFromSpec()` first',
-        );
-      }
-
-      // Get the actual model file paths through unified system
-      final modelFilePaths = await manager.getModelFilePaths(activeModel);
-      if (modelFilePaths == null || modelFilePaths.isEmpty) {
-        throw StateError(
-          'Embedding model file paths not found. Use the `modelManager` to load the model first',
-        );
-      }
-
-      // Extract model and tokenizer paths from spec
-      final activeModelPath =
-          modelFilePaths[PreferencesKeys.embeddingModelFile];
-      final activeTokenizerPath =
-          modelFilePaths[PreferencesKeys.embeddingTokenizerFile];
-
-      if (activeModelPath == null || activeTokenizerPath == null) {
-        throw StateError(
-          'Could not find model or tokenizer path in active embedding model',
-        );
-      }
-
-      modelPath = activeModelPath;
-      tokenizerPath = activeTokenizerPath;
-      label = (activeModel as EmbeddingModelSpec).name;
-
-      edgeAiLog(
-        'Using active embedding model: $modelPath, tokenizer: $tokenizerPath',
-      );
-    }
-
-    // Both entry shapes get the SAME comparison, on the RESOLVED PATHS rather
-    // than a spec name: reinstalling a same-named embedder to a new path used
-    // to be invisible, and returning the cached singleton unconditionally on
-    // the explicit-paths side handed a caller who asked for a different model
-    // file the previous model's vectors, silently.
-    final requestedParams = ActiveEmbedderParams(
-      modelPath: modelPath,
-      tokenizerPath: tokenizerPath,
-      preferredBackend: preferredBackend,
-    );
-    final reused = await _embedderCache.reuseOrInvalidate(
-      requestedParams,
-      label: label,
-    );
-    if (reused != null) return reused;
-
-    // Verify the active model is still installed (for Modern API path)
-    final manager = _unifiedManager;
-    final activeModel = manager.activeEmbeddingModel;
-
-    if (activeModel != null) {
-      final isModelInstalled = await manager.isModelInstalled(activeModel);
-      if (!isModelInstalled) {
-        throw Exception(
-          'Active embedding model is no longer installed. Use the `modelManager` to load the model first',
-        );
-      }
-    }
-
-    try {
-      // The LiteRT embedding runtime lives in flutter_edge_ai_litertlm; core
-      // resolves paths (preamble above) + owns the singleton lifecycle, then
-      // dispatches construction through the EmbeddingRegistry. The backend
-      // reads ONLY config.modelPath/config.tokenizerPath — it ignores the spec
-      // arg for path resolution (see LiteRtEmbeddingBackend.createModel).
-      final activeSpec =
-          activeModel as EmbeddingModelSpec?; // null on legacy explicit-paths
-      final EmbeddingBackendProvider? backend = activeSpec != null
-          ? EmbeddingRegistry.instance.findFor(activeSpec)
-          : (EmbeddingRegistry.instance.registered.isNotEmpty
-                ? EmbeddingRegistry.instance.registered.first
-                : null);
-      if (backend == null) {
-        throw StateError(
-          'No embedding backend registered. Add flutter_edge_ai_litertlm to '
-          'pubspec.yaml and pass LiteRtEmbeddingBackend() in '
-          'embeddingBackends: of FlutterEdgeAi.initialize(...). Registered '
-          'backends: '
-          '${EmbeddingRegistry.instance.registered.map((b) => b.name).join(", ")}.',
-        );
-      }
-      // modelPath/tokenizerPath are non-null here (resolved in the preamble or
-      // passed by the legacy API). maxTokens is unused by embeddings.
-      final embConfig = RuntimeConfig(
-        maxTokens: 0,
-        modelPath: modelPath,
-        tokenizerPath: tokenizerPath,
-        preferredBackend: preferredBackend,
-      );
-      // The backend's createModel(spec, config) signature requires a non-null
-      // spec, but it resolves paths exclusively from config. On the legacy
-      // explicit-paths path there is no active spec, so synthesize one from the
-      // resolved file paths (FileSource, mobile/desktop only — web swaps in its
-      // own plugin) purely to satisfy the signature.
-      final specForBackend =
-          activeSpec ??
-          EmbeddingModelSpec(
-            name: 'legacy:${path.basename(modelPath)}',
-            modelSource: ModelSource.file(modelPath),
-            tokenizerSource: ModelSource.file(tokenizerPath),
-          );
-      final model = await backend.createModel(specForBackend, embConfig);
-
-      // Core owns the singleton lifecycle: the cache tracks the model, resets
-      // on close (identity-guarded) and records what it was built from, so the
-      // next caller has something to compare against.
-      await _embedderCache.adopt(model, requestedParams);
-      return model;
-    } catch (_) {
-      // FIX #170: leave no bookkeeping behind, so a retry with a different
-      // model is a fresh decision rather than a replay of this failure.
-      _embedderCache.invalidate();
-      rethrow;
-    }
   }
 
   @override

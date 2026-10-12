@@ -7,6 +7,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_edge_ai/src/domain/model_source.dart';
 import 'package:flutter_edge_ai/src/di/service_registry.dart';
@@ -91,6 +92,71 @@ void main() {
           'filename says $fromFilename but source says $fromSource — '
           'that mixed identity is what loads the wrong weights',
     );
+  });
+
+  test(
+    'a record the 2.3 rules refuse fails closed on web and says why',
+    () async {
+      await ServiceRegistry.initialize();
+      resetRejectedActiveEmbeddingIdentity();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        PreferencesKeys.activeEmbeddingIdentityRecord,
+        jsonEncode({
+          'schemaVersion': 1,
+          'active': true,
+          'name': 'eg2',
+          'modelSource': NetworkSource('https://x/eg2.litertlm').encode(),
+          'tokenizerSource': NetworkSource('https://x/t.model').encode(),
+          'modelFilename': 'eg2.litertlm',
+          'tokenizerFilename': 'eg2__t.model',
+          'modelFilenameExplicit': false,
+          'tokenizerFilenameExplicit': false,
+        }),
+      );
+
+      final manager = WebModelManager();
+      await manager.ensureInitialized();
+      expect(manager.activeEmbeddingModel, isNull);
+      expect(
+        rejectedActiveEmbeddingIdentity,
+        contains('carries its own tokenizer'),
+      );
+      resetRejectedActiveEmbeddingIdentity();
+    },
+  );
+
+  test('a self-contained (.litertlm) embedder survives a web restart (identity '
+      'v2, no tokenizer)', () async {
+    await ServiceRegistry.initialize();
+    final spec = EmbeddingModelSpec(
+      name: 'eg2',
+      modelSource: NetworkSource('https://x/embeddinggemma-2.litertlm'),
+    );
+    final repository = ServiceRegistry.instance.modelRepository;
+    await repository.saveModel(
+      repo.ModelInfo(
+        id: spec.files.single.filename,
+        source: spec.modelSource,
+        installedAt: DateTime(2026),
+        sizeBytes: 2048,
+        type: repo.ModelType.embedding,
+        hasLoraWeights: false,
+      ),
+    );
+
+    await WebModelManager().setActiveEmbeddingModel(spec);
+    final prefs = await SharedPreferences.getInstance();
+    final persisted = ActiveEmbeddingIdentityRecord.tryDecode(
+      prefs.getString(PreferencesKeys.activeEmbeddingIdentityRecord),
+    );
+    expect(persisted?.schemaVersion, 2);
+
+    final freshManager = WebModelManager();
+    await freshManager.ensureInitialized();
+    final restored = freshManager.activeEmbeddingModel as EmbeddingModelSpec;
+    expect(restored, spec);
+    expect(restored.isSelfContained, isTrue);
   });
 
   test(
@@ -386,7 +452,7 @@ void main() {
       );
       await prefs.setString(
         PreferencesKeys.activeEmbeddingTokenizerSource,
-        spec.tokenizerSource.encode(),
+        spec.tokenizerSource!.encode(),
       );
 
       for (final atomicRecord in <String>[
@@ -578,7 +644,7 @@ void main() {
     );
     await prefs.setString(
       PreferencesKeys.activeEmbeddingTokenizerSource,
-      spec.tokenizerSource.encode(),
+      spec.tokenizerSource!.encode(),
     );
 
     await manager.clearActiveEmbeddingIdentity();

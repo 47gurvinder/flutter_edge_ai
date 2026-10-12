@@ -7,7 +7,6 @@ BundledSource class final
 CancelToken class
 CanceledError class final
 CloseNotifier mixin
-CommonEmbeddingModel class
 CorruptionAction enum
 CorruptionDetectionResult class
 DiagnosticReport class
@@ -17,18 +16,31 @@ DownloadErrorMessage extension
 DownloadException class
 DownloadProgress class
 EdgeAiLogLevel enum
-EmbeddingBackendProvider class abstract
-EmbeddingForwardPass class abstract
-EmbeddingForwardPassFactory typedef
+EmbedderCloseTimeoutException class final
+EmbedderClosedException class final
+EmbeddingBackendProvider class abstract base
+EmbeddingCancelledException class final
+EmbeddingEngineException class final
+EmbeddingException class abstract base
+EmbeddingFormatNotSupportedException class final
+EmbeddingInput class final
+EmbeddingInputTooLongException class final
 EmbeddingInstallation class
 EmbeddingInstallationBuilder class
-EmbeddingModel class abstract
-EmbeddingModelSpec class
+EmbeddingLoadException class final
+EmbeddingModality enum
+EmbeddingModalityNotLoadedException class final
+EmbeddingModel class abstract base
+EmbeddingModelSpec class final
 EmbeddingOutputContract enum
+EmbeddingPass class abstract base
+EmbeddingPassDescriptor class final
+EmbeddingPassInfo class final
 EmbeddingTokenizer class abstract
 EmbeddingTokenizerFactory typedef
 EmbeddingTokenizerProvider class abstract
 EmbeddingTokenizerRegistry class
+EncodedMediaFormat class final
 ErrorHandlingResult class
 ErrorType enum
 EstimatedDimensions class
@@ -38,7 +50,6 @@ FlutterEdgeAi class
 FlutterEdgeAiDesktop class
 FlutterEdgeAiPlugin class abstract
 ForbiddenError class final
-ForwardPassDescriptor class
 ForwardResult class
 FunctionCallParser class
 FunctionCallResponse class
@@ -109,6 +120,8 @@ SttModelType enum
 TaskType enum
 TextResponse class
 ThinkingResponse class
+TokenEmbeddingPass class abstract base
+TokenPassGraph class final
 TokenizedInput class
 Tool class
 ToolChoice enum
@@ -120,6 +133,7 @@ TtsModelType enum
 TtsModelTypeManifest extension
 UnauthorizedError class final
 UnknownError class final
+UnsupportedEmbeddingCombinationException class final
 ValidationResult class
 VisionEncoderType enum
 VisionEncoderValidationException class
@@ -131,8 +145,10 @@ detectImageMimeType function
 edgeAiLog function
 edgeAiLogLevel variable
 edgeAiLogLevel= variable-setter
+finalizeEmbedding function
 isDesktop getter
 isLiteRtLmFilename function
 meanPoolAndNormalize function
 sanitizeHfDirName function
+sniffEncodedMediaFormat function
 supportedLoraRanks variable const

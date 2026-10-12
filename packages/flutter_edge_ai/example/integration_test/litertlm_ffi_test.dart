@@ -1060,7 +1060,7 @@ void main() {
   // Embedding must NOT block the calling (UI) isolate (#299)
   // ══════════════════════════════════════════════════════════════════
   //
-  // Since the #299 fix, `generateEmbedding` runs the blocking LiteRT forward
+  // Since the #299 fix, `embed` runs the blocking LiteRT forward
   // pass on a background worker isolate. We prove the main isolate stays alive
   // by spinning an async counter on it WHILE a batch of embeddings runs: if the
   // forward were synchronous on the calling isolate, the counter could not
@@ -1102,7 +1102,10 @@ void main() {
     ) async {
       final model = embModel!;
       // Warm up (first call pays worker spawn + native compile).
-      await model.generateEmbedding('warm up');
+      await model.embed(
+        EmbeddingInput.text('warm up'),
+        taskType: TaskType.retrievalQuery,
+      );
 
       const texts = [
         'Renewable energy is reshaping the global power grid.',
@@ -1128,7 +1131,10 @@ void main() {
       final spinner = spin();
       final sw = Stopwatch()..start();
       for (final text in texts) {
-        await model.generateEmbedding(text);
+        await model.embed(
+          EmbeddingInput.text(text),
+          taskType: TaskType.retrievalQuery,
+        );
       }
       sw.stop();
       running = false;

@@ -6,7 +6,6 @@ import 'package:flutter_edge_ai/src/lifecycle/inference_model_cache.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:flutter_edge_ai/src/registry/engine_registry.dart';
-import 'package:flutter_edge_ai/src/registry/embedding_registry.dart';
 import 'package:flutter_edge_ai/src/registry/stt_registry.dart';
 import 'package:flutter_edge_ai/src/registry/runtime_config.dart';
 import 'package:flutter_edge_ai/src/model_management/constants/preferences_keys.dart';
@@ -15,6 +14,7 @@ import 'package:flutter_web_plugins/flutter_web_plugins.dart';
 import 'package:flutter_edge_ai/src/model_management/managers/web_model_manager.dart';
 import 'package:flutter_edge_ai/src/embedding/embedder_backend_notice.dart';
 import 'package:flutter_edge_ai/src/embedding/embedder_cache.dart';
+import 'package:flutter_edge_ai/src/embedding/embedder_loader.dart';
 
 class FlutterEdgeAiWeb extends FlutterEdgeAiPlugin {
   FlutterEdgeAiWeb();
@@ -169,9 +169,9 @@ class FlutterEdgeAiWeb extends FlutterEdgeAiPlugin {
 
   @override
   Future<EmbeddingModel> createEmbeddingModel({
-    String? modelPath,
-    String? tokenizerPath,
     PreferredBackend? preferredBackend,
+    bool supportImage = false,
+    bool supportAudio = false,
   }) {
     // FIRST statement, before every guard. It is idempotent and one-shot, so
     // it needs neither resolved paths nor cache state — and putting it in a
@@ -182,138 +182,18 @@ class FlutterEdgeAiWeb extends FlutterEdgeAiPlugin {
 
     // Serialised, so that resolving paths, comparing them and constructing the
     // model are one step — which is what stops two concurrent first callers from
-    // each building one, the defect this shell actually had.
-    //
-    // Note what this does NOT cover on either web arm: the model constructors
-    // are trivial and the WASM/WebGPU compile happens lazily on the first
-    // `generateEmbedding`, outside this lane. Concurrent first embeddings are
-    // deduped by each model's own single in-flight init future — this lane only
-    // guarantees one MODEL, not one compile.
+    // each building one, the defect this shell actually had. On web the pass
+    // runs inline and loads eagerly inside this lane, so concurrent first
+    // embeddings no longer race a lazy compile either.
     return _embedderCache.serialize(
-      () => _reuseOrBuildEmbedder(
-        modelPath: modelPath,
-        tokenizerPath: tokenizerPath,
+      () => loadActiveEmbedder(
+        manager: modelManager,
+        cache: _embedderCache,
         preferredBackend: preferredBackend,
+        supportImage: supportImage,
+        supportAudio: supportAudio,
       ),
     );
-  }
-
-  /// Runs inside [EmbedderCache.serialize], so it may assume nothing else is
-  /// touching the cache while it awaits.
-  Future<EmbeddingModel> _reuseOrBuildEmbedder({
-    String? modelPath,
-    String? tokenizerPath,
-    PreferredBackend? preferredBackend,
-  }) async {
-    // Modern API: Use active embedding model if paths not provided
-    if (modelPath == null || tokenizerPath == null) {
-      final manager = modelManager as WebModelManager;
-      final activeModel = manager.activeEmbeddingModel;
-
-      // No active embedding model - user must set one first
-      if (activeModel == null) {
-        throw NoActiveModelError(
-          'No active embedding model set. Use `FlutterEdgeAi.installEmbedder()` or `modelManager.ensureModelReadyFromSpec()` first',
-        );
-      }
-
-      // Get the actual model file paths through unified system
-      final modelFilePaths = await manager.getModelFilePaths(activeModel);
-      if (modelFilePaths == null || modelFilePaths.isEmpty) {
-        throw StateError(
-          'Embedding model file paths not found. Use the `modelManager` to load the model first',
-        );
-      }
-
-      // Extract model and tokenizer paths from spec
-      final activeModelPath =
-          modelFilePaths[PreferencesKeys.embeddingModelFile];
-      final activeTokenizerPath =
-          modelFilePaths[PreferencesKeys.embeddingTokenizerFile];
-
-      if (activeModelPath == null || activeTokenizerPath == null) {
-        throw StateError(
-          'Could not find model or tokenizer path in active embedding model',
-        );
-      }
-
-      modelPath = activeModelPath;
-      tokenizerPath = activeTokenizerPath;
-
-      if (kDebugMode) {
-        edgeAiLog(
-          'Using active embedding model: $modelPath, tokenizer: $tokenizerPath',
-        );
-      }
-    }
-
-    final requestedParams = ActiveEmbedderParams(
-      modelPath: modelPath,
-      tokenizerPath: tokenizerPath,
-      preferredBackend: preferredBackend,
-    );
-    final reused = await _embedderCache.reuseOrInvalidate(
-      requestedParams,
-      // Reusing: on web the runtime picks the accelerator itself — LiteRT.js
-      // per compile, onnxruntime-web by trying ['webgpu', 'wasm'] in order —
-      // and the notice already fired at the top of this method.
-      label: 'web embedder',
-    );
-    if (reused != null) return reused;
-
-    try {
-      // The LiteRT.js embedding runtime lives in flutter_edge_ai_litertlm; core
-      // resolves paths (preamble above) + owns the singleton lifecycle, then
-      // dispatches construction through the EmbeddingRegistry. The backend reads
-      // ONLY config.modelPath/config.tokenizerPath — it ignores the spec for path
-      // resolution. Web selects by the sole registered backend (WebGPU LiteRT.js).
-      //
-      // Inside the try, where every other shell has it. There is no completer to
-      // leak here any more, but the shape matters: a throw between claiming a
-      // build slot and entering the `try` that releases it is how a single
-      // misconfiguration becomes a permanent hang.
-      final activeEmb = (modelManager as WebModelManager).activeEmbeddingModel;
-      final EmbeddingBackendProvider? backend = activeEmb is EmbeddingModelSpec
-          ? EmbeddingRegistry.instance.findFor(activeEmb)
-          : (EmbeddingRegistry.instance.registered.isNotEmpty
-                ? EmbeddingRegistry.instance.registered.first
-                : null);
-      if (backend == null) {
-        throw StateError(
-          'No embedding backend registered. Add flutter_edge_ai_litertlm to '
-          'pubspec.yaml and pass LiteRtEmbeddingBackend() in embeddingBackends: '
-          'of FlutterEdgeAi.initialize(...). Registered backends: '
-          '${EmbeddingRegistry.instance.registered.map((b) => b.name).join(", ")}.',
-        );
-      }
-      // modelPath/tokenizerPath are non-null here (resolved in the preamble or
-      // passed by the caller). preferredBackend is ignored on web (LiteRT.js uses
-      // WebGPU when available); maxTokens is unused by embeddings.
-      final embConfig = RuntimeConfig(
-        maxTokens: 0,
-        modelPath: modelPath,
-        tokenizerPath: tokenizerPath,
-        preferredBackend: preferredBackend,
-      );
-      // The backend's createModel(spec, config) requires a non-null spec but
-      // resolves paths exclusively from config; synthesize one from the resolved
-      // file paths when there's no active EmbeddingModelSpec.
-      final model = await backend.createModel(
-        activeEmb is EmbeddingModelSpec
-            ? activeEmb
-            : EmbeddingModelSpec(
-                name: 'web-active-embedding',
-                modelSource: ModelSource.file(modelPath),
-                tokenizerSource: ModelSource.file(tokenizerPath),
-              ),
-        embConfig,
-      );
-      await _embedderCache.adopt(model, requestedParams);
-      return model;
-    } catch (_) {
-      _embedderCache.invalidate();
-      rethrow;
-    }
   }
 
   // === SpeechRecognizer Methods - Web Implementation ===

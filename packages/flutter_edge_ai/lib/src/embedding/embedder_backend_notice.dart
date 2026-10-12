@@ -20,7 +20,7 @@ bool _warned = false;
 ///
 /// It lives here rather than in a backend because a backend cannot see the
 /// singleton cache: the shells serve a second `getActiveEmbedder` from the
-/// cached instance without calling `createModel` at all, so a notice inside a
+/// cached instance without asking the backend at all, so a notice inside a
 /// backend is unreachable in the most ordinary sequence — build an embedder,
 /// then ask for one with a backend.
 ///

@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart'
     show kIsWeb, defaultTargetPlatform, TargetPlatform, visibleForTesting;
 import 'package:flutter_edge_ai/src/api/inference_installation_builder.dart';
 import 'package:flutter_edge_ai/src/api/embedding_installation_builder.dart';
+import 'package:flutter_edge_ai/src/model_management/active_embedding_identity.dart'
+    show noActiveEmbedderError;
 import 'package:flutter_edge_ai/src/api/stt_installation_builder.dart';
 import 'package:flutter_edge_ai/src/api/tts_installation_builder.dart';
 import 'package:flutter_edge_ai/src/di/service_registry.dart';
@@ -640,10 +642,18 @@ class FlutterEdgeAi {
 
   /// Get the active embedding model as a ready-to-use EmbeddingModel
   ///
-  /// Returns an EmbeddingModel configured with runtime parameters.
-  /// The model and tokenizer paths come from the active EmbeddingModelSpec.
+  /// The model (and, unless it is a self-contained `.litertlm` bundle, its
+  /// tokenizer) comes from the active EmbeddingModelSpec. Every engine loads
+  /// eagerly, so [EmbeddingModel.dimension], [EmbeddingModel.modalities] and
+  /// [EmbeddingModel.maxInputTokens] are known when this returns.
   ///
   /// Runtime parameters:
+  /// - [supportImage] / [supportAudio]: declare the media you will embed.
+  ///   Text is implied whenever the model has a text tower. Media sent to a
+  ///   model that did not declare them fail with
+  ///   `EmbeddingModalityNotLoadedException`. The embedder already loaded is
+  ///   reused when it covers the request; otherwise it is rebuilt with the
+  ///   UNION of what it had and what is asked, so declarations only widen.
   /// - [preferredBackend]: accepted for symmetry with [getActiveModel], and
   ///   **not applied**. On native every backend runs the forward pass on CPU:
   ///   LiteRT's GPU delegate returns all-zero vectors for EmbeddingGemma's
@@ -653,10 +663,13 @@ class FlutterEdgeAi {
   ///   isolate in debug builds; read [EmbeddingModel.activeBackend] for the
   ///   backend in use, which is available in release builds too.
   ///
-  /// Throws:
+  /// Fails (as a failed future) with:
   /// - [StateError] if no active embedding model is set
-  /// - `TimeoutException` if the previous embedder is still closing after
-  ///   60 s; its close keeps running, and a later call succeeds once it ends.
+  /// - `EmbeddingLoadException` if the model fails to load, or the engine
+  ///   cannot serve a declared medium
+  /// - `EmbedderCloseTimeoutException` if the previous embedder is still
+  ///   closing after 60 s; its close keeps running, and a later call succeeds
+  ///   once it ends.
   ///
   /// Example:
   /// ```dart
@@ -667,23 +680,24 @@ class FlutterEdgeAi {
   ///   .install();
   ///
   /// final embedder = await FlutterEdgeAi.getActiveEmbedder();
+  /// final vector = await embedder.embed(
+  ///   EmbeddingInput.text('How do I reset the device?'),
+  ///   taskType: TaskType.retrievalQuery,
+  /// );
   ///
   /// // Where the backend matters, ask — do not assume the argument took.
-  /// // Native answers PreferredBackend.cpu; web answers null, because there
-  /// // the accelerator is not known until the first embedding.
+  /// // Native answers PreferredBackend.cpu; web answers null.
   /// debugPrint('embedding on ${embedder.activeBackend}');
   /// ```
   static Future<EmbeddingModel> getActiveEmbedder({
     PreferredBackend? preferredBackend,
+    bool supportImage = false,
+    bool supportAudio = false,
   }) async {
     final manager = FlutterEdgeAiPlugin.instance.modelManager;
     final activeSpec = manager.activeEmbeddingModel;
 
-    if (activeSpec == null) {
-      throw NoActiveModelError(
-        'No active embedding model set. Use FlutterEdgeAi.installEmbedder() first.',
-      );
-    }
+    if (activeSpec == null) throw noActiveEmbedderError();
 
     if (activeSpec is! EmbeddingModelSpec) {
       throw StateError(
@@ -695,6 +709,8 @@ class FlutterEdgeAi {
     // Create EmbeddingModel using active spec (paths resolved automatically)
     return await FlutterEdgeAiPlugin.instance.createEmbeddingModel(
       preferredBackend: preferredBackend,
+      supportImage: supportImage,
+      supportAudio: supportAudio,
     );
   }
 

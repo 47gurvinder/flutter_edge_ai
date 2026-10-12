@@ -227,7 +227,8 @@ class WebModelManager extends ModelFileManager
     if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
     final encodedRecord = lease.encodedRecord;
     if (encodedRecord != null) {
-      final record = ActiveEmbeddingIdentityRecord.tryDecode(encodedRecord);
+      final decoded = ActiveEmbeddingIdentityRecord.decode(encodedRecord);
+      final record = decoded.record;
       if (record != null) {
         if (!record.active) return;
         final repository = ServiceRegistry.instance.modelRepository;
@@ -235,9 +236,11 @@ class WebModelManager extends ModelFileManager
           record.modelFilename!,
         );
         if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
-        final tokenizerInstalled = await repository.isInstalled(
-          record.tokenizerFilename!,
-        );
+        // A self-contained record (schema v2, a .litertlm bundle) has no
+        // tokenizer file.
+        final tokenizerInstalled =
+            record.isSelfContained ||
+            await repository.isInstalled(record.tokenizerFilename!);
         if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
         if (!modelInstalled || !tokenizerInstalled) {
           edgeAiLog(
@@ -257,6 +260,9 @@ class WebModelManager extends ModelFileManager
       edgeAiLog(
         '[WebModelManager] active embedding record malformed or unsupported — '
         'failing closed',
+      );
+      reportRejectedActiveEmbeddingIdentity(
+        decoded.rejection ?? 'it could not be decoded',
       );
       return;
     }
@@ -334,15 +340,27 @@ class WebModelManager extends ModelFileManager
       return;
     }
 
-    final restoredSpec = EmbeddingModelSpec(
-      name: modelFilename,
-      modelSource: modelSource,
-      tokenizerSource: tokenizerSource,
-      modelFilename: modelFilenameExplicit ? modelFilename : null,
-      tokenizerFilename: tokenizerFilenameExplicit
-          ? effectiveTokenizerFilename
-          : null,
-    );
+    // The 2.3 spec rules can refuse what 2.2 wrote under these keys (a
+    // .litertlm paired with a tokenizer). Fail closed and say why, as the
+    // record path does — never let it escape and skip the restores after it.
+    final EmbeddingModelSpec restoredSpec;
+    try {
+      restoredSpec = EmbeddingModelSpec(
+        name: modelFilename,
+        modelSource: modelSource,
+        tokenizerSource: tokenizerSource,
+        modelFilename: modelFilenameExplicit ? modelFilename : null,
+        tokenizerFilename: tokenizerFilenameExplicit
+            ? effectiveTokenizerFilename
+            : null,
+      );
+    } on ArgumentError catch (e) {
+      reportRejectedActiveEmbeddingIdentity(
+        'its pre-2.3 identity keys name a model the 2.3 rules refuse: '
+        '${e.message}',
+      );
+      return;
+    }
     if (!_activeEmbeddingIdentityCoordinator.isLeaseCurrent(lease)) return;
     final mutation = _activeEmbeddingIdentityCoordinator.enqueueOrThrow(
       ActiveEmbeddingIdentityRecord.fromSpec(restoredSpec),
