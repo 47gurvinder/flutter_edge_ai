@@ -207,11 +207,17 @@ void main() {
       '${(await getApplicationCacheDirectory()).path}'
       '${sep}flutter_edge_ai${sep}emb',
     );
+    // The engine names its cache after the file it opened. With
+    // EG2_MODEL_FILE that is the local copy, read in place under its own
+    // name, not `_eg2.filename`.
+    final modelFile = (await FlutterEdgeAi.getModelPath(
+      _eg2.filename,
+    )).split(RegExp(r'[/\\]')).last;
     final caches = [
       for (final dir in base.listSync().whereType<Directory>())
         for (final file in dir.listSync().whereType<File>())
           if (file.path.endsWith('.xnnpack_cache') &&
-              file.path.contains(_eg2.filename))
+              file.path.contains(modelFile))
             file,
     ];
     final longest = caches.isEmpty
@@ -227,7 +233,7 @@ void main() {
     expect(
       caches.where((f) => f.lengthSync() > _mb),
       isNotEmpty,
-      reason: 'no .xnnpack_cache for ${_eg2.filename} under ${base.path}',
+      reason: 'no .xnnpack_cache for $modelFile under ${base.path}',
     );
     if (Platform.isWindows) {
       // 232 for the example app with a 20-character user name.
