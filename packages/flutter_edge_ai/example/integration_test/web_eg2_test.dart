@@ -25,6 +25,10 @@
 ///   refused before anything is sent; a truncated PNG is
 ///   EmbeddingEngineException and the model keeps working; 70 tokens per
 ///   image through the public describe();
+/// - the example's photo preparation in the browser (CanvasKit / skwasm
+///   decode, the BMP written on the page): a 12 MP JPEG becomes 1024x768, and
+///   a camera JPEG stored sideways (EXIF 6) comes out upright — its vector
+///   matches its upright twin's (cos > 0.99);
 /// - the Image Search screen on the 440m, with a photo kept in OPFS;
 /// - close and recreate: the same vectors.
 /// Measured, never asserted (in the response file and the log):
@@ -70,6 +74,7 @@ import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:flutter_edge_ai_example/image_search/eg2_vision_samples.dart';
 import 'package:flutter_edge_ai_example/image_search/image_search_app_dependencies.dart';
 import 'package:flutter_edge_ai_example/image_search/image_search_controller.dart';
+import 'package:flutter_edge_ai_example/image_search/photo_preparation.dart';
 import 'package:flutter_edge_ai_example/image_search_screen.dart';
 import 'package:flutter_edge_ai_example/models/embedding_model.dart' as catalog;
 import 'package:flutter_edge_ai_litertlm/flutter_edge_ai_litertlm.dart';
@@ -97,6 +102,7 @@ const _tests = [
   'EG2 image to image',
   'EG2 formats',
   'EG2 70 tokens',
+  'photo preparation',
   'M11 CPU',
   'Image Search screen',
   'minInputLength',
@@ -812,6 +818,50 @@ void main() {
       } finally {
         await pass.close();
       }
+    }, timeout: const Timeout(Duration(minutes: 30)));
+
+    testWidgets('photo preparation in the browser: a 12 MP JPEG becomes '
+        '1024x768, and an EXIF-6 camera JPEG comes out upright', (
+      tester,
+    ) async {
+      _start('photo preparation');
+      await _ensureEg2Vision();
+      final model = await _active(images: true);
+      Future<List<double>> embed(Uint8List bytes) =>
+          model.embed(EmbeddingInput.image(bytes), taskType: TaskType.none);
+
+      final large = await _asset('assets/eg2_vision/large_12mp.jpg');
+      final watch = Stopwatch()..start();
+      final small = await preparePhotoForEmbedding(large);
+      final prepareMs = watch.elapsedMilliseconds;
+      expect((small.width, small.height), (1024, 768));
+      expect((small.sourceWidth, small.sourceHeight), (4032, 3024));
+      expect(sniffEncodedMediaFormat(small.bytes), EncodedMediaFormat.bmp);
+
+      final rotated = await _asset('assets/eg2_vision/portrait_exif6.jpg');
+      final upright = await _asset('assets/eg2_vision/portrait_upright.jpg');
+      final before = cosine(await embed(rotated), await embed(upright));
+      final preparedRotated = await preparePhotoForEmbedding(rotated);
+      final preparedUpright = await preparePhotoForEmbedding(upright);
+      final after = cosine(
+        await embed(preparedRotated.bytes),
+        await embed(preparedUpright.bytes),
+      );
+      report('photo_preparation', {
+        'prepare12MpMs': prepareMs,
+        'exif6PreparedSize':
+            '${preparedRotated.width}x${preparedRotated.height}',
+        'exif6RawCosVsUpright': before,
+        'exif6PreparedCosVsUpright': after,
+      });
+      _log(
+        'prepare 12 MP: $prepareMs ms; EXIF 6 raw cos $before, prepared cos '
+        '$after (${preparedRotated.width}x${preparedRotated.height})',
+      );
+      // The browser's decoder applies the EXIF orientation, as Flutter's does
+      // natively.
+      expect((preparedRotated.width, preparedRotated.height), (480, 640));
+      expect(after, greaterThan(0.99), reason: 'the same picture, upright');
     }, timeout: const Timeout(Duration(minutes: 30)));
 
     testWidgets('M11 (measured): the longest main-thread stall while ten '
