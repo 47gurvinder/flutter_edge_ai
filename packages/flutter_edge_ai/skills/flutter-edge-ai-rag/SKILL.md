@@ -182,12 +182,13 @@ final eg2Index = await rag.open(
 );
 ```
 
-- Native only with `flutter_edge_ai_litertlm` 1.13.0: Android, iOS, macOS,
-  Linux, Windows. On Web `install()` refuses the `.litertlm` embedder with an
-  `UnsupportedError` before downloading anything.
-- Text only for now: `getActiveEmbedder(supportImage: true)` or
-  `supportAudio: true` throws `EmbeddingLoadException` (images arrive in
-  1.14.0, audio in 1.16.0).
+- Native only: Android, iOS, macOS, Linux, Windows (`flutter_edge_ai_litertlm`
+  1.13.0 for text, 1.14.0 for images). On Web `install()` refuses the
+  `.litertlm` embedder with an `UnsupportedError` before downloading anything.
+- The 270m is text only: `getActiveEmbedder(supportImage: true)` throws
+  `EmbeddingLoadException` naming the 440m bundle, before any engine or cache
+  is made (below). `supportAudio: true` is refused on every bundle (audio
+  arrives in 1.16.0).
 - `maxInputTokens` is 1024 — task prefix, BOS and EOS included. Keep chunks at
   512 tokens or fewer: memory grows with the input length. A longer text throws
   `EmbeddingInputTooLongException` whose `actualTokens` is null — LiteRT-LM
@@ -201,6 +202,78 @@ final eg2Index = await rag.open(
   tell them apart. `FlutterEdgeAiActiveEmbedder.forActiveModel` already gives
   them different ids (different file names); the explicit id above is for one
   text store shared by the three EmbeddingGemma 2 bundles.
+
+### EmbeddingGemma 2 images (440m, native, `flutter_edge_ai_litertlm` 1.14.0)
+
+The 440m bundle adds a vision encoder to the same text tower, so one model
+embeds both and a text finds photos. Install it like the 270m (ungated):
+
+```dart
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+import 'package:flutter_edge_ai_rag/flutter_edge_ai_rag.dart';
+import 'package:flutter_edge_ai_sqlite/flutter_edge_ai_sqlite.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+
+const visionRevision = 'e301f74d5551b0c2641bd5cb4652a76239d5c5f8';
+// The text id of the 270m section; image vectors also depend on the vision
+// budget, so image indexes add it.
+const photosProfileId =
+    'embeddinggemma2-litertlm-text-4410a540ce75-prefix-v1-vis140';
+
+await FlutterEdgeAi.installEmbedder()
+    .modelFromNetwork(
+      'https://huggingface.co/litert-community/'
+      'embeddinggemma-2-text-vision-440m-litert-lm/resolve/$visionRevision/'
+      'embeddinggemma-2-text-vision-440m.litertlm',
+      filename: 'embeddinggemma-2-text-vision-440m__rev-e301f74d5551.litertlm',
+    )
+    .install();
+
+final rag = FlutterEdgeAiRag(
+  providers: const [SqliteVectorStoreProvider()],
+);
+final photos = await rag.open(
+  spec: VectorStoreSpec(
+    providerId: SqliteVectorStoreProvider.providerId,
+    location: p.join(
+      (await getApplicationDocumentsDirectory()).path,
+      'photos-embeddinggemma2-vis140.db',
+    ),
+    documents: EmbeddingModality.image,
+  ),
+  embedder: FlutterEdgeAiActiveEmbedder(
+    profileId: photosProfileId,
+    supportImage: true,
+  ),
+);
+await photos.add(
+  id: 'photo-1',
+  document: EmbeddingInput.image(bytes), // the encoded JPEG/PNG file
+  content: path, // a reference to the photo, never its bytes
+);
+final hits = await photos.search(query: EmbeddingInput.text('a red bicycle'));
+```
+
+- Formats: JPEG, PNG, GIF and BMP. HEIC, WebP, TIFF and AVIF throw
+  `EmbeddingFormatNotSupportedException` (with `detected` and `accepted`)
+  before anything is sent — convert them first. A corrupt or truncated file
+  of an accepted type reaches the model and fails with
+  `EmbeddingEngineException` (`nativeCode` 3); the model keeps working.
+- Vision budget: 140 tokens per image by default (closest to the reference
+  model); `LiteRtEmbeddingBackend(visionTokensPerImage: 70)` is about twice as
+  fast with slightly different vectors — give its image indexes their own id
+  (`…-vis70`). Any other value throws `EmbeddingLoadException`. Text vectors
+  do not depend on it. `forActiveModel` ids follow file names only, so an app
+  that changes the budget puts it in the namespace (`'photos-vis70'`).
+- Cost, measured on macOS (M4 Pro, CPU): 388 MB on disk plus a 218 MB vision
+  weight cache written every time the model loads — also when it only embeds
+  text — and about 385 MB more RAM from the first image on; 0.36-0.56 s per
+  image at 140 tokens, about 0.17-0.25 s at 70. Apps that embed only text use
+  the 270m. Close the embedder after a large photo ingest on low-RAM devices.
+- A text query over an image index is sent raw (`TaskType.none`): measured,
+  the retrieval-query prefix found the same photos with a smaller margin. Do
+  not set `queryTask` for it: that applies to text documents only.
 
 ## Index and search
 
@@ -301,12 +374,13 @@ await photos.add(
 final matches = await photos.search(query: EmbeddingInput.text('a red bicycle'));
 ```
 
-The embedders bundled with this release embed text only:
-`getActiveEmbedder(supportImage: true)` — and therefore `open()` of an image
-index with the active embedder — fails with `EmbeddingLoadException`. A custom
-`RagEmbedder` can embed media today. A text index and an image index can share
-one installed model: each adapter declares what it needs, and core reloads
-the embedder once with both.
+The active embedder embeds images with the EmbeddingGemma 2 440m bundle on
+native (above). With any other model — the 270m, EmbeddingGemma 1, ONNX, or
+on Web — `getActiveEmbedder(supportImage: true)`, and therefore `open()` of an
+image index with the active embedder, fails with `EmbeddingLoadException`. A
+custom `RagEmbedder` can embed media with any model. A text index and an image
+index can share one installed model: each adapter declares what it needs, and
+core reloads the embedder once with both.
 
 Cross-modal scores are not on one scale, so mixed corpora use one index per
 modality and the app merges results. Text locations open in both directions
@@ -588,9 +662,12 @@ location.
   than the embedder's `maxInputTokens`. Split it into smaller chunks; older
   releases truncated it silently. With EmbeddingGemma 2 its `actualTokens` is
   null.
-- `EmbeddingLoadException` from `open()` of an image or audio index: the
-  installed model, or every embedder bundled with this release, embeds text
-  only.
+- `EmbeddingLoadException` from `open()` of an image index: the installed
+  model has no vision encoder — "has no vision encoder; install
+  embeddinggemma-2-text-vision-440m" on the 270m — or is not an EmbeddingGemma
+  2 bundle. From an audio index: no bundled embedder embeds audio yet.
+- `EmbeddingFormatNotSupportedException` from `add` or `search` on an image
+  index: HEIC, WebP, TIFF or AVIF; convert to JPEG or PNG.
 - `VectorStoreException` "… is not a valid embedding profile" on open: the
   location was bound by flutter_edge_ai_rag 1.0 to an id with a control
   character, which 1.1 refuses; this version cannot open it.
