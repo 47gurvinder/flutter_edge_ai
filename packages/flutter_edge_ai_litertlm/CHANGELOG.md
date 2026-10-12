@@ -1,3 +1,8 @@
+## 1.13.0
+- Run EmbeddingGemma 2 (`.litertlm`) text embeddings on Android, iOS, macOS, Linux and Windows.
+- Web EmbeddingGemma uses the same prefixes and token ids as native for every `TaskType` (re-copy `litert_embeddings.js`).
+- **Breaking:** require `flutter_edge_ai` ^2.3.0; `WebEmbeddingModel` is no longer exported.
+
 ## 1.12.0
 - Unset sampling uses the `.litertlm` sampler; web applies the values you pass (#572).
 - Require `flutter_edge_ai` ^2.2.0.

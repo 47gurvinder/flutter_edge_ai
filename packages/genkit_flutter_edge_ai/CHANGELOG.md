@@ -1,3 +1,6 @@
+## 0.8.2
+- The embedder calls `embedAll` and re-resolves a closed embedder; require `flutter_edge_ai` ^2.3.0.
+
 ## 0.8.1
 - Unset `temperature` and `topK` no longer force greedy; the model sampler applies (#572).
 - Require `flutter_edge_ai` ^2.2.0.

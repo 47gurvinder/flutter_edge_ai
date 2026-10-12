@@ -30,9 +30,14 @@
 # It prints every annotated import with its reason, so the allowlist can be
 # reviewed in one place.
 #
-# Scope: packages/** only. codelabs/** and the website's dart fences still
-# document the published 2.1.x API (the old paths); they join the scan when
-# they migrate.
+# Scope: every .dart file under packages/, and every ```dart fence of the
+# website's docs (website/content/**/*.md), which users copy into their apps.
+# A fence is held to the shipped-code rules: (a) for a deep path, and
+#   (d) any import or export of a workspace package's src/ — no annotation
+#       excuses it in a doc.
+# A violation in a fence is reported at the line of the .md file. codelabs/**
+# and website/codelabs/** are not scanned yet: they document the published
+# API until the codelabs migrate (PR G of the EmbeddingGemma 2 train).
 #
 # Usage: tool/check_core_surface.sh
 #        CHECK_CORE_SURFACE_ROOT=<dir> tool/check_core_surface.sh   (scan <dir>
@@ -48,7 +53,8 @@ cd "${CHECK_CORE_SURFACE_ROOT:-$(dirname "${BASH_SOURCE[0]}")/..}"
 # an example app wins over the package that contains it.
 owners_file="$(mktemp)"
 files_file="$(mktemp)"
-trap 'rm -f "$owners_file" "$files_file"' EXIT
+fence_dir="$(mktemp -d)"
+trap 'rm -f "$owners_file" "$files_file"; rm -rf "$fence_dir"' EXIT
 
 find packages -name pubspec.yaml \
   -not -path '*/.dart_tool/*' -not -path '*/build/*' \
@@ -71,11 +77,32 @@ if [[ "$scanned" -eq 0 ]]; then
   exit 1
 fi
 
+# Each ```dart fence of a website doc becomes one file,
+# <fence_dir>/<path of the .md>@<line of its opening fence>.dart, so the awk
+# below checks it like any other file and maps its lines back to the .md.
+# Fences may be indented (inside a list); any other language is not Dart.
+if [[ -d website/content ]]; then
+  find website/content -name '*.md' -not -path '*/build/*' | sort |
+    while read -r md; do
+      mkdir -p "$fence_dir/$(dirname "$md")"
+      awk -v out="$fence_dir/$md" '
+        !in_fence && /^[ \t]*```dart[ \t]*$/ {
+          in_fence = 1; file = out "@" FNR ".dart"; printf "" > file; next
+        }
+        in_fence && /^[ \t]*```/ { in_fence = 0; close(file); next }
+        in_fence { print > file }
+      ' "$md"
+    done
+fi
+find "$fence_dir" -name '*.dart' | sort >>"$files_file"
+fences="$(find "$fence_dir" -name '*.dart' | wc -l | tr -d ' ')"
+
 # Workspace packages whose src/ is private to them: every pubspec directly
 # under packages/ (examples are apps, nobody imports them).
 workspace_pkgs="$(awk -F'\t' '$1 ~ /^packages\/[^\/]+$/ { print $2 }' "$owners_file" | tr '\n' ' ')"
 
-awk -v owners_file="$owners_file" -v workspace_pkgs="$workspace_pkgs" '
+awk -v owners_file="$owners_file" -v workspace_pkgs="$workspace_pkgs" \
+  -v fence_root="$fence_dir/" -v fences="$fences" '
 BEGIN {
   n = 0
   while ((getline line < owners_file) > 0) {
@@ -110,8 +137,21 @@ function shipped(path) {
     path ~ /^packages\/[^\/]+\/example\/lib\//
 }
 
-function violation(msg) {
-  printf "  FAIL  %s:%d  %s\n", FILENAME, start_line, msg
+function in_fence(path) {
+  return index(path, fence_root) == 1
+}
+
+# A fence file reports as <the .md>:<its line>; the file name carries both.
+function violation(msg,    rel, at, md, first) {
+  if (in_fence(FILENAME)) {
+    rel = substr(FILENAME, length(fence_root) + 1)
+    at = match(rel, /@[0-9]+\.dart$/)
+    md = substr(rel, 1, at - 1)
+    first = substr(rel, at + 1, RLENGTH - 6) + 0
+    printf "  FAIL  %s:%d  %s\n", md, first + start_line, msg
+  } else {
+    printf "  FAIL  %s:%d  %s\n", FILENAME, start_line, msg
+  }
   violations++
 }
 
@@ -131,6 +171,10 @@ function check_uri(uri,    rest, pkg, slash) {
   if (!(pkg in workspace) || rest !~ /^src\//) return
   if (pkg == file_owner) return
 
+  if (in_fence(FILENAME)) {
+    violation("(d) " uri " — a website code fence must not import a package'"'"'s src/")
+    return
+  }
   if (shipped(FILENAME)) {
     violation("(c) " uri " — shipped code (lib/, hook/, bin/, example/lib/) must not import another package'"'"'s src/")
     return
@@ -166,8 +210,11 @@ FNR == 1 {
   if (in_directive) {
     rest = line
     while (match(rest, uri_re)) {
-      check_uri(substr(rest, RSTART + 1, RLENGTH - 2))
-      rest = substr(rest, RSTART + RLENGTH)
+      # check_uri may call match() itself (violation() does for a fence), so
+      # keep this match before it moves RSTART/RLENGTH.
+      uri_start = RSTART; uri_length = RLENGTH
+      check_uri(substr(rest, uri_start + 1, uri_length - 2))
+      rest = substr(rest, uri_start + uri_length)
     }
     # The directive ends on the first line holding its `;`, whatever follows
     # it (a trailing `// ...` or `/* ... */`).
@@ -181,9 +228,9 @@ END {
   for (i = 1; i <= annotated; i++) print allow[i]
   print ""
   if (violations > 0) {
-    printf "==> check_core_surface: %d violation(s) in %d files scanned.\n", violations, files
+    printf "==> check_core_surface: %d violation(s) in %d files scanned (%d of them website fences).\n", violations, files, fences
     exit 1
   }
-  printf "==> check_core_surface: OK — %d files scanned, %d annotated src/ imports, 0 violations.\n", files, annotated
+  printf "==> check_core_surface: OK — %d files scanned (%d of them website fences), %d annotated src/ imports, 0 violations.\n", files, fences, annotated
 }
 ' $(cat "$files_file")

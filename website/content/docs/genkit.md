@@ -23,13 +23,14 @@ with the on-device model exactly as it would with any cloud provider.
 ```
 dependencies:
   genkit: ^1.0.0                  # the framework itself — every snippet below uses it
-  genkit_flutter_edge_ai: ^0.8.1
-  flutter_edge_ai: ^2.2.0
+  genkit_flutter_edge_ai: ^0.8.2
+  flutter_edge_ai: ^2.3.0
   # Add the inference engine(s) you need:
-  flutter_edge_ai_litertlm: ^1.12.0   # .litertlm models (mobile + desktop + web) + LiteRtEmbeddingBackend
-  flutter_edge_ai_mediapipe: ^1.2.0  # .task / .bin models (mobile + web)
-  # Optional — for embeddings (needs a backend, e.g. flutter_edge_ai_litertlm above):
-  flutter_edge_ai_embeddings: ^2.2.2
+  flutter_edge_ai_litertlm: ^1.13.0   # .litertlm models (mobile + desktop + web) + LiteRtEmbeddingBackend
+  flutter_edge_ai_mediapipe: ^1.2.1  # .task / .bin models (mobile + web)
+  # Optional — tokenizers for .tflite / .onnx embedding models (an EmbeddingGemma 2
+  # .litertlm needs none; the backend is flutter_edge_ai_litertlm above):
+  flutter_edge_ai_embeddings: ^2.3.0
 ```
 
 ### Setup
@@ -133,13 +134,14 @@ final embeddings = await ai.embed(
 
 <Warning>
 
-The Genkit embedder always embeds with flutter_edge_ai's default
-`TaskType.retrievalQuery` prefix — `FlutterEdgeAiEmbedConfig` has no `taskType`
-option. For RAG **indexing**, where documents must be embedded with
-`TaskType.retrievalDocument`, call
-`FlutterEdgeAi.getActiveEmbedder().generateEmbeddings(..., taskType: ...)`
+The Genkit embedder always embeds with the `TaskType.retrievalQuery` prefix —
+`FlutterEdgeAiEmbedConfig` has no `taskType` option. For RAG **indexing**,
+where documents must be embedded with `TaskType.retrievalDocument`, call
+`(await FlutterEdgeAi.getActiveEmbedder()).embedAll([...], taskType: ...)`
 directly. Mixing the two prefixes is the cross-prefix drift that #264 fixed at
-the core level. See [Embeddings & RAG](/docs/embeddings-and-rag).
+the core level. Since 0.8.2 the embedder resolves the active embedder again
+for every request, so it follows a model core replaced or closed in between.
+See [Embeddings & RAG](/docs/embeddings-and-rag).
 
 </Warning>
 
