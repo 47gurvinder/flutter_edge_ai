@@ -126,7 +126,7 @@ void main() {
   });
 
   test('website fences: a src/ import or a deep path fails at its .md line; '
-      'other languages and the codelabs are not scanned', () async {
+      'other languages are not scanned', () async {
     final root = _cleanTree();
     addTearDown(() => root.deleteSync(recursive: true));
     _write(
@@ -168,17 +168,6 @@ void main() {
           "import 'package:flutter_edge_ai/core/old_path.dart';\n"
           '```\n',
     );
-    // Not scanned yet (PR G migrates the codelabs).
-    _write(
-      root,
-      'website/codelabs/lab/index.md',
-      "```dart\nimport 'package:flutter_edge_ai/src/x.dart';\n```\n",
-    );
-    _write(
-      root,
-      'codelabs/lab/step/lib/main.dart',
-      "import 'package:flutter_edge_ai/src/x.dart';\n",
-    );
 
     final result = await _run(root);
     final out = '${result.stdout}';
@@ -211,35 +200,172 @@ void main() {
         ),
       ),
     );
-    expect(out, isNot(contains('codelabs')));
     expect(out, contains('5 violation(s)'));
-    expect(out, contains('(4 of them website fences)'));
+    expect(out, contains('(4 of them website fences, 0 in codelab texts;'));
   });
 
-  test('a website fence on the public libraries passes', () async {
+  test('codelabs: an app source or a codelab-text fence fails on a src/ '
+      'import or a deep path, annotated or not; build output is not '
+      'scanned', () async {
     final root = _cleanTree();
     addTearDown(() => root.deleteSync(recursive: true));
+    _write(root, 'codelabs/lab/step/pubspec.yaml', 'name: lab_step\n');
+    // A codelab app on the public library passes.
     _write(
       root,
-      'website/content/docs/page.md',
-      "```dart\nimport 'package:flutter_edge_ai/flutter_edge_ai.dart';\n```\n",
+      'codelabs/lab/step/lib/main.dart',
+      "import 'package:flutter_edge_ai/flutter_edge_ai.dart';\n"
+          "import 'package:lab_step/src/own.dart';\n",
+    );
+    // (d) in lib/.
+    _write(
+      root,
+      'codelabs/lab/step/lib/deep.dart',
+      "import 'package:flutter_edge_ai/flutter_edge_ai.dart';\n"
+          "import 'package:flutter_edge_ai/src/x.dart';\n",
+    );
+    // (d) in a test, where the annotation excuses a package's own tests.
+    _write(
+      root,
+      'codelabs/lab/step/test/white_box_test.dart',
+      '// ignore: implementation_imports — no exception for codelabs\n'
+          "import 'package:sat/src/y.dart';\n",
+    );
+    _write(root, 'packages/sat/lib/src/y.dart', 'const y = 1;\n');
+    // (a) in an integration test.
+    _write(
+      root,
+      'codelabs/lab/step/integration_test/a_test.dart',
+      "import 'package:flutter_edge_ai/core/old_path.dart';\n",
+    );
+    // Build output and the analyzer's cache are generated, never scanned.
+    _write(
+      root,
+      'codelabs/lab/step/build/web/gen.dart',
+      "import 'package:flutter_edge_ai/src/x.dart';\n",
+    );
+    _write(
+      root,
+      'codelabs/lab/step/.dart_tool/gen.dart',
+      "import 'package:flutter_edge_ai/src/x.dart';\n",
+    );
+    // A codelab text: a dart fence is checked, other languages are not.
+    _write(
+      root,
+      'website/codelabs/lab/index.md',
+      '# Lab\n'
+          '\n'
+          '```dart\n'
+          "import 'package:flutter_edge_ai/flutter_edge_ai.dart';\n"
+          "import 'package:flutter_edge_ai/src/x.dart';\n"
+          '```\n'
+          '\n'
+          '```text\n'
+          "import 'package:flutter_edge_ai/src/x.dart';\n"
+          '```\n'
+          '\n'
+          '```dart\n'
+          "import 'package:flutter_edge_ai/core/old_path.dart';\n"
+          '```\n',
     );
 
     final result = await _run(root);
-    expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
-    expect(result.stdout, contains('(1 of them website fences)'));
+    final out = '${result.stdout}';
+    expect(result.exitCode, 1, reason: out);
+    expect(
+      out,
+      contains(
+        RegExp(
+          r'FAIL\s+codelabs/lab/step/lib/deep\.dart:2\s+\(d\) .* codelab app',
+        ),
+      ),
+    );
+    expect(
+      out,
+      contains(
+        RegExp(r'FAIL\s+codelabs/lab/step/test/white_box_test\.dart:2\s+\(d\)'),
+      ),
+    );
+    expect(
+      out,
+      contains(
+        RegExp(
+          r'FAIL\s+codelabs/lab/step/integration_test/a_test\.dart:1\s+\(a\)',
+        ),
+      ),
+    );
+    expect(
+      out,
+      contains(RegExp(r'FAIL\s+website/codelabs/lab/index\.md:5\s+\(d\)')),
+    );
+    expect(
+      out,
+      contains(RegExp(r'FAIL\s+website/codelabs/lab/index\.md:13\s+\(a\)')),
+    );
+    expect(out, isNot(contains('build/web/gen.dart')));
+    expect(out, isNot(contains('.dart_tool/gen.dart')));
+    expect(out, isNot(contains('no exception for codelabs')));
+    expect(out, contains('5 violation(s)'));
+    // 2 fences (the text one is skipped), both in the codelab text; 4 app
+    // sources (build/ and .dart_tool/ excluded).
+    expect(
+      out,
+      contains(
+        '(2 of them website fences, 2 in codelab texts; 4 codelab '
+        'sources)',
+      ),
+    );
   });
 
-  test('the real repository passes, website fences included', () async {
-    final result = await Process.run('bash', [_script]);
-    expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
-    final fences = RegExp(
-      r'\((\d+) of them website fences\)',
-    ).firstMatch('${result.stdout}');
-    expect(fences, isNotNull, reason: '${result.stdout}');
-    // A scan that found no fences has not checked the site.
-    expect(int.parse(fences!.group(1)!), greaterThan(50));
-  });
+  test(
+    'a website fence and a codelab app on the public libraries pass',
+    () async {
+      final root = _cleanTree();
+      addTearDown(() => root.deleteSync(recursive: true));
+      _write(
+        root,
+        'website/content/docs/page.md',
+        "```dart\nimport 'package:flutter_edge_ai/flutter_edge_ai.dart';\n```\n",
+      );
+      _write(
+        root,
+        'website/codelabs/lab/index.md',
+        "```dart\nimport 'package:flutter_edge_ai/flutter_edge_ai.dart';\n```\n",
+      );
+      _write(
+        root,
+        'codelabs/lab/step/lib/main.dart',
+        "import 'package:flutter_edge_ai/flutter_edge_ai.dart';\n",
+      );
+
+      final result = await _run(root);
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+      expect(
+        result.stdout,
+        contains(
+          '(2 of them website fences, 1 in codelab texts; 1 codelab '
+          'sources)',
+        ),
+      );
+    },
+  );
+
+  test(
+    'the real repository passes, website fences and codelabs included',
+    () async {
+      final result = await Process.run('bash', [_script]);
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+      final counts = RegExp(
+        r'\((\d+) of them website fences, (\d+) in codelab texts; '
+        r'(\d+) codelab sources\)',
+      ).firstMatch('${result.stdout}');
+      expect(counts, isNotNull, reason: '${result.stdout}');
+      // A scan that found no fences or no codelab sources has not checked them.
+      expect(int.parse(counts!.group(1)!), greaterThan(150));
+      expect(int.parse(counts.group(2)!), greaterThan(100));
+      expect(int.parse(counts.group(3)!), greaterThan(200));
+    },
+  );
 
   test('a tree with nothing to scan is not a pass', () async {
     final root = Directory.systemTemp.createTempSync('core_surface_empty_');
