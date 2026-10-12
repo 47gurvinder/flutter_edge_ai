@@ -592,9 +592,10 @@ It takes a Hugging Face checkpoint through LoRA fine-tuning, merges, exports to
 `.litertlm`, and bundles the result with metadata — five commands, because each
 stage fails differently and a single `run` would hide which one you are in.
 
-The commands below are verified against **litetune 0.3.0**, the current PyPI
-release. It pins LiteRT-LM 0.17.1 for verification and the matching 0.17.1
-builder for conversion. The source is available on
+The commands below are checked against **litetune 0.4.0**, the current PyPI
+release: every command, flag and value in them exists in its CLI. It pins
+LiteRT-LM 0.18.0 for verification and the matching 0.18.0 builder for
+conversion. The source is available on
 [GitHub](https://github.com/DenisovAV/litetune).
 
 **This is alpha software**, and it says what it has measured: six models end to
@@ -664,7 +665,7 @@ is wider than most differences worth having — and they cost something that the
 score cannot see. `step_04_finetune/README.md` has both halves, measured.
 
 That score snapshot was recorded with litetune 0.1.7 and LiteRT-LM 0.16.1.
-Version 0.3.0 verifies with LiteRT-LM 0.17.1, so rerun before comparing a new
+Version 0.4.0 verifies with LiteRT-LM 0.18.0, so rerun before comparing a new
 artifact with the historical number.
 
 ### The five commands

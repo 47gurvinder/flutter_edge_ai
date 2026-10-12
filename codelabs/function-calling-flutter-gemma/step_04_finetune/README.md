@@ -9,9 +9,10 @@ tools.json    the four declarations, the same ones lib/tools.dart holds
 raw.jsonl     90 prompt -> tool-call rows to train and score on
 ```
 
-The commands below are verified against **litetune 0.3.0**, the current PyPI
-release. It pins LiteRT-LM 0.17.1 for verification and the matching 0.17.1
-builder for conversion. The project source is also available on
+The commands below are checked against **litetune 0.4.0**, the current PyPI
+release: every command, flag and value in them exists in its CLI. It pins
+LiteRT-LM 0.18.0 for verification and the matching 0.18.0 builder for
+conversion. The project source is also available on
 [GitHub](https://github.com/DenisovAV/litetune).
 
 `tool/check_codelabs.sh` discovers step apps by their `pubspec.yaml`. There is
@@ -138,7 +139,7 @@ documents directory — `~/Library/Containers/dev.fluttergemma.functioncalling/D
 ## What this run actually measured
 
 This timing and score snapshot was recorded with litetune 0.1.7 and its
-LiteRT-LM 0.16.1 runtime; 0.3.0 uses a newer runtime, so rerun before comparing
+LiteRT-LM 0.16.1 runtime; 0.4.0 uses a newer runtime, so rerun before comparing
 new artifacts to these historical numbers. On a MacBook Pro M4 Pro: `prepare`
 a second, `tune` 82s,
 `convert` 84s for `weight_only_wi8_afp32`, `verify` 52s. The held-out split is
