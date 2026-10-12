@@ -125,6 +125,122 @@ void main() {
     expect(out, contains('4 violation(s)'));
   });
 
+  test('website fences: a src/ import or a deep path fails at its .md line; '
+      'other languages and the codelabs are not scanned', () async {
+    final root = _cleanTree();
+    addTearDown(() => root.deleteSync(recursive: true));
+    _write(
+      root,
+      'website/content/docs/page.md',
+      '# Page\n'
+          '\n'
+          '```dart\n'
+          "import 'package:flutter_edge_ai/flutter_edge_ai.dart';\n"
+          "import 'package:flutter_edge_ai/src/x.dart';\n"
+          '```\n'
+          '\n'
+          '- In a list:\n'
+          '  ```dart\n'
+          "  import 'package:flutter_edge_ai/core/old_path.dart';\n"
+          '  ```\n'
+          '\n'
+          '```yaml\n'
+          "import 'package:flutter_edge_ai/src/x.dart';\n"
+          '```\n',
+    );
+    // An annotation excuses nothing in a doc.
+    _write(
+      root,
+      'website/content/docs/annotated.md',
+      '```dart\n'
+          '// ignore: implementation_imports — no exception for docs\n'
+          "import 'package:sat/src/y.dart';\n"
+          '```\n',
+    );
+    _write(root, 'packages/sat/lib/src/y.dart', 'const y = 1;\n');
+    // Two URIs on one line: reporting the first must not lose the second
+    // (the report matches the .md path, which must not move the scan on).
+    _write(
+      root,
+      'website/content/docs/two-uris-on-one-line-of-a-page-with-a-long-name.md',
+      '```dart\n'
+          "import 'package:flutter_edge_ai/src/x.dart'; "
+          "import 'package:flutter_edge_ai/core/old_path.dart';\n"
+          '```\n',
+    );
+    // Not scanned yet (PR G migrates the codelabs).
+    _write(
+      root,
+      'website/codelabs/lab/index.md',
+      "```dart\nimport 'package:flutter_edge_ai/src/x.dart';\n```\n",
+    );
+    _write(
+      root,
+      'codelabs/lab/step/lib/main.dart',
+      "import 'package:flutter_edge_ai/src/x.dart';\n",
+    );
+
+    final result = await _run(root);
+    final out = '${result.stdout}';
+    expect(result.exitCode, 1, reason: out);
+    expect(
+      out,
+      contains(RegExp(r'FAIL\s+website/content/docs/page\.md:5\s+\(d\)')),
+    );
+    expect(
+      out,
+      contains(RegExp(r'FAIL\s+website/content/docs/page\.md:10\s+\(a\)')),
+    );
+    expect(
+      out,
+      contains(RegExp(r'FAIL\s+website/content/docs/annotated\.md:3\s+\(d\)')),
+    );
+    expect(
+      out,
+      contains(
+        RegExp(
+          r'FAIL\s+website/content/docs/two-uris-on-one-line-of-a-page-with-a-long-name\.md:2\s+\(d\)',
+        ),
+      ),
+    );
+    expect(
+      out,
+      contains(
+        RegExp(
+          r'FAIL\s+website/content/docs/two-uris-on-one-line-of-a-page-with-a-long-name\.md:2\s+\(a\)',
+        ),
+      ),
+    );
+    expect(out, isNot(contains('codelabs')));
+    expect(out, contains('5 violation(s)'));
+    expect(out, contains('(4 of them website fences)'));
+  });
+
+  test('a website fence on the public libraries passes', () async {
+    final root = _cleanTree();
+    addTearDown(() => root.deleteSync(recursive: true));
+    _write(
+      root,
+      'website/content/docs/page.md',
+      "```dart\nimport 'package:flutter_edge_ai/flutter_edge_ai.dart';\n```\n",
+    );
+
+    final result = await _run(root);
+    expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    expect(result.stdout, contains('(1 of them website fences)'));
+  });
+
+  test('the real repository passes, website fences included', () async {
+    final result = await Process.run('bash', [_script]);
+    expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    final fences = RegExp(
+      r'\((\d+) of them website fences\)',
+    ).firstMatch('${result.stdout}');
+    expect(fences, isNotNull, reason: '${result.stdout}');
+    // A scan that found no fences has not checked the site.
+    expect(int.parse(fences!.group(1)!), greaterThan(50));
+  });
+
   test('a tree with nothing to scan is not a pass', () async {
     final root = Directory.systemTemp.createTempSync('core_surface_empty_');
     addTearDown(() => root.deleteSync(recursive: true));
