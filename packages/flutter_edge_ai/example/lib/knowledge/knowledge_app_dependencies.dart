@@ -8,7 +8,6 @@ import 'package:flutter_edge_ai_rag/flutter_edge_ai_rag.dart';
 import 'package:flutter_edge_ai_sqlite/flutter_edge_ai_sqlite.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -18,7 +17,6 @@ import '../models/embedding_model.dart' as catalog;
 import '../models/stt_model.dart';
 import '../rag_demo/rag_storage_location.dart';
 import '../utils/installed_model_lookup.dart';
-import '../utils/platform_io_helper.dart';
 import 'knowledge_audio.dart';
 import 'knowledge_dependencies.dart';
 import 'knowledge_item.dart';
@@ -365,17 +363,10 @@ final class _Recorder implements KnowledgeRecorder {
 
   @override
   Future<void> start() async {
-    if (platformIsAndroid || platformIsIOS) {
-      final status = await Permission.microphone.request();
-      if (!status.isGranted) {
-        throw const KnowledgeRecorderException(
-          'Recording a memo needs the microphone: allow it in Settings.',
-        );
-      }
-    }
+    // Asks for the microphone where the platform asks (Android, iOS, macOS).
     if (!await _recorder.hasPermission()) {
       throw const KnowledgeRecorderException(
-        'The microphone is not available.',
+        'Recording a memo needs the microphone: allow it in Settings.',
       );
     }
     await _recorder.start(

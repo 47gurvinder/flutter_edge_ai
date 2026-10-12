@@ -525,59 +525,79 @@ class _AddButton extends StatelessWidget {
   }
 
   Future<void> _addNote(BuildContext context) async {
-    final title = TextEditingController();
-    final body = TextEditingController();
-    final saved = await showModalBottomSheet<bool>(
+    final note = await showModalBottomSheet<({String title, String body})>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          0,
-          20,
-          20 + MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('New note', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 12),
-            TextField(
-              key: const Key('knowledge-note-title'),
-              controller: title,
-              decoration: const InputDecoration(labelText: 'Title'),
-              textInputAction: TextInputAction.next,
+      builder: (context) => const _NoteSheet(),
+    );
+    if (note != null && note.body.trim().isNotEmpty) {
+      await vm.addNote(title: note.title, body: note.body);
+    }
+  }
+}
+
+/// A new note: a title and its text. Pops the two, or nothing.
+class _NoteSheet extends StatefulWidget {
+  const _NoteSheet();
+
+  @override
+  State<_NoteSheet> createState() => _NoteSheetState();
+}
+
+class _NoteSheetState extends State<_NoteSheet> {
+  final _title = TextEditingController();
+  final _body = TextEditingController();
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _body.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        0,
+        20,
+        20 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('New note', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('knowledge-note-title'),
+            controller: _title,
+            decoration: const InputDecoration(labelText: 'Title'),
+            textInputAction: TextInputAction.next,
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            key: const Key('knowledge-note-body'),
+            controller: _body,
+            decoration: const InputDecoration(
+              labelText: 'Note (markdown)',
+              alignLabelWithHint: true,
             ),
-            const SizedBox(height: 8),
-            TextField(
-              key: const Key('knowledge-note-body'),
-              controller: body,
-              decoration: const InputDecoration(
-                labelText: 'Note (markdown)',
-                alignLabelWithHint: true,
-              ),
-              minLines: 3,
-              maxLines: 8,
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              key: const Key('knowledge-note-save'),
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Save and index'),
-            ),
-          ],
-        ),
+            minLines: 3,
+            maxLines: 8,
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            key: const Key('knowledge-note-save'),
+            onPressed: () =>
+                Navigator.pop(context, (title: _title.text, body: _body.text)),
+            child: const Text('Save and index'),
+          ),
+        ],
       ),
     );
-    final text = body.text;
-    final heading = title.text;
-    title.dispose();
-    body.dispose();
-    if (saved == true && text.trim().isNotEmpty) {
-      await vm.addNote(title: heading, body: text);
-    }
   }
 }
 
@@ -1232,19 +1252,74 @@ class _Suggestions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 40,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: suggestions.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, i) => ActionChip(
-          key: Key('$keyPrefix-$i'),
-          avatar: const Icon(Icons.north_east, size: 16),
-          label: Text(suggestions[i]),
-          onPressed: () => onTap(suggestions[i]),
-        ),
+    // A row, not a lazy list: every chip exists, so one can be scrolled to.
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final (i, suggestion) in suggestions.indexed)
+            Padding(
+              padding: EdgeInsets.only(left: i == 0 ? 0 : 8),
+              child: ActionChip(
+                key: Key('$keyPrefix-$i'),
+                avatar: const Icon(Icons.north_east, size: 16),
+                label: Text(suggestion),
+                onPressed: () => onTap(suggestion),
+              ),
+            ),
+        ],
       ),
+    );
+  }
+}
+
+/// Suggested questions, one per line: they are too long for chips.
+class _QuestionSuggestions extends StatelessWidget {
+  const _QuestionSuggestions({required this.onTap});
+
+  final void Function(String text)? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        for (final (i, question) in kKnowledgeQuestions.indexed)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Material(
+              color: theme.colorScheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(16),
+              child: InkWell(
+                key: Key('knowledge-question-$i'),
+                borderRadius: BorderRadius.circular(16),
+                onTap: onTap == null ? null : () => onTap!(question),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.north_east,
+                        size: 16,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          question,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -1559,11 +1634,7 @@ class AskTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        _Suggestions(
-          keyPrefix: 'knowledge-question',
-          suggestions: kKnowledgeQuestions,
-          onTap: llm == null ? (_) {} : onAsk,
-        ),
+        _QuestionSuggestions(onTap: llm == null || vm.asking ? null : onAsk),
         if (vm.question case final question?) ...[
           const SizedBox(height: 16),
           Align(
@@ -1611,7 +1682,7 @@ class _SourcesStrip extends StatelessWidget {
       builder: (context, answer, _) {
         final cited = citedSources(answer);
         return SizedBox(
-          height: 64,
+          height: 72,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: vm.answerSources.length,
@@ -1674,6 +1745,7 @@ class _SourceChip extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   '[${source.number}] ${item.kind.label}'
