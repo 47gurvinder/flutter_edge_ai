@@ -507,7 +507,8 @@ void main() {
     });
 
     test('create fails with images declared (the 270m has no vision '
-        'encoder): the message names the bundle that embeds images', () async {
+        'encoder, or an LLM fills the page\'s WebAssembly memory): the '
+        'message names the bundle that embeds images and the LLM', () async {
       final runtime = _FakeRuntime()
         ..createError = StateError('NOT_FOUND: vision encoder');
       await expectLater(
@@ -517,6 +518,9 @@ void main() {
             allOf(
               contains('NOT_FOUND: vision encoder'),
               contains('install embeddinggemma-2-text-vision-440m'),
+              contains(
+                'If a .litertlm LLM is loaded on this page, close it first',
+              ),
             ),
           ),
         ),

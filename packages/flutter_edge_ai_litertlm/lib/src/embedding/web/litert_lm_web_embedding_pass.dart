@@ -535,10 +535,18 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
       // Without ModelInfo on the web, a bundle with no vision encoder is
       // refused here, by the runtime — among other failures this pass cannot
       // tell apart without matching the message, so the hint is conditional.
+      // So is a vision encoder that does not fit next to a loaded LLM: the
+      // page's one WebAssembly module has 4 GB of memory (wasm32), which the
+      // 440m's vision engine (3.3 GB of it) and Gemma 4 E2B do not share —
+      // measured on Chrome 155: "Failed to modify graph with delegate" with
+      // the LLM loaded, fine once it is closed.
       const visionHint =
           '. If the bundle has no vision encoder (embeddinggemma-2-text-270m '
           'has none), install embeddinggemma-2-text-vision-440m to embed '
-          'images.';
+          'images. If a .litertlm LLM is loaded on this page, close it first: '
+          'the page\'s @litert-lm/core WebAssembly module has 4 GB of memory, '
+          'and the vision encoder does not fit in it next to an LLM such as '
+          'Gemma 4 E2B.';
       // Every EmbeddingGemma 2 bundle fails here on the CPU, with "Failed to
       // get external weight for buffer id …": say why, whatever the message.
       const cpuHint =
