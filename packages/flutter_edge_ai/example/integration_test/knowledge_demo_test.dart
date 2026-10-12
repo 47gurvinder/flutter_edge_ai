@@ -1,12 +1,12 @@
 // The Knowledge screen's scripted demo: drives the REAL screen, with the real
 // models, at a human pace, for a screen recording (about a minute):
 //
-//   home → Knowledge → index the library (notes, photos, voice memos; memos
-//   transcribed first) → type "my flight is delayed" → a VOICE MEMO comes
-//   first, and plays → tap "the airport taxi receipt" → a PHOTO comes first
-//   → Ask "How much was the airport taxi, and will finance pay it back?" →
-//   Gemma 4 reads the receipt photo and the trip note and answers, citing
-//   both.
+//   home → Knowledge → index the library (notes by their words, photos by
+//   their pixels, voice memos by their sound — nothing transcribed) → type
+//   "my flight is delayed" → a VOICE MEMO comes first, and plays → tap "the
+//   airport taxi receipt" → a PHOTO comes first → Ask "How much was the
+//   airport taxi?" → Gemma 4 reads the amount off the receipt photo and
+//   answers, citing it.
 //
 // It also checks what it shows: the memo and the photo rank first, the answer
 // cites its sources, and it prints `[demo]` timing lines.
@@ -18,9 +18,7 @@
 //   SHA-256), else downloaded (485 MB, ungated);
 // - Gemma 4 E2B: KNOWLEDGE_LLM_FILE=<path to gemma-4-E2B-it.litertlm> (keep
 //   that file name: it is how the catalog recognizes the model), else
-//   downloaded (2.6 GB, ungated);
-// - Moonshine Tiny: KNOWLEDGE_STT_MODEL_FILE + KNOWLEDGE_STT_TOKENIZER_FILE,
-//   else downloaded (109 MB).
+//   downloaded (2.6 GB, ungated).
 // Options: KNOWLEDGE_DEMO_PACE=1.5 (slower; 1.0 by default),
 // KNOWLEDGE_DEMO_SHOTS=true (PNG screenshots into <documents>/knowledge_shots,
 // or KNOWLEDGE_DEMO_SHOTS_DIR — on the iOS Simulator a Mac path survives the
@@ -57,6 +55,7 @@ import 'knowledge_models.dart';
 const _paceDefine = String.fromEnvironment('KNOWLEDGE_DEMO_PACE');
 const _shots = bool.fromEnvironment('KNOWLEDGE_DEMO_SHOTS');
 const _shotsDir = String.fromEnvironment('KNOWLEDGE_DEMO_SHOTS_DIR');
+const _fresh = bool.fromEnvironment('KNOWLEDGE_DEMO_FRESH', defaultValue: true);
 
 final double _pace = double.tryParse(_paceDefine) ?? 1.0;
 
@@ -143,7 +142,7 @@ void main() {
   testWidgets('Knowledge demo: index, find a memo and a photo by text, ask', (
     tester,
   ) async {
-    await ensureKnowledgeModels(log: _log);
+    await ensureKnowledgeModels(log: _log, fresh: _fresh);
     if (_desktop) await binding.setSurfaceSize(_phone);
     await tester.pumpWidget(
       RepaintBoundary(
@@ -166,49 +165,53 @@ void main() {
     await tester.tap(card);
     final opened = await _waitUntil(
       tester,
-      () => find.byKey(const Key('knowledge-index-card')).evaluate().isNotEmpty,
+      () => find.byKey(const Key('knowledge-tab-search')).evaluate().isNotEmpty,
       what: 'the indexes to open',
     );
     _log('screen ready ${opened.inMilliseconds} ms after the tap');
     await _pause(tester, 1500);
     await _screenshot(tester, 'library');
 
-    // Index the library: notes, photos, memos (transcribed first).
+    // Index the library: notes, photos, memos. Skipped
+    // when a kept library is already indexed (KNOWLEDGE_DEMO_FRESH=false).
     final indexButton = find.byKey(const Key('knowledge-index'));
-    expect(indexButton, findsOneWidget, reason: 'a fresh library');
-    await tester.tap(indexButton);
-    await _pause(tester, 1800);
-    final library = find.byKey(const Key('knowledge-library'));
-    await tester.timedDrag(
-      library,
-      const Offset(0, -420),
-      const Duration(milliseconds: 900),
-    );
-    await _pause(tester, 1500);
-    await tester.timedDrag(
-      library,
-      const Offset(0, -520),
-      const Duration(milliseconds: 900),
-    );
-    final indexed = await _waitUntil(
-      tester,
-      () => find.byKey(const Key('knowledge-pending')).evaluate().isEmpty,
-      what: 'indexing (an item that failed stays pending)',
-    );
-    _log('indexed ${indexed.inMilliseconds} ms after the scroll');
-    await _pause(tester, 1200);
-    await _screenshot(tester, 'indexed');
-    await tester.timedDrag(
-      library,
-      const Offset(0, 1400),
-      const Duration(milliseconds: 700),
-    );
-    await _pause(tester, 600);
-    expect(
-      find.textContaining(RegExp(r'^(\d+) of \1 indexed$')),
-      findsOneWidget,
-      reason: 'every item indexed',
-    );
+    if (indexButton.evaluate().isNotEmpty) {
+      await tester.tap(indexButton);
+      await _pause(tester, 1800);
+      final library = find.byKey(const Key('knowledge-library'));
+      await tester.timedDrag(
+        library,
+        const Offset(0, -420),
+        const Duration(milliseconds: 900),
+      );
+      await _pause(tester, 1500);
+      await tester.timedDrag(
+        library,
+        const Offset(0, -520),
+        const Duration(milliseconds: 900),
+      );
+      final indexed = await _waitUntil(
+        tester,
+        () => find.byKey(const Key('knowledge-pending')).evaluate().isEmpty,
+        what: 'indexing (an item that failed stays pending)',
+        // The arm64 emulator embeds about 30x slower than the Mac it runs on.
+        timeout: const Duration(minutes: 8),
+      );
+      _log('indexed ${indexed.inMilliseconds} ms after the scroll');
+      await _pause(tester, 1200);
+      await _screenshot(tester, 'indexed');
+      await tester.timedDrag(
+        library,
+        const Offset(0, 1400),
+        const Duration(milliseconds: 700),
+      );
+      await _pause(tester, 600);
+      expect(
+        find.textContaining(RegExp(r'^(\d+) of \1 indexed$')),
+        findsOneWidget,
+        reason: 'every item indexed',
+      );
+    }
 
     // Search: a voice memo, found by what is SAID in it.
     await tester.tap(find.byKey(const Key('knowledge-tab-search')));
@@ -217,12 +220,14 @@ void main() {
       of: find.byKey(const Key('knowledge-search-field')),
       matching: find.byType(EditableText),
     );
+    // It searches as it is typed, once typing pauses: no button to press.
     await _type(tester, field, kKnowledgeSuggestions[0]);
-    await _pause(tester, 300);
-    await tester.tap(find.byKey(const Key('knowledge-search-go')));
+    await _pause(tester, 600);
     await _waitUntil(
       tester,
-      () => find.byKey(const Key('knowledge-result-0')).evaluate().isNotEmpty,
+      () =>
+          find.byKey(const Key('knowledge-result-0')).evaluate().isNotEmpty &&
+          find.byKey(const Key('knowledge-search-go')).evaluate().isNotEmpty,
       what: 'the first search',
     );
     await _pause(tester, 1400);
@@ -269,7 +274,7 @@ void main() {
       tester,
       () =>
           find.byKey(const Key('knowledge-ask-send')).evaluate().isNotEmpty &&
-          find.textContaining('done in').evaluate().isNotEmpty,
+          find.byKey(const Key('knowledge-citation-1')).evaluate().isNotEmpty,
       what: 'the answer',
       timeout: const Duration(minutes: 6),
     );

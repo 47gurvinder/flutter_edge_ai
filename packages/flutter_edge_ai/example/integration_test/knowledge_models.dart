@@ -2,10 +2,14 @@
 // knowledge_demo_test.dart and knowledge_record_test.dart. Call it first in
 // a test body (Rule 6b: no setUp).
 //
-// --dart-define=KNOWLEDGE_EMBEDDER_FILE=<a local copy of the 740M> (checked
-// against the catalog's SHA-256) else downloaded; KNOWLEDGE_LLM_FILE=<path
-// to gemma-4-E2B-it.litertlm> else downloaded; KNOWLEDGE_STT_MODEL_FILE +
-// KNOWLEDGE_STT_TOKENIZER_FILE (Moonshine Tiny) else downloaded.
+// --dart-define=KNOWLEDGE_EMBEDDER_MODEL=<an EmbeddingModel name> (default
+// embeddingGemma2TextVisionAudio740m; embeddingGemma2TextVisionAudio740mSm8850
+// on a Snapdragon 8 Elite Gen 5), KNOWLEDGE_EMBEDDER_FILE=<a local copy of
+// it> (checked against the catalog's SHA-256) else downloaded;
+// KNOWLEDGE_LLM_FILE=<a Gemma 4 .litertlm> else Gemma 4 E2B is downloaded. A
+// file outside the catalog (the SM8850 build) also needs
+// KNOWLEDGE_LLM_BACKEND / KNOWLEDGE_LLM_MAX_TOKENS (knowledge_app_dependencies
+// .dart). No speech-to-text model: nothing is transcribed.
 
 import 'dart:io';
 
@@ -16,7 +20,6 @@ import 'package:flutter_edge_ai_example/knowledge/knowledge_app_dependencies.dar
     show kKnowledgeLibraryKey;
 import 'package:flutter_edge_ai_example/models/embedding_model.dart' as catalog;
 import 'package:flutter_edge_ai_example/models/model.dart';
-import 'package:flutter_edge_ai_example/models/stt_model.dart';
 import 'package:flutter_edge_ai_example/services/embedding_catalog_install.dart';
 import 'package:flutter_edge_ai_example/services/embedding_catalog_provenance.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -24,22 +27,22 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const _embedderFile = String.fromEnvironment('KNOWLEDGE_EMBEDDER_FILE');
 const _llmFile = String.fromEnvironment('KNOWLEDGE_LLM_FILE');
-const _sttModelFile = String.fromEnvironment('KNOWLEDGE_STT_MODEL_FILE');
-const _sttTokenizerFile = String.fromEnvironment(
-  'KNOWLEDGE_STT_TOKENIZER_FILE',
+const _embedderModel = String.fromEnvironment(
+  'KNOWLEDGE_EMBEDDER_MODEL',
+  defaultValue: 'embeddingGemma2TextVisionAudio740m',
 );
 
-const _embedder = catalog.EmbeddingModel.embeddingGemma2TextVisionAudio740m;
+final _embedder = catalog.EmbeddingModel.values.byName(_embedderModel);
 const _llm = Model.gemma4_E2B_litertlm;
-const _stt = SttModel.moonshineTiny;
 
-/// Installs the three models the Knowledge screen uses (a no-op once
-/// installed), each becoming the active one of its kind, and forgets the
-/// saved library, so a run starts with nothing indexed. Without [llm] the
-/// language model is left as it is.
+/// Installs the two models the Knowledge screen uses (a no-op once
+/// installed), each becoming the active one of its kind, and — when [fresh]
+/// — forgets the saved library, so the run starts with nothing indexed.
+/// Without [llm] the language model is left as it is.
 Future<void> ensureKnowledgeModels({
   required void Function(String line) log,
   bool llm = true,
+  bool fresh = true,
 }) async {
   final watch = Stopwatch()..start();
   await bootstrapGemma();
@@ -72,21 +75,14 @@ Future<void> ensureKnowledgeModels({
     ).install();
   }
 
-  // Moonshine Tiny.
-  final stt = FlutterEdgeAi.installStt();
-  if (_sttModelFile.isNotEmpty) {
-    stt.modelFromFile(_sttModelFile).tokenizerFromFile(_sttTokenizerFile);
-  } else {
-    stt.modelFromNetwork(_stt.modelUrl).tokenizerFromNetwork(_stt.tokenizerUrl);
-  }
-  await stt.ofType(_stt.sttModelType).install();
-
   // Gemma 4 E2B.
   if (llm) await _installLlm();
 
-  // A fresh library: no transcripts yet, nothing counted as indexed — the
-  // run shows every memo being transcribed and every item embedded.
-  await (await SharedPreferences.getInstance()).remove(kKnowledgeLibraryKey);
+  // A fresh library: nothing counted as indexed — the run shows every item
+  // being embedded.
+  if (fresh) {
+    await (await SharedPreferences.getInstance()).remove(kKnowledgeLibraryKey);
+  }
   log('models ready in ${watch.elapsedMilliseconds} ms');
 }
 
@@ -96,11 +92,8 @@ Future<void> _installLlm() async {
     fileType: _llm.fileType,
   );
   if (_llmFile.isNotEmpty) {
-    expect(
-      _llmFile.split(Platform.pathSeparator).last,
-      _llm.filename,
-      reason: 'the catalog recognizes Gemma 4 E2B by its file name',
-    );
+    // The catalog knows Gemma 4 E2B by its file name; another file runs on
+    // what the KNOWLEDGE_LLM_* defines say.
     llm.fromFile(_llmFile);
   } else {
     llm.fromNetwork(_llm.url);

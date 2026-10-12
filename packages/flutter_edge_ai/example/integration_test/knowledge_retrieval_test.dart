@@ -46,6 +46,8 @@ const _expectedFirst = {
   'fresh basil': 'memo-groceries',
   'revenue by quarter': 'note-q3',
   'a cooking class': 'memo-offsite',
+  // Russian: one space across languages.
+  'чек за такси': 'photo-0412',
 };
 
 void _log(String line) {

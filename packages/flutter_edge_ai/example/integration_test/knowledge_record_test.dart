@@ -1,6 +1,6 @@
 // Records a voice memo in the Knowledge screen with the real microphone,
-// models and storage: the memo is kept, transcribed by the active
-// speech-to-text model and embedded as sound by EmbeddingGemma 2 (740M).
+// models and storage: the memo is kept and embedded as sound by
+// EmbeddingGemma 2 (740M). Nothing is transcribed.
 //
 // The microphone must already be allowed — a permission dialog cannot be
 // answered from a test. iOS Simulator:
@@ -41,7 +41,7 @@ void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
 
-  testWidgets('a recorded memo is kept, transcribed and indexed', (
+  testWidgets('a recorded memo is kept and indexed by its sound', (
     tester,
   ) async {
     await ensureKnowledgeModels(log: _log, llm: false);
