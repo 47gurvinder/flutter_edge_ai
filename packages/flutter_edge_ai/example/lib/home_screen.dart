@@ -4,6 +4,7 @@ import 'package:flutter_edge_ai_example/agent_demo_screen.dart';
 import 'package:flutter_edge_ai_example/downloaded_models_screen.dart';
 import 'package:flutter_edge_ai_example/embedding_models_screen.dart';
 import 'package:flutter_edge_ai_example/image_search_screen.dart';
+import 'package:flutter_edge_ai_example/knowledge_screen.dart';
 import 'package:flutter_edge_ai_example/model_selection_screen.dart';
 import 'package:flutter_edge_ai_example/stt_models_screen.dart';
 import 'package:flutter_edge_ai_example/translate_models_screen.dart';
@@ -137,6 +138,18 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icons.image_search,
               color: Colors.lightGreen,
               onTap: () => _push(const ImageSearchScreen()),
+            ),
+            const SizedBox(height: 16),
+            _NavigationCard(
+              key: const Key('home-knowledge'),
+              title: 'Knowledge',
+              subtitle:
+                  'Search notes, photos and voice memos by text, then ask '
+                  'Gemma 4 — EmbeddingGemma 2 (740M), speech-to-text and an '
+                  'LLM, all on the device',
+              icon: Icons.hub_outlined,
+              color: Colors.indigoAccent,
+              onTap: () => _push(const KnowledgeScreen()),
             ),
             const SizedBox(height: 16),
             _NavigationCard(
