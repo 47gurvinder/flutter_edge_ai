@@ -173,7 +173,7 @@ ONNX embeddings are **text only** (`getActiveEmbedder(supportImage: true)`
 throws `EmbeddingLoadException`). `maxInputTokens` is the graph's static
 sequence length, or null for a dynamic-shape graph; a static graph is padded,
 never truncated, so a longer input throws `EmbeddingInputTooLongException`.
-The pass is `OnnxEmbeddingPass` (`OnnxEmbeddingForwardPass` before 0.5.7).
+The pass is `OnnxEmbeddingPass` (`OnnxEmbeddingForwardPass` before 0.5.8).
 
 ## Web setup
 

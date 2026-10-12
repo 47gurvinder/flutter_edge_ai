@@ -11,12 +11,12 @@ meta:
 > **Upgrade every flutter_edge_ai package together** (`flutter pub upgrade`,
 > not `flutter pub upgrade flutter_edge_ai`). Minimum versions with core
 > 2.3.0: `flutter_edge_ai_litertlm` 1.13.0 · `flutter_edge_ai_embeddings`
-> 2.3.0 · `flutter_edge_ai_onnx` 0.5.7 · `flutter_edge_ai_mediapipe` 1.2.1 ·
-> `flutter_edge_ai_builtin_ai` 0.3.4 · `flutter_edge_ai_speech` 0.5.6 ·
+> 2.3.0 · `flutter_edge_ai_onnx` 0.5.8 · `flutter_edge_ai_mediapipe` 1.2.2 ·
+> `flutter_edge_ai_builtin_ai` 0.3.5 · `flutter_edge_ai_speech` 0.5.6 ·
 > `flutter_edge_ai_agent` 0.2.9 · `flutter_edge_ai_rag` 1.1.0 ·
 > `flutter_edge_ai_sqlite` 2.1.0 · `flutter_edge_ai_qdrant` 2.1.0. An older
-> one fails to compile inside that package. `genkit_flutter_edge_ai` 0.8.1
-> still compiles; 0.8.2 calls the new API and re-resolves a closed embedder.
+> one fails to compile inside that package. `genkit_flutter_edge_ai` 0.9.0
+> still compiles; 0.9.1 calls the new API and re-resolves a closed embedder.
 > `flutter_edge_ai_diagnostics` and `genkit_hybrid` are unaffected.
 
 ```
@@ -419,7 +419,7 @@ dependencies:
 dependencies:
   flutter_edge_ai: ^2.3.0                 # core — always required
   flutter_edge_ai_litertlm: ^1.13.0       # add if you run .litertlm models (also provides LiteRtEmbeddingBackend)
-  flutter_edge_ai_mediapipe: ^1.2.1       # add if you run .task / .bin models
+  flutter_edge_ai_mediapipe: ^1.2.2       # add if you run .task / .bin models
   flutter_edge_ai_embeddings: ^2.3.0      # add if you compute embeddings with a tokenizer file (needs a backend, see above)
   flutter_edge_ai_rag: ^1.1.0             # add for on-device RAG (RagIndex) + one store below
   flutter_edge_ai_qdrant: ^2.1.0          # native on-device RAG store (qdrant)

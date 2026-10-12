@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_edge_ai/src/domain/model_source.dart';
+import 'package:flutter_edge_ai/src/domain/no_active_model_error.dart';
 import 'package:flutter_edge_ai/src/model_management/constants/preferences_keys.dart';
 import 'package:flutter_edge_ai/src/model_management/model_specs.dart';
 import 'package:flutter_edge_ai/src/utils/file_name_utils.dart';
@@ -339,9 +340,9 @@ void resetRejectedActiveEmbeddingIdentity() {
 
 /// What asking for the active embedder answers when none is active: the
 /// reason a persisted record was refused, when one was.
-StateError noActiveEmbedderError() {
+NoActiveModelError noActiveEmbedderError() {
   final rejected = _rejectedActiveEmbeddingIdentity;
-  return StateError(
+  return NoActiveModelError(
     rejected == null
         ? 'No active embedding model set. Use FlutterEdgeAi.installEmbedder() '
               'first.'
