@@ -140,7 +140,7 @@ on every install, because the variant's filename is only known after the fetch.
 
 | Model file | Platforms | Tokenizer | Longest input |
 |---|---|---|---|
-| EmbeddingGemma 2 text and images, one `.litertlm` | Android, iOS, macOS, Linux, Windows; Web via `@litert-lm/core` | inside the bundle | 1024 tokens |
+| EmbeddingGemma 2 text and images, one `.litertlm` | Android, iOS, macOS, Linux, Windows; Web via `@litert-lm/core`; per-SoC bundles on Qualcomm NPUs (Android, Linux arm64) | inside the bundle | 1024 tokens |
 | EmbeddingGemma 1, Gecko: `.tflite` + a tokenizer file | Android, iOS, macOS, Linux, Windows; Web via LiteRT.js | `flutter_edge_ai_embeddings` | the model's sequence length (256 for a `seq256` file) |
 
 ```dart
@@ -225,7 +225,9 @@ final vector = await embedder.embed(
   over-long input costs one full embedding before it is refused. Split before
   embedding.
 - **CPU**, on the web too (WebAssembly). `activeBackend` is
-  `PreferredBackend.cpu`; `preferredBackend` is not applied.
+  `PreferredBackend.cpu`; `preferredBackend` is not applied — except `npu`,
+  which this bundle refuses: the NPU runs the per-SoC bundles
+  ([below](#embeddinggemma-2-on-a-qualcomm-npu)).
 - **Disk:** the 165 MB bundle plus a 71 MB weight cache the engine writes at
   its first load. The 440m bundle adds a 218 MB vision cache and the 740m
   bundle writes 385 MB of caches in total, even for text-only use. The cache
@@ -334,13 +336,73 @@ page.
   first.
 
 `EmbeddingModel.activeBackend` is `cpu` on native and for EmbeddingGemma 2 on
-the web, the only backend this package's embedder uses, so `preferredBackend`
-is not applied. For EmbeddingGemma 1 on the web it is `null` and LiteRT.js
+the web, and `npu` for an EmbeddingGemma 2 per-SoC bundle on a Qualcomm NPU
+([below](#embeddinggemma-2-on-a-qualcomm-npu)); `gpu` is not applied. For EmbeddingGemma 1 on the web it is `null` and LiteRT.js
 picks: `window.getLiteRtEmbeddingAccelerator()` names where
 the output buffer lived after the first embedding, and
 `window.getLiteRtEmbeddingFullyAccelerated()` says whether the graph landed
 entirely on the requested accelerator — `false` also when LiteRT silently
 recompiled a WebGPU request for WASM.
+
+### EmbeddingGemma 2 on a Qualcomm NPU
+
+Google publishes every EmbeddingGemma 2 bundle a second time, compiled for one
+SoC's NPU, in the same repositories:
+`embeddinggemma-2-text-270m_Qualcomm_SM8850.litertlm`,
+`embeddinggemma-2-text-vision-440m_Qualcomm_QCS8275.litertlm`, and so on. Such
+a bundle runs only on that SoC's NPU. This package runs it on **Qualcomm
+Android (arm64) and Qualcomm Linux arm64**:
+
+```dart
+const revision = '9be6e8b90982095dc05c2bd162e4b954ee4dbac7';
+await FlutterEdgeAi.installEmbedder()
+    .modelFromNetwork(
+      'https://huggingface.co/litert-community/'
+      'embeddinggemma-2-text-270m-litert-lm/resolve/$revision/'
+      'embeddinggemma-2-text-270m_Qualcomm_SM8850.litertlm',
+    )
+    .install();
+final embedder = await FlutterEdgeAi.getActiveEmbedder(
+  preferredBackend: PreferredBackend.npu,
+);
+assert(embedder.activeBackend == PreferredBackend.npu);
+```
+
+- **Opt in to the Qualcomm stack**, as for the LLM NPU path:
+  `qualcomm_npu: true` under `hooks: user_defines: flutter_edge_ai_litertlm:`
+  ([Qualcomm NPU](#qualcomm-npu-on-android-and-linux-arm64-opt-in)).
+- **Pick the bundle for the device's SoC.** Verified on device: SM8850
+  (Snapdragon 8 Elite Gen 5), SM8650 (Snapdragon 8 Gen 3) and QCS8275 (Arduino
+  VENTUNO Q). Google also publishes SM8550, SM8750, Tensor G5/G6, MediaTek
+  MT6991/MT6993 and Intel PTL builds; the Qualcomm ones load here but are not
+  verified by us, and the others are refused (no dispatch for them ships). What
+  a bundle is compiled for is read from the bundle itself, not from its name.
+- **Fast, and close to — not equal to — the CPU vectors.** Measured on an
+  SM8650 (Galaxy S24): a text in about 9 ms (53 ms on its CPU), an image in
+  about 0.31 s, the 270m loaded in 0.85 s. Against the CPU bundle, the cosine is
+  0.79–0.86 for sentences of a few words, 0.92 at about 50 words and 0.99 from
+  about 200; images 0.86–0.88. Retrieval within the NPU's own space holds: ten
+  of ten captions find their picture, every query its document.
+- **Nothing switches backend.** NPU and CPU vectors are not interchangeable,
+  so every mismatch is an `EmbeddingLoadException` that says what to do: a
+  per-SoC bundle without `PreferredBackend.npu`; the generic bundle with `npu`;
+  `npu` on iOS, macOS, Windows, Linux x64 or the web; an app built without
+  `qualcomm_npu`; a device without a reachable Qualcomm NPU; a bundle the NPU
+  cannot run (another SoC's — the load embeds one test text to find out). A
+  loaded embedder is never handed to a request for the other backend.
+- **Give an NPU index its own profile id.** Vectors from the SM8850 bundle and
+  from the generic bundle live in different spaces, so a RAG store built with
+  one never takes the other's queries. The example app uses the CPU text id
+  plus `-npu-<soc>` (`embeddinggemma2-litertlm-text-4410a540ce75-prefix-v1-npu-sm8850`,
+  and `…-vis140` for an image index); the 270m and the 440m of one SoC share
+  it, because their text towers are byte-identical.
+  `FlutterEdgeAiActiveEmbedder.forActiveModel` keys on the installed file name,
+  so it separates them by itself.
+- Text up to 1024 tokens (the bundles carry no longer signature), and images
+  on the 440m, as on CPU. The 740m's per-SoC bundles are not verified.
+- On Linux the NPU calls run with SIGPROF blocked, as the LLM engine's create
+  does: QNN does not survive the debug VM's profiler signal. Linux needs
+  native-v0.18.0-e or newer, which reads the bundles' external weights by path.
 
 ## Embeddings on web
 
@@ -569,6 +631,12 @@ Ubuntu; Qualcomm's images ship it) and the user must be in group `fastrpc`
 `npu` falls back to GPU, then CPU, and the log names what to fix. Use the model
 compiled for your SoC, e.g. `gemma-4-E2B-it_qualcomm_qcs8275.litertlm`. A Linux
 x64 build ignores the flag.
+
+**Embeddings.** The same flag runs EmbeddingGemma 2 per-SoC bundles on the NPU
+([EmbeddingGemma 2 on a Qualcomm NPU](#embeddinggemma-2-on-a-qualcomm-npu)).
+Unlike the LLM path, an embedder never falls back: when the NPU cannot run the
+bundle, `getActiveEmbedder` fails with `EmbeddingLoadException` and the reason,
+because CPU vectors would land in another space.
 
 ## Troubleshooting
 

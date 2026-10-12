@@ -121,6 +121,14 @@ EmbeddingPassDescriptor<LiteRtLmWebEmbeddingConfig> _describeBundle(
       engine: liteRtLmEngineTag,
     );
   }
+  // An EmbeddingGemma 2 NPU bundle needs the native Qualcomm dispatch; asked
+  // for here it is refused, never run elsewhere.
+  if (config.preferredBackend == PreferredBackend.npu) {
+    throw const EmbeddingLoadException(
+      liteRtLmWebNpuRefusal,
+      engine: liteRtLmEngineTag,
+    );
+  }
   return EmbeddingPassDescriptor<LiteRtLmWebEmbeddingConfig>(
     engineTag: liteRtLmEngineTag,
     factory: buildLiteRtLmWebEmbeddingPass,

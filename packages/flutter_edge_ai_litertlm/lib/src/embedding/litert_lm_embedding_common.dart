@@ -36,3 +36,9 @@ final liteRtLmImageFormats = Set<EncodedMediaFormat>.unmodifiable({
   EncodedMediaFormat.gif,
   EncodedMediaFormat.bmp,
 });
+
+/// What the web arm says to `npu` for a `.litertlm` bundle: the NPU runs
+/// EmbeddingGemma 2 only through the native Qualcomm dispatch.
+const liteRtLmWebNpuRefusal =
+    'EmbeddingGemma 2 runs on the NPU on Qualcomm Android and Qualcomm Linux '
+    'arm64 only, not on the web. Omit preferredBackend here.';

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:flutter_edge_ai_example/gemma_bootstrap.dart';
 import 'package:flutter_edge_ai_example/models/base_model.dart';
@@ -14,17 +15,25 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   test('every catalog embedder has a unique path-safe stable profile — '
-      'except the EmbeddingGemma 2 bundles, whose text towers are one', () {
+      'except the EmbeddingGemma 2 bundles, whose text towers are one per '
+      'backend', () {
     final ids = [
       for (final model in catalog.EmbeddingModel.values)
         if (!model.isLiteRtLmBundle) model.ragProfileId,
     ];
     final eg2 = {
       for (final model in catalog.EmbeddingModel.values)
-        if (model.isLiteRtLmBundle) model.ragProfileId,
+        if (model.isLiteRtLmBundle && model.npuSoc == null) model.ragProfileId,
     };
     expect(eg2, hasLength(1), reason: 'one text id for every EG2 bundle (M7)');
     ids.add(eg2.single);
+    // One per SoC: an NPU bundle's vectors are not the CPU bundle's.
+    final npu = <String, String>{
+      for (final model in catalog.EmbeddingModel.values)
+        if (model.npuSoc case final soc?) soc: model.ragProfileId,
+    };
+    expect(npu.keys, ['SM8850', 'SM8650', 'QCS8275']);
+    ids.addAll(npu.values);
 
     expect(ids.toSet(), hasLength(ids.length));
     for (final id in [
@@ -124,7 +133,8 @@ void main() {
     // Every other entry is a two-file EG1/Gecko spec, or the 440m bundle.
     for (final model in catalog.EmbeddingModel.values) {
       if (model == eg2 ||
-          model == catalog.EmbeddingModel.embeddingGemma2TextVision440m) {
+          model == catalog.EmbeddingModel.embeddingGemma2TextVision440m ||
+          model.npuSoc != null) {
         continue;
       }
       expect(model.isLiteRtLmBundle, isFalse, reason: model.name);
@@ -160,6 +170,104 @@ void main() {
     );
     expect(catalog.kExampleVisionTokensPerImage, 140);
     expect(_catalogSpec(vision).files, hasLength(1));
+  });
+
+  test('the per-SoC NPU bundles: pinned like the generic ones, loaded with '
+      'npu, and an id of their own per SoC, shared by its 270m and 440m', () {
+    final npu = [
+      for (final model in catalog.EmbeddingModel.values)
+        if (model.npuSoc != null) model,
+    ];
+    expect(npu.map((m) => m.name), [
+      'embeddingGemma2Text270mSm8850',
+      'embeddingGemma2TextVision440mSm8850',
+      'embeddingGemma2Text270mSm8650',
+      'embeddingGemma2TextVision440mSm8650',
+      'embeddingGemma2Text270mQcs8275',
+      'embeddingGemma2TextVision440mQcs8275',
+    ]);
+    const cpuTextId = 'embeddinggemma2-litertlm-text-4410a540ce75-prefix-v1';
+    for (final model in npu) {
+      final soc = model.npuSoc!;
+      final repo = model.embedsImages
+          ? 'embeddinggemma-2-text-vision-440m-litert-lm/resolve/'
+                'e301f74d5551b0c2641bd5cb4652a76239d5c5f8/'
+                'embeddinggemma-2-text-vision-440m'
+          : 'embeddinggemma-2-text-270m-litert-lm/resolve/'
+                '9be6e8b90982095dc05c2bd162e4b954ee4dbac7/'
+                'embeddinggemma-2-text-270m';
+      expect(
+        model.url,
+        'https://huggingface.co/litert-community/${repo}_Qualcomm_$soc.litertlm',
+        reason: model.name,
+      );
+      expect(model.isLiteRtLmBundle, isTrue);
+      expect(model.needsAuth, isFalse);
+      expect(model.sha256, hasLength(64));
+      expect(model.filename, contains('_Qualcomm_${soc}__rev-'));
+      expect(model.embedderBackend, PreferredBackend.npu);
+      expect(
+        model.ragProfileId,
+        '$cpuTextId-npu-${soc.toLowerCase()}',
+        reason: 'NPU vectors never share the CPU id',
+      );
+      expect(
+        catalog.embedderBackendForProfile(model.ragProfileId),
+        PreferredBackend.npu,
+      );
+      if (model.embedsImages) {
+        expect(
+          model.imageRagProfileId,
+          '$cpuTextId-npu-${soc.toLowerCase()}-vis140',
+        );
+        expect(
+          catalog.embedderBackendForProfile(model.imageRagProfileId!),
+          PreferredBackend.npu,
+        );
+      }
+      expect(_catalogSpec(model).files, hasLength(1));
+    }
+    // Every CPU id is unchanged, and loads with the default backend.
+    expect(
+      catalog.EmbeddingModel.embeddingGemma2Text270m.ragProfileId,
+      cpuTextId,
+    );
+    expect(
+      catalog.EmbeddingModel.embeddingGemma2Text270m.embedderBackend,
+      isNull,
+    );
+    expect(catalog.embedderBackendForProfile(cpuTextId), isNull);
+    expect(catalog.embedderBackendForProfile('$cpuTextId-vis140'), isNull);
+    // The SoC's 270m and 440m share one id; two SoCs never do.
+    expect(
+      catalog.EmbeddingModel.embeddingGemma2Text270mSm8850.ragProfileId,
+      catalog.EmbeddingModel.embeddingGemma2TextVision440mSm8850.ragProfileId,
+    );
+    expect(
+      catalog.EmbeddingModel.embeddingGemma2Text270mSm8850.ragProfileId,
+      isNot(catalog.EmbeddingModel.embeddingGemma2Text270mQcs8275.ragProfileId),
+    );
+  });
+
+  test('the NPU bundles are listed on Android and Linux only', () {
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    for (final platform in TargetPlatform.values) {
+      debugDefaultTargetPlatformOverride = platform;
+      final listed = catalog.listedEmbeddingModels.where(
+        (m) => m.npuSoc != null,
+      );
+      final expected =
+          platform == TargetPlatform.android ||
+          platform == TargetPlatform.linux;
+      expect(listed.isNotEmpty, expected, reason: '$platform');
+      expect(
+        catalog.listedEmbeddingModels,
+        containsAll([
+          for (final m in catalog.EmbeddingModel.values)
+            if (m.npuSoc == null) m,
+        ]),
+      );
+    }
   });
 
   test('a restart restores the profile of the entry that was installed, also '

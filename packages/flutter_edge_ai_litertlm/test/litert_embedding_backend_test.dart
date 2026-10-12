@@ -3,12 +3,20 @@
 // is pure, so every test inspects a descriptor and nothing spawns a worker or
 // opens a native library.
 
+import 'dart:ffi' show Abi;
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_edge_ai/engine.dart';
 import 'package:flutter_edge_ai_litertlm/flutter_edge_ai_litertlm.dart';
 import 'package:flutter_edge_ai_litertlm/src/embedding/litert_embedding_pass.dart';
 import 'package:flutter_edge_ai_litertlm/src/embedding/litert_lm_embedding_pass.dart';
+import 'package:flutter_edge_ai_litertlm/src/embedding/litert_lm_npu.dart';
+import 'package:flutter_edge_ai_litertlm/src/embedding/litertlm_npu_target.dart';
+import 'package:flutter_edge_ai_litertlm/src/ffi/npu_stack_manifest.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'litertlm_container_fixture.dart';
 
 EmbeddingModelSpec _tflite({String model = 'gemma.tflite'}) =>
     EmbeddingModelSpec(
@@ -28,12 +36,14 @@ RuntimeConfig _config(
   String? tokenizerPath,
   bool supportImage = false,
   bool supportAudio = false,
+  PreferredBackend? preferredBackend,
 }) => RuntimeConfig(
   maxTokens: 0,
   modelPath: modelPath,
   tokenizerPath: tokenizerPath,
   supportImage: supportImage,
   supportAudio: supportAudio,
+  preferredBackend: preferredBackend,
 );
 
 Matcher _loadRefusal(String engine, Object message) => throwsA(
@@ -46,12 +56,25 @@ Matcher _loadRefusal(String engine, Object message) => throwsA(
 /// registration in a host test).
 const _pathProvider = MethodChannel('plugins.flutter.io/path_provider');
 
+/// Where the bundles describe() reads live: describe() reads the first KB of
+/// a `.litertlm` to tell a per-SoC NPU bundle from the generic one.
+late String bundles;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const backend = LiteRtEmbeddingBackend();
   late _CountingTokenizers tokenizers;
+  late Directory root;
 
   setUp(() {
+    root = Directory.systemTemp.createTempSync('litert_backend_test_');
+    bundles = root.path;
+    final generic = eg2Container(vision: true);
+    File('$bundles/eg2.litertlm').writeAsBytesSync(generic);
+    File('$bundles/EG2.LITERTLM').writeAsBytesSync(generic);
+    File(
+      '$bundles/eg2_npu.litertlm',
+    ).writeAsBytesSync(eg2Container(textStamp: ('Qualcomm', 'SM8850')));
     tokenizers = _CountingTokenizers();
     EmbeddingTokenizerRegistry.instance.registerAll([tokenizers]);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -65,6 +88,7 @@ void main() {
         );
   });
   tearDown(() {
+    root.deleteSync(recursive: true);
     EmbeddingTokenizerRegistry.instance.reset();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_pathProvider, null);
@@ -138,12 +162,12 @@ void main() {
       () async {
         final descriptor = await backend.describe(
           _bundle(),
-          _config('/data/eg2.litertlm'),
+          _config('$bundles/eg2.litertlm'),
         );
         expect(descriptor.engineTag, 'LiteRT-LM');
         expect(descriptor.activeBackend, PreferredBackend.cpu);
         final config = descriptor.config as LiteRtLmEmbeddingConfig;
-        expect(config.modelPath, '/data/eg2.litertlm');
+        expect(config.modelPath, '$bundles/eg2.litertlm');
         // The platform cache directory, never application support: iOS backs
         // that up to iCloud and Android Auto Backup caps it at 25 MB per app,
         // while a purged cache is rebuilt at the next engine create.
@@ -155,7 +179,7 @@ void main() {
     );
 
     test('never asks the tokenizer registry', () async {
-      await backend.describe(_bundle(), _config('/data/eg2.litertlm'));
+      await backend.describe(_bundle(), _config('$bundles/eg2.litertlm'));
       expect(tokenizers.asked, 0);
     });
 
@@ -165,7 +189,7 @@ void main() {
       () async {
         final descriptor = await backend.describe(
           _bundle(),
-          _config('/data/eg2.litertlm', supportImage: true),
+          _config('$bundles/eg2.litertlm', supportImage: true),
         );
         final config = descriptor.config as LiteRtLmEmbeddingConfig;
         expect(config.declaredMedia, {EmbeddingModality.image});
@@ -176,9 +200,11 @@ void main() {
     );
 
     test('visionTokensPerImage: 70 is the opt-in budget', () async {
-      final descriptor = await const LiteRtEmbeddingBackend(
-        visionTokensPerImage: 70,
-      ).describe(_bundle(), _config('/data/eg2.litertlm', supportImage: true));
+      final descriptor =
+          await const LiteRtEmbeddingBackend(visionTokensPerImage: 70).describe(
+            _bundle(),
+            _config('$bundles/eg2.litertlm', supportImage: true),
+          );
       expect(
         (descriptor.config as LiteRtLmEmbeddingConfig).visionTokensPerImage,
         70,
@@ -190,9 +216,143 @@ void main() {
       EmbeddingTokenizerRegistry.instance.reset();
       final descriptor = await backend.describe(
         _bundle(),
-        _config('/data/eg2.litertlm'),
+        _config('$bundles/eg2.litertlm'),
       );
       expect(descriptor.config, isA<LiteRtLmEmbeddingConfig>());
+    });
+  });
+
+  group('describe() places the bundle from its own bytes: CPU or its NPU, '
+      'never a switch', () {
+    test('the generic bundle runs on CPU for every request but npu', () async {
+      for (final requested in [
+        null,
+        PreferredBackend.cpu,
+        PreferredBackend.gpu,
+      ]) {
+        final descriptor = await backend.describe(
+          _bundle(),
+          _config('$bundles/eg2.litertlm', preferredBackend: requested),
+        );
+        expect(descriptor.activeBackend, PreferredBackend.cpu);
+        final config = descriptor.config as LiteRtLmEmbeddingConfig;
+        expect(config.npuTarget, isNull);
+        expect(config.npuDispatchDir, isNull);
+        expect(config.backend, PreferredBackend.cpu);
+      }
+    });
+
+    test('the generic bundle with npu is refused, naming the per-SoC '
+        'bundles', () async {
+      await expectLater(
+        backend.describe(
+          _bundle(),
+          _config(
+            '$bundles/eg2.litertlm',
+            preferredBackend: PreferredBackend.npu,
+          ),
+        ),
+        _loadRefusal(
+          'LiteRT-LM',
+          allOf(contains('generic EmbeddingGemma 2 bundle'), contains('NPU')),
+        ),
+      );
+    });
+
+    test('a per-SoC bundle without npu is refused — detected from its bytes, '
+        'whatever its name', () async {
+      // Named like a generic bundle on purpose: the name says nothing.
+      File('$bundles/eg2_npu.litertlm').copySync('$bundles/plain.litertlm');
+      for (final requested in [
+        null,
+        PreferredBackend.cpu,
+        PreferredBackend.gpu,
+      ]) {
+        await expectLater(
+          backend.describe(
+            _bundle(model: 'plain.litertlm'),
+            _config('$bundles/plain.litertlm', preferredBackend: requested),
+          ),
+          _loadRefusal(
+            'LiteRT-LM',
+            allOf(
+              contains('compiled for the Qualcomm SM8850 NPU'),
+              contains('PreferredBackend.npu'),
+            ),
+          ),
+        );
+      }
+    });
+
+    test(
+      'a per-SoC bundle with npu on this host is refused unless the host '
+      'is Qualcomm Android or Linux arm64',
+      () async {
+        await expectLater(
+          backend.describe(
+            _bundle(model: 'eg2_npu.litertlm'),
+            _config(
+              '$bundles/eg2_npu.litertlm',
+              preferredBackend: PreferredBackend.npu,
+            ),
+          ),
+          _loadRefusal(
+            'LiteRT-LM',
+            allOf(
+              contains('Qualcomm Android and Qualcomm Linux arm64 only'),
+              contains('${Abi.current()}'),
+            ),
+          ),
+        );
+      },
+      skip: '${Abi.current()}' == 'linux_arm64'
+          ? 'a linux_arm64 host may have a Qualcomm NPU'
+          : false,
+    );
+
+    test('a per-SoC bundle with npu where the NPU can run it hands the pass '
+        'its target and dispatch directory, and declares npu', () async {
+      liteRtLmNpuHost = _QualcommAndroid();
+      addTearDown(() => liteRtLmNpuHost = const LiteRtLmPlatformNpuHost());
+      final descriptor = await backend.describe(
+        _bundle(model: 'eg2_npu.litertlm'),
+        _config(
+          '$bundles/eg2_npu.litertlm',
+          preferredBackend: PreferredBackend.npu,
+          supportImage: true,
+        ),
+      );
+      expect(descriptor.activeBackend, PreferredBackend.npu);
+      final config = descriptor.config as LiteRtLmEmbeddingConfig;
+      expect(
+        config.npuTarget,
+        const LiteRtLmNpuTarget(vendor: 'Qualcomm', soc: 'SM8850'),
+      );
+      expect(config.npuDispatchDir, '/data/app/npu');
+      expect(config.backend, PreferredBackend.npu);
+      expect(config.declaredMedia, {EmbeddingModality.image});
+      expect(config.cacheBase, '/cache/flutter_edge_ai/emb');
+    });
+
+    test('a bundle describe() cannot read is refused, not guessed', () async {
+      await expectLater(
+        backend.describe(
+          _bundle(model: 'gone.litertlm'),
+          _config('$bundles/gone.litertlm'),
+        ),
+        _loadRefusal('LiteRT-LM', startsWith('could not read gone.litertlm')),
+      );
+      File('$bundles/junk.litertlm').writeAsBytesSync(List.filled(64, 3));
+      await expectLater(
+        backend.describe(
+          _bundle(model: 'junk.litertlm'),
+          _config('$bundles/junk.litertlm'),
+        ),
+        _loadRefusal(
+          'LiteRT-LM',
+          startsWith('junk.litertlm is not a readable .litertlm bundle'),
+        ),
+      );
     });
   });
 
@@ -209,7 +369,7 @@ void main() {
         await expectLater(
           misconfigured.describe(
             _bundle(),
-            _config('/data/eg2.litertlm', supportImage: true),
+            _config('$bundles/eg2.litertlm', supportImage: true),
           ),
           _loadRefusal(
             'LiteRT-LM',
@@ -224,7 +384,7 @@ void main() {
         // unsupported budget is refused wherever it is used, not first on the
         // day an image arrives.
         await expectLater(
-          misconfigured.describe(_bundle(), _config('/data/eg2.litertlm')),
+          misconfigured.describe(_bundle(), _config('$bundles/eg2.litertlm')),
           throwsA(isA<EmbeddingLoadException>()),
         );
         await expectLater(
@@ -247,7 +407,7 @@ void main() {
           backend.describe(
             _bundle(),
             _config(
-              '/data/eg2.litertlm',
+              '$bundles/eg2.litertlm',
               supportImage: image,
               supportAudio: true,
             ),
@@ -265,7 +425,7 @@ void main() {
     test('the suffix is matched without regard to case', () async {
       final descriptor = await backend.describe(
         _bundle(model: 'EG2.LITERTLM'),
-        _config('/data/EG2.LITERTLM'),
+        _config('$bundles/EG2.LITERTLM'),
       );
       expect(descriptor.config, isA<LiteRtLmEmbeddingConfig>());
       expect(tokenizers.asked, 0);
@@ -276,7 +436,7 @@ void main() {
       await expectLater(
         backend.describe(
           _tflite(),
-          _config('/data/eg2.litertlm', tokenizerPath: '/data/t.model'),
+          _config('$bundles/eg2.litertlm', tokenizerPath: '/data/t.model'),
         ),
         _loadRefusal('LiteRT-LM', startsWith('identity corrupt')),
       );
@@ -319,3 +479,19 @@ final class _CountingTokenizers implements EmbeddingTokenizerProvider {
 
 Future<EmbeddingTokenizer> _tokenize(String _) =>
     throw UnimplementedError('describe() tests never tokenize');
+
+/// A Qualcomm Android phone whose app bundled the NPU stack.
+final class _QualcommAndroid implements LiteRtLmNpuHost {
+  @override
+  String get operatingSystem => 'android';
+  @override
+  String get abi => 'android_arm64';
+  @override
+  Future<NpuStackCheck> qualcommStack() async => const NpuStackCheck.bundled();
+  @override
+  bool get hasNpu => true;
+  @override
+  String get noNpuReason => '';
+  @override
+  Future<String> prepareDispatchDir() async => '/data/app/npu';
+}

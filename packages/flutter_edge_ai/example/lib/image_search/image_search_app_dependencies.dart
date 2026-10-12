@@ -4,6 +4,7 @@ import 'package:flutter_edge_ai_rag/flutter_edge_ai_rag.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../gemma_bootstrap.dart';
+import '../models/embedding_model.dart' show embedderBackendForProfile;
 import '../rag_demo/rag_storage_location.dart';
 import '../utils/installed_model_lookup.dart';
 import 'image_search_controller.dart';
@@ -20,9 +21,21 @@ ImageSearchDependencies imageSearchAppDependencies() {
   return ImageSearchDependencies(
     hasActiveEmbedder: FlutterEdgeAi.hasActiveEmbedder,
     textProfileId: activeEmbeddingProfileId,
-    loadEmbedder: () => FlutterEdgeAi.getActiveEmbedder(supportImage: true),
-    ragEmbedder: (profileId) =>
-        FlutterEdgeAiActiveEmbedder(profileId: profileId, supportImage: true),
+    loadEmbedder: () async {
+      // npu when the active model is a per-SoC NPU bundle.
+      final profileId = await activeEmbeddingProfileId();
+      return FlutterEdgeAi.getActiveEmbedder(
+        supportImage: true,
+        preferredBackend: profileId == null
+            ? null
+            : embedderBackendForProfile(profileId),
+      );
+    },
+    ragEmbedder: (profileId) => FlutterEdgeAiActiveEmbedder(
+      profileId: profileId,
+      supportImage: true,
+      preferredBackend: embedderBackendForProfile(profileId),
+    ),
     openIndex: (embedder) async {
       final profile = await embedder.resolveProfile();
       // Its own location per image profile: one modality per location, and

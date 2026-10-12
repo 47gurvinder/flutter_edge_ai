@@ -38,11 +38,13 @@ final _eg2 = EmbeddingModelSpec(
 RuntimeConfig _bundleConfig({
   bool supportImage = false,
   bool supportAudio = false,
+  PreferredBackend? preferredBackend,
 }) => RuntimeConfig(
   maxTokens: 0,
   modelPath: 'opfs://eg2.litertlm',
   supportImage: supportImage,
   supportAudio: supportAudio,
+  preferredBackend: preferredBackend,
 );
 
 RuntimeConfig _config({bool supportImage = false, bool supportAudio = false}) =>
@@ -176,6 +178,21 @@ void main() {
       reason: 'the pass created both URLs, so it releases both',
     );
     await pass.close();
+  });
+
+  test('describe() on a bundle refuses npu: the NPU runs EmbeddingGemma 2 '
+      'only through the native Qualcomm dispatch', () async {
+    await expectLater(
+      backend.describe(
+        _eg2,
+        _bundleConfig(preferredBackend: PreferredBackend.npu),
+      ),
+      throwsA(
+        isA<EmbeddingLoadException>()
+            .having((e) => e.engine, 'engine', 'LiteRT-LM')
+            .having((e) => e.message, 'message', contains('not on the web')),
+      ),
+    );
   });
 
   test('describe() refuses declared images or audio', () async {
