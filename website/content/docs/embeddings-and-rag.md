@@ -187,13 +187,15 @@ Future<Uint8List> uprightAndSmall(Uint8List photo) async {
 
 This also converts what Flutter decodes and the engine does not (WebP; HEIC on
 Android). Keep the original for display; give the model the result. The
-example app writes BMP instead of PNG, which is cheaper.
+example app writes BMP instead of PNG, which is cheaper. The same code runs on
+the Web, where the browser decodes (CanvasKit or skwasm) on the page itself.
 
 - **Formats the engine decodes:** JPEG, PNG, GIF and BMP. HEIC, WebP, TIFF and
   AVIF throw **EmbeddingFormatNotSupportedException** (naming the detected and
   the accepted formats) before anything is sent: decode them as above. A
   corrupt or truncated file of an accepted type throws
-  **EmbeddingEngineException** (native code 3) and the embedder keeps working.
+  **EmbeddingEngineException** (native code 3; on the Web the message carries
+  the runtime's reason) and the embedder keeps working.
   One image per vector.
 - **Vision budget:** 140 tokens per image by default, the closest to the
   reference model (min cos 0.985 on our test images).

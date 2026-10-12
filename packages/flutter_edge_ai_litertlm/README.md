@@ -301,7 +301,9 @@ Future<Uint8List> uprightAndSmall(Uint8List photo) async {
 It also converts what Flutter decodes and the engine does not (WebP; HEIC on
 Android). The example app writes BMP instead of PNG — cheaper to write and to
 read back — and gets the camera photo's vector within cos 0.998 of the upright
-one.
+one. The same code runs on the web (the browser decodes, through CanvasKit or
+skwasm); there are no isolates there, so the example writes its BMP on the
+page.
 
 - **Formats the engine decodes:** JPEG, PNG, GIF and BMP. HEIC, WebP, TIFF and
   AVIF fail with `EmbeddingFormatNotSupportedException` (which names the
