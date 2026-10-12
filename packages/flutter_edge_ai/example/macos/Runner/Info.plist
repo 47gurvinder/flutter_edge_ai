@@ -28,5 +28,12 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<!-- `flutter test integration_test/<file>.dart -d macos` runs this app in the
+	     background. macOS App Nap then throttles it after about a minute and model
+	     work slows 3-8x (measured on the EmbeddingGemma 2 suite: 0.35 s per image
+	     early, 2.3-6.9 s late, with flat memory). The example opts out; an app
+	     that works in the background holds an NSProcessInfo activity instead. -->
+	<key>NSAppSleepDisabled</key>
+	<true/>
 </dict>
 </plist>
