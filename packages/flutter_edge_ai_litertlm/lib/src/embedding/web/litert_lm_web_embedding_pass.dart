@@ -19,12 +19,21 @@
 //   is page-global and shared with the `.litertlm` LLM engine, whose calls the
 //   runtime does not order against these: the create + probe and every
 //   `computeEmbedding` take `liteRtLmPageLock`, as the LLM's create,
-//   conversation and generation do (see that file for why). `delete()` never
-//   suspends and does not wait for it.
-// - `maxInputLength: 1024` (D21, the runtime's own default), CPU/WASM for the
-//   text and the vision tower. WebGPU is not the default until the drive
-//   suite's NaN/zero and cosine-against-native-CPU check has passed on it (the
-//   model card warns against fp16) and M11 has shown WASM blocks frames.
+//   conversation and generation do (see that file for why). The two engines
+//   also share the module's one WebGPU device. `delete()` never suspends and
+//   does not wait for it.
+// - `maxInputLength: 1024` (D21, the runtime's own default), WebGPU for the
+//   text and the vision tower. The CPU (WebAssembly) path of `@litert-lm/core`
+//   0.18.0 cannot load the EmbeddingGemma 2 bundles: `EmbeddingEngine.create`
+//   fails with "Failed to get external weight for buffer id …" for the 270m
+//   and the 440m alike (measured on Chrome 155, and on the 0.19.0 nightly of
+//   2026-10-11). WebGPU loads them, and its vectors match the native CPU
+//   goldens (text cos >= 0.9948, images >= 0.9976, no NaN or zero vector), so
+//   WebGPU is the backend — and there is no CPU fallback.
+// - A page without WebGPU (no `navigator.gpu`, or no adapter) is refused
+//   before `EmbeddingEngine.create`, with an EmbeddingLoadException that says
+//   why, instead of the runtime's "No GPU adapter found." deep in the create.
+//   The runtime sets up its WebGPU device itself, in `create`.
 // - The vision tower is created only when images are declared
 //   (`visionBackend` unset = vision disabled on the web), at 140 or 70 tokens
 //   per image (D25). The web runtime has no ModelInfo, so a bundle without a
@@ -56,10 +65,13 @@ import '../vision_budget.dart' show liteRtLmDefaultVisionTokensPerImage;
 /// The `@litert-lm/core` backends the pass can ask for (`Backend.CPU`,
 /// `Backend.GPU`).
 enum LiteRtLmWebBackend {
-  /// XNNPack on WebAssembly.
+  /// XNNPack on WebAssembly. `@litert-lm/core` 0.18.0 cannot load the
+  /// EmbeddingGemma 2 bundles on it (their external weights); the pass says
+  /// so when `EmbeddingEngine.create` fails here.
   cpu,
 
-  /// WebGPU.
+  /// WebGPU: the default, and the backend the EmbeddingGemma 2 bundles load
+  /// on.
   gpu,
 }
 
@@ -150,12 +162,32 @@ enum LiteRtLmWebRuntimeState {
   embeddingEngineMissing,
 }
 
+/// Whether the browser can give the runtime a WebGPU device.
+enum LiteRtLmWebGpuSupport {
+  /// `navigator.gpu` returned an adapter.
+  available,
+
+  /// The browser has no `navigator.gpu`: WebGPU is off or not implemented
+  /// (or the page is not a secure context).
+  noWebGpu,
+
+  /// `navigator.gpu.requestAdapter()` returned null: WebGPU is there, but no
+  /// GPU is available to it (blocklisted driver, no GPU, headless).
+  noAdapter,
+}
+
 /// The page's `@litert-lm/core` embedding runtime, as the pass uses it.
 abstract interface class LiteRtLmWebRuntime {
   /// Waits for the page's loader (`window.litertLmReady`) when there is one,
   /// then reports whether `window.EmbeddingEngine` exists. Throws when the
   /// loader itself failed (the module could not be imported).
   Future<LiteRtLmWebRuntimeState> ensureReady();
+
+  /// Asks the browser for a WebGPU adapter as `@litert-lm/core` 0.18.0 does
+  /// before it creates a GPU engine (`navigator.gpu.requestAdapter({
+  /// powerPreference: 'high-performance'})`). Throws when the request itself
+  /// fails.
+  Future<LiteRtLmWebGpuSupport> webGpuSupport();
 
   /// `EmbeddingEngine.create(settings)`.
   Future<LiteRtLmWebEngine> create(LiteRtLmWebEngineSettings settings);
@@ -184,7 +216,7 @@ final class LiteRtLmWebEmbeddingConfig {
     required this.revokeUrl,
     this.declaredMedia = const {},
     this.visionTokensPerImage = liteRtLmDefaultVisionTokensPerImage,
-    this.backend = LiteRtLmWebBackend.cpu,
+    this.backend = LiteRtLmWebBackend.gpu,
     @visibleForTesting this.minInputLength,
   });
 
@@ -213,7 +245,9 @@ final class LiteRtLmWebEmbeddingConfig {
   final int visionTokensPerImage;
 
   /// The backend of the text tower, and of the vision tower when images are
-  /// declared. CPU/WASM until WebGPU passes the drive suite's check.
+  /// declared: WebGPU. CPU is left selectable for the drive suite, which
+  /// records that `@litert-lm/core` 0.18.0 still cannot load the bundles on
+  /// it; nothing in the package selects it.
   final LiteRtLmWebBackend backend;
 
   /// `minInputLength`; null leaves the runtime's default (= the max input
@@ -275,6 +309,7 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
       );
     }
     await _requireRuntime();
+    if (_config.backend == LiteRtLmWebBackend.gpu) await _requireWebGpu();
     final images = media.contains(EmbeddingModality.image);
     // Both suspend inside the page's WebAssembly module (the create reads the
     // model stream), so they take the page lock the LLM engine takes too.
@@ -374,10 +409,61 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
     }
   }
 
+  /// Refuses a page that cannot run the GPU backend, before anything is
+  /// created: there is no CPU path to fall back to.
+  Future<void> _requireWebGpu() async {
+    final LiteRtLmWebGpuSupport support;
+    try {
+      support = await _config.runtime.webGpuSupport();
+    } catch (e) {
+      throw EmbeddingLoadException(
+        _webGpuRefusal('asking the browser for a WebGPU adapter failed: $e'),
+        engine: liteRtLmEngineTag,
+        cause: e,
+      );
+    }
+    switch (support) {
+      case LiteRtLmWebGpuSupport.available:
+        return;
+      case LiteRtLmWebGpuSupport.noWebGpu:
+        throw EmbeddingLoadException(
+          _webGpuRefusal('this browser has no WebGPU (navigator.gpu)'),
+          engine: liteRtLmEngineTag,
+        );
+      case LiteRtLmWebGpuSupport.noAdapter:
+        throw EmbeddingLoadException(
+          _webGpuRefusal(
+            'WebGPU found no GPU adapter (navigator.gpu.requestAdapter() '
+            'returned null)',
+          ),
+          engine: liteRtLmEngineTag,
+        );
+    }
+  }
+
+  String _webGpuRefusal(String why) =>
+      'EmbeddingGemma 2 on the web needs WebGPU, and $why, so $_file was not '
+      'loaded. There is no CPU fallback: the CPU (WebAssembly) path of '
+      '@litert-lm/core 0.18.0 cannot read the external weights of the '
+      'EmbeddingGemma 2 .litertlm bundles. Use a browser with WebGPU enabled '
+      'and a GPU it can use.';
+
   /// Creates the engine into [_engine] and returns the settings it got.
   Future<LiteRtLmWebEngineSettings> _createEngine(bool images) async {
     final rawPath = _config.modelPath;
-    final url = await _config.resolveUrl(rawPath);
+    final String url;
+    try {
+      url = await _config.resolveUrl(rawPath);
+    } catch (e) {
+      // Named here: unwrapped, a JS error reached the app as a bare
+      // "TypeError: Failed to fetch" with no file and no step in it.
+      throw EmbeddingLoadException(
+        'LiteRT-LM could not open $_file from the page\'s model storage '
+        '($rawPath): $e',
+        engine: liteRtLmEngineTag,
+        cause: e,
+      );
+    }
     final settings = LiteRtLmWebEngineSettings(
       modelUrl: url,
       backend: _config.backend,
@@ -397,10 +483,17 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
           '. If the bundle has no vision encoder (embeddinggemma-2-text-270m '
           'has none), install embeddinggemma-2-text-vision-440m to embed '
           'images.';
+      // Every EmbeddingGemma 2 bundle fails here on the CPU, with "Failed to
+      // get external weight for buffer id …": say why, whatever the message.
+      const cpuHint =
+          '. The CPU (WebAssembly) path of @litert-lm/core 0.18.0 cannot read '
+          'the external weights of the EmbeddingGemma 2 .litertlm bundles; '
+          'they load on WebGPU, the default backend.';
+      final cpu = _config.backend == LiteRtLmWebBackend.cpu;
       throw EmbeddingLoadException(
         'LiteRT-LM could not create the embedding engine for $_file '
         '(${_config.backend.name}${images ? ', with its vision encoder' : ''})'
-        ': $e${images ? visionHint : ''}',
+        ': $e${cpu ? cpuHint : ''}${images ? visionHint : ''}',
         engine: liteRtLmEngineTag,
         cause: e,
       );

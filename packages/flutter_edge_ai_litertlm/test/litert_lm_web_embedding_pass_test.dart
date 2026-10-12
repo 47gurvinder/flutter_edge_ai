@@ -2,9 +2,11 @@
 // EmbeddingEngine) on the VM, over a fake runtime that models what the real
 // one does with the settings and options it is given. The real interop is the
 // browser's (example/integration_test/web_eg2_test.dart on the GCE VM); here:
-// the named error for a page without the shim line, the settings that reach
-// `EmbeddingEngine.create` (CPU, maxInputLength 1024, the vision tower only
-// when images are declared, the budget), the load probe (dimension, the limit
+// the named error for a page without the shim line, the WebGPU refusal before
+// anything is created (no navigator.gpu, no adapter, a failed request) and the
+// reason a CPU create fails, the settings that reach `EmbeddingEngine.create`
+// (GPU, maxInputLength 1024, the vision tower only when images are declared,
+// the budget), the load probe (dimension, the limit
 // the engine enforces, NaN/zero refused), what reaches `computeEmbedding`
 // (`taskType.prefix + text` for all nine task types, image bytes untouched,
 // normalize + special tokens + TRUNCATE), the typed overflow with the engine's
@@ -96,6 +98,8 @@ final class _FakeEngine implements LiteRtLmWebEngine {
 
 final class _FakeRuntime implements LiteRtLmWebRuntime {
   LiteRtLmWebRuntimeState state = LiteRtLmWebRuntimeState.ready;
+  LiteRtLmWebGpuSupport gpu = LiteRtLmWebGpuSupport.available;
+  Object? gpuError;
   Object? readyError;
   Object? createError;
   Object? computeError;
@@ -109,6 +113,10 @@ final class _FakeRuntime implements LiteRtLmWebRuntime {
   List<double> Function(LiteRtLmWebInput input)? vectorFor;
 
   int readyChecks = 0;
+  int gpuChecks = 0;
+
+  /// The runtime calls, in order: `ready`, `gpu`, `create`.
+  final calls = <String>[];
   final created = <_FakeEngine>[];
 
   _FakeEngine get engine => created.single;
@@ -116,12 +124,22 @@ final class _FakeRuntime implements LiteRtLmWebRuntime {
   @override
   Future<LiteRtLmWebRuntimeState> ensureReady() async {
     readyChecks++;
+    calls.add('ready');
     if (readyError case final error?) throw error;
     return state;
   }
 
   @override
+  Future<LiteRtLmWebGpuSupport> webGpuSupport() async {
+    gpuChecks++;
+    calls.add('gpu');
+    if (gpuError case final error?) throw error;
+    return gpu;
+  }
+
+  @override
   Future<LiteRtLmWebEngine> create(LiteRtLmWebEngineSettings settings) async {
+    calls.add('create');
     if (createError case final error?) throw error;
     final engine = _FakeEngine(settings, this);
     created.add(engine);
@@ -136,6 +154,7 @@ LiteRtLmWebEmbeddingConfig _config(
   int visionTokensPerImage = 140,
   List<String>? resolved,
   List<String>? revoked,
+  LiteRtLmWebBackend? backend,
 }) => LiteRtLmWebEmbeddingConfig(
   modelPath: modelPath,
   fileName: 'embeddinggemma-2-text-vision-440m.litertlm',
@@ -149,6 +168,7 @@ LiteRtLmWebEmbeddingConfig _config(
   revokeUrl: (url) => revoked?.add(url),
   declaredMedia: media,
   visionTokensPerImage: visionTokensPerImage,
+  backend: backend ?? LiteRtLmWebBackend.gpu,
 );
 
 LiteRtLmWebEmbeddingPass _pass(
@@ -176,16 +196,27 @@ TypeMatcher<EmbeddingLoadException> _loadError(Object message) =>
 
 void main() {
   group('load', () {
-    test('a text-only load: CPU, maxInputLength 1024, no vision tower, the '
-        'dimension and limit read from the probe', () async {
+    test('a text-only load: WebGPU checked before create, GPU, '
+        'maxInputLength 1024, no vision tower, the dimension and limit read '
+        'from the probe', () async {
       final runtime = _FakeRuntime();
-      final pass = _pass(runtime);
+      final pass = LiteRtLmWebEmbeddingPass(
+        // The default backend, as describe() builds it.
+        LiteRtLmWebEmbeddingConfig(
+          modelPath: 'blob:eg2',
+          fileName: 'embeddinggemma-2-text-270m.litertlm',
+          runtime: runtime,
+          resolveUrl: (path) async => path,
+          revokeUrl: (_) {},
+        ),
+      );
 
       final info = await pass.load();
 
+      expect(runtime.calls, ['ready', 'gpu', 'create']);
       final settings = runtime.engine.settings;
       expect(settings.modelUrl, 'blob:eg2');
-      expect(settings.backend, LiteRtLmWebBackend.cpu);
+      expect(settings.backend, LiteRtLmWebBackend.gpu);
       expect(settings.maxInputLength, 1024);
       expect(settings.minInputLength, isNull, reason: 'the runtime default');
       expect(settings.visionBackend, isNull, reason: 'unset = no vision tower');
@@ -237,7 +268,7 @@ void main() {
         final info = await pass.load();
 
         final settings = runtime.engine.settings;
-        expect(settings.visionBackend, LiteRtLmWebBackend.cpu);
+        expect(settings.visionBackend, LiteRtLmWebBackend.gpu);
         expect(settings.visionTokensPerImage, budget);
         expect(info.modalities, {
           EmbeddingModality.text,
@@ -315,6 +346,115 @@ void main() {
       );
     });
 
+    for (final (support, why) in [
+      (LiteRtLmWebGpuSupport.noWebGpu, 'this browser has no WebGPU'),
+      (LiteRtLmWebGpuSupport.noAdapter, 'WebGPU found no GPU adapter'),
+    ]) {
+      test('${support.name}: refused before anything is resolved or created, '
+          'saying EmbeddingGemma 2 on the web needs WebGPU and why there is no '
+          'CPU fallback', () async {
+        final runtime = _FakeRuntime()..gpu = support;
+        final resolved = <String>[];
+        final pass = LiteRtLmWebEmbeddingPass(
+          _config(
+            runtime,
+            media: {EmbeddingModality.image},
+            resolved: resolved,
+          ),
+        );
+        await expectLater(
+          pass.load(),
+          throwsA(
+            _loadError(
+              allOf(
+                startsWith('EmbeddingGemma 2 on the web needs WebGPU'),
+                contains(why),
+                contains('embeddinggemma-2-text-vision-440m.litertlm'),
+                contains('There is no CPU fallback'),
+                contains(
+                  'the CPU (WebAssembly) path of @litert-lm/core 0.18.0 '
+                  'cannot read the external weights',
+                ),
+              ),
+            ).having((e) => e.cause, 'cause', isNull),
+          ),
+        );
+        expect(runtime.calls, ['ready', 'gpu']);
+        expect(resolved, isEmpty);
+        expect(runtime.created, isEmpty);
+        await pass.close();
+      });
+    }
+
+    test('the adapter request itself fails: refused before create, with the '
+        'cause', () async {
+      final failure = StateError('SecurityError: requestAdapter');
+      final runtime = _FakeRuntime()..gpuError = failure;
+      await expectLater(
+        _pass(runtime).load(),
+        throwsA(
+          _loadError(
+            allOf(
+              startsWith('EmbeddingGemma 2 on the web needs WebGPU'),
+              contains('asking the browser for a WebGPU adapter failed'),
+              contains('SecurityError: requestAdapter'),
+            ),
+          ).having((e) => e.cause, 'cause', failure),
+        ),
+      );
+      expect(runtime.created, isEmpty);
+    });
+
+    test('a page without the shim line is named before WebGPU is '
+        'asked', () async {
+      final runtime = _FakeRuntime()
+        ..state = LiteRtLmWebRuntimeState.embeddingEngineMissing
+        ..gpu = LiteRtLmWebGpuSupport.noWebGpu;
+      await expectLater(
+        _pass(runtime).load(),
+        throwsA(_loadError(startsWith('window.EmbeddingEngine is not set'))),
+      );
+      expect(runtime.gpuChecks, 0);
+    });
+
+    test('CPU, selected only by the drive suite\'s record: WebGPU is not '
+        'asked, and a create failure says why the CPU path cannot load the '
+        'EmbeddingGemma 2 bundles', () async {
+      final runtime = _FakeRuntime()
+        ..gpu = LiteRtLmWebGpuSupport.noWebGpu
+        ..createError = StateError(
+          'Failed to get external weight for buffer id 2147483863 '
+          '(tensor 1451)',
+        );
+      final pass = LiteRtLmWebEmbeddingPass(
+        _config(runtime, backend: LiteRtLmWebBackend.cpu),
+      );
+      await expectLater(
+        pass.load(),
+        throwsA(
+          _loadError(
+            allOf(
+              contains('could not create the embedding engine'),
+              contains('(cpu)'),
+              contains('Failed to get external weight'),
+              contains(
+                'The CPU (WebAssembly) path of @litert-lm/core 0.18.0 cannot '
+                'read the external weights of the EmbeddingGemma 2 .litertlm '
+                'bundles; they load on WebGPU',
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(runtime.calls, ['ready', 'create']);
+      expect(
+        runtime.created,
+        isEmpty,
+        reason: 'the create itself was attempted and failed',
+      );
+      await pass.close();
+    });
+
     test('audio declared: refused before the page is touched', () async {
       final runtime = _FakeRuntime();
       await expectLater(
@@ -322,6 +462,7 @@ void main() {
         throwsA(_loadError(liteRtLmNoAudioRefusal)),
       );
       expect(runtime.readyChecks, 0);
+      expect(runtime.gpuChecks, 0);
       expect(runtime.created, isEmpty);
     });
 
@@ -334,8 +475,10 @@ void main() {
           _loadError(
             allOf(
               contains('could not create the embedding engine'),
+              contains('(gpu)'),
               contains('out of memory'),
               isNot(contains('vision encoder')),
+              isNot(contains('CPU (WebAssembly)')),
             ),
           ),
         ),
@@ -392,6 +535,39 @@ void main() {
       );
       await pass.load();
       expect(revoked, isEmpty, reason: 'core owns that URL');
+      await pass.close();
+    });
+
+    test('an opfs:// path the page cannot open: a load error naming the file '
+        'and the path, with the cause; nothing created or revoked', () async {
+      final failure = StateError('TypeError: Failed to fetch');
+      final runtime = _FakeRuntime();
+      final revoked = <String>[];
+      final pass = LiteRtLmWebEmbeddingPass(
+        LiteRtLmWebEmbeddingConfig(
+          modelPath: 'opfs://eg2.litertlm',
+          fileName: 'embeddinggemma-2-text-270m.litertlm',
+          runtime: runtime,
+          resolveUrl: (_) async => throw failure,
+          revokeUrl: revoked.add,
+        ),
+      );
+      await expectLater(
+        pass.load(),
+        throwsA(
+          _loadError(
+            allOf(
+              contains(
+                'could not open embeddinggemma-2-text-270m.litertlm from the '
+                "page's model storage (opfs://eg2.litertlm)",
+              ),
+              contains('TypeError: Failed to fetch'),
+            ),
+          ).having((e) => e.cause, 'cause', failure),
+        ),
+      );
+      expect(runtime.created, isEmpty);
+      expect(revoked, isEmpty, reason: 'no URL was made');
       await pass.close();
     });
 
@@ -621,7 +797,7 @@ void main() {
   });
 
   test('through core\'s inline host: the model reports {text, image}, the '
-      'limit and CPU; a WebP is refused on the caller before the engine sees '
+      'limit and GPU; a WebP is refused on the caller before the engine sees '
       'it; text overflows with exact counts', () async {
     final runtime = _FakeRuntime();
     final host = await inline.startEmbeddingHost(
@@ -629,7 +805,7 @@ void main() {
         engineTag: liteRtLmEngineTag,
         factory: buildLiteRtLmWebEmbeddingPass,
         config: _config(runtime, media: {EmbeddingModality.image}),
-        activeBackend: PreferredBackend.cpu,
+        activeBackend: PreferredBackend.gpu,
       ),
       declaredMedia: {EmbeddingModality.image},
       label: 'embeddinggemma-2-text-vision-440m.litertlm',
@@ -637,7 +813,7 @@ void main() {
     final model = CommonEmbeddingModel.withHost(
       host,
       engine: liteRtLmEngineTag,
-      activeBackend: PreferredBackend.cpu,
+      activeBackend: PreferredBackend.gpu,
     );
     try {
       expect(model.dimension, 4);
@@ -646,7 +822,7 @@ void main() {
         EmbeddingModality.text,
         EmbeddingModality.image,
       });
-      expect(model.activeBackend, PreferredBackend.cpu);
+      expect(model.activeBackend, PreferredBackend.gpu);
       final calls = runtime.engine.calls.length;
       await expectLater(
         model.embed(EmbeddingInput.image(_webp), taskType: TaskType.none),

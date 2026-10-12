@@ -8,7 +8,9 @@
 // - Both engines run in ONE Emscripten module per page
 //   (`getOrLoadGlobalLiteRtLm()`), but the runtime's own `Mutex` is per engine
 //   object (`Engine.mutexes.executor`, `EmbeddingEngine.mutex`): nothing
-//   orders a call of one engine against a call of the other.
+//   orders a call of one engine against a call of the other. Both run on
+//   WebGPU, on the module's one device (`preinitializedWebGPUDevice`, set up
+//   by whichever engine is created first), so their GPU memory adds up too.
 // - In the Asyncify builds (`litertlm_wasm_*asyncify_internal.js`, loaded where
 //   the browser has no JSPI) the module has ONE suspended-call slot:
 //   `Asyncify.handleSleep` stores the unwound stack in the single
