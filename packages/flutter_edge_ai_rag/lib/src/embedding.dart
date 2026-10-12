@@ -269,7 +269,7 @@ final class FlutterEdgeAiActiveEmbedder implements RagEmbedder {
         'create the embedder, or pass your own RagEmbedder.',
       );
     }
-    if (_specResolver() != expected) {
+    if (!_samePinnedModel(_specResolver(), expected)) {
       throw StateError(
         'The active embedding model changed after this '
         'FlutterEdgeAiActiveEmbedder was created. Open a new RagIndex, with a '
@@ -277,7 +277,7 @@ final class FlutterEdgeAiActiveEmbedder implements RagEmbedder {
       );
     }
     final model = await _modelResolver();
-    if (_specResolver() != expected) {
+    if (!_samePinnedModel(_specResolver(), expected)) {
       throw StateError(
         'The active embedding model changed while the RAG embedder was being '
         'resolved. Open a new RagIndex after model switching completes.',
@@ -286,3 +286,45 @@ final class FlutterEdgeAiActiveEmbedder implements RagEmbedder {
     return model;
   }
 }
+
+/// Whether [active] is still the model a [FlutterEdgeAiActiveEmbedder] was
+/// pinned to ([pinned]).
+///
+/// Not `==`: a spec's sources carry credentials and download options that are
+/// not part of the model. A restart restores the active spec without the
+/// download token (`ModelSource.encode` drops it) while the app's next
+/// install passes it again, and the native shell restores the spec with
+/// `FileSource`s at the installed files. What identifies the loaded model is
+/// its installed files: the same file names in the same order (which also
+/// fixes whether it is a self-contained bundle) and, where both specs name
+/// the same kind of source, the same location — URL, asset, bundle or path —
+/// ignoring tokens and download options.
+bool _samePinnedModel(EmbeddingModelSpec? active, EmbeddingModelSpec pinned) {
+  if (active == null) return false;
+  if (active == pinned) return true;
+  final activeFiles = active.files;
+  final pinnedFiles = pinned.files;
+  if (activeFiles.length != pinnedFiles.length) return false;
+  for (var i = 0; i < activeFiles.length; i++) {
+    if (activeFiles[i].filename != pinnedFiles[i].filename) return false;
+    if (!_sameLocation(activeFiles[i].source, pinnedFiles[i].source)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/// Same-kind sources must name the same location; sources of different
+/// kinds (a restore pointing at the installed file, an install from the
+/// network) leave the decision to the file name.
+bool _sameLocation(ModelSource a, ModelSource b) => switch ((a, b)) {
+  (NetworkSource(url: final x), NetworkSource(url: final y)) => x == y,
+  (AssetSource(path: final x), AssetSource(path: final y)) => x == y,
+  (
+    BundledSource(resourceName: final x),
+    BundledSource(resourceName: final y),
+  ) =>
+    x == y,
+  (FileSource(path: final x), FileSource(path: final y)) => x == y,
+  _ => true,
+};
