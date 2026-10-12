@@ -4,15 +4,15 @@ import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 
 /// Whether this is the iOS Simulator, which has no GPU for LiteRT-LM (Metal
-/// there caps one allocation at 256 MB). A simulator app's home is inside
-/// CoreSimulator's device directory on the Mac (the SIMULATOR_* variables
-/// are not passed to every launch).
-bool get isIosSimulator {
+/// there caps one allocation at 256 MB). Measured: neither the SIMULATOR_*
+/// variables nor HOME reach a simulator app's Platform.environment under
+/// `flutter test`, so the app's own documents directory decides — on the
+/// simulator it lies inside CoreSimulator's device directory on the Mac.
+Future<bool> isIosSimulator() async {
   if (!Platform.isIOS) return false;
-  final environment = Platform.environment;
-  return environment.containsKey('SIMULATOR_DEVICE_NAME') ||
-      environment.containsKey('SIMULATOR_UDID') ||
-      (environment['HOME'] ?? '').contains('/CoreSimulator/Devices/');
+  if (Platform.environment.containsKey('SIMULATOR_DEVICE_NAME')) return true;
+  final documents = await getApplicationDocumentsDirectory();
+  return documents.path.contains('/CoreSimulator/Devices/');
 }
 
 const _memoDirectory = 'knowledge_memos';

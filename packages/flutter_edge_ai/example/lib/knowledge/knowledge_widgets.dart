@@ -1916,40 +1916,34 @@ class _CitedText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final base = theme.textTheme.bodyLarge?.copyWith(height: 1.45);
     final spans = <InlineSpan>[];
     var last = 0;
     for (final match in RegExp(r'\[(\d+(?:\s*,\s*\d+)*)\]').allMatches(text)) {
       if (match.start > last) {
         spans.add(TextSpan(text: text.substring(last, match.start)));
       }
-      for (final number in match.group(1)!.split(',')) {
-        final n = int.tryParse(number.trim());
-        final source = vm.answerSources.where((s) => s.number == n).firstOrNull;
-        final color = source == null
-            ? theme.colorScheme.outline
-            : kindColor(source.item.kind, theme.brightness);
-        spans.add(
-          WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 2),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                '${n ?? '?'}',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
+      // Punctuation right after a citation stays with it, so a line never
+      // starts with the full stop that ends the cited sentence.
+      var end = match.end;
+      final trailing = end < text.length && '.,;:!?'.contains(text[end])
+          ? text[end]
+          : '';
+      end += trailing.length;
+      spans.add(
+        WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final number in match.group(1)!.split(','))
+                _citation(theme, int.tryParse(number.trim())),
+              if (trailing.isNotEmpty) Text(trailing, style: base),
+            ],
           ),
-        );
-      }
-      last = match.end;
+        ),
+      );
+      last = end;
     }
     if (last < text.length) spans.add(TextSpan(text: text.substring(last)));
     if (streaming) {
@@ -1961,11 +1955,31 @@ class _CitedText extends StatelessWidget {
       );
     }
     return Text.rich(
-      TextSpan(
-        style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
-        children: spans,
-      ),
+      TextSpan(style: base, children: spans),
       key: const Key('knowledge-answer-text'),
+    );
+  }
+
+  /// A source number as a small pill in its kind's color.
+  Widget _citation(ThemeData theme, int? n) {
+    final source = vm.answerSources.where((s) => s.number == n).firstOrNull;
+    final color = source == null
+        ? theme.colorScheme.outline
+        : kindColor(source.item.kind, theme.brightness);
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        '${n ?? '?'}',
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
     );
   }
 }

@@ -3,7 +3,7 @@
 import 'dart:typed_data';
 
 /// Whether this is the iOS Simulator.
-bool get isIosSimulator => false;
+Future<bool> isIosSimulator() async => false;
 
 Future<String> keepMemoFile(Uint8List wav) => Future.error(
   UnsupportedError('Voice memos are not kept on this platform.'),

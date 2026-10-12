@@ -157,8 +157,7 @@ KnowledgeSttInfo? _stt() {
 }
 
 /// The active language model and how the screen loads it: the catalog's
-/// context window and backend for a catalog model, CPU on the iOS
-/// Simulator (it has no GPU for LiteRT-LM).
+/// context window and backend for a catalog model.
 ({
   KnowledgeLlmInfo info,
   int maxTokens,
@@ -181,7 +180,7 @@ _llm() {
       seesImages: supportImage,
     ),
     maxTokens: model?.maxTokens ?? 4096,
-    backend: isIosSimulator ? PreferredBackend.cpu : model?.preferredBackend,
+    backend: model?.preferredBackend,
     supportImage: supportImage,
   );
 }
@@ -285,14 +284,17 @@ final class _Speech {
 final class _LlmAnswerer implements KnowledgeAnswerer {
   InferenceModelSession? _session;
 
-  Future<InferenceModel> _model() {
+  /// What the model is asked to run on: the catalog's backend, CPU on the
+  /// iOS Simulator (it has no GPU for LiteRT-LM).
+  Future<PreferredBackend?> _backend() async =>
+      await isIosSimulator() ? PreferredBackend.cpu : _llm()?.backend;
+
+  Future<InferenceModel> _model() async {
     final llm = _llm();
-    if (llm == null) {
-      return Future.error(StateError('No language model is active.'));
-    }
+    if (llm == null) throw StateError('No language model is active.');
     return FlutterEdgeAi.getActiveModel(
       maxTokens: llm.maxTokens,
-      preferredBackend: llm.backend,
+      preferredBackend: await _backend(),
       supportImage: llm.supportImage,
       maxNumImages: llm.supportImage ? 1 : null,
     );
@@ -304,7 +306,7 @@ final class _LlmAnswerer implements KnowledgeAnswerer {
     final backend = model.activeBackend?.name ?? 'webgpu';
     debugPrint(
       '[Knowledge] language model on $backend (asked for '
-      '${_llm()?.backend?.name ?? 'the default'}${isIosSimulator ? ', iOS Simulator' : ''})',
+      '${(await _backend())?.name ?? 'the default'})',
     );
     return backend;
   }
