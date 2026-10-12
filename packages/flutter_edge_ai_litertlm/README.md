@@ -413,8 +413,9 @@ final note = await embedder.embed(
 - **Cost** (CPU, measured on an M4 Pro Mac): a 485 MB bundle; at every load the
   engine writes 385 MB of weight caches (text 71 MB, vision 218 MB, audio
   95 MB) in the app's cache directory, also when you only embed text; about
-  0.2–0.3 s per 3-second clip. On the web (WebGPU, Tesla T4, Chrome 155) the
-  740m loads in about 5 s with audio and 9 s with images and audio (no weight
+  0.2–0.3 s per 3-second clip. On the web (WebGPU, Tesla T4, Chrome 155)
+  `getActiveEmbedder(supportAudio: true)` on the 740m took about 17 s, of
+  which the engine's create is about 5 s (9 s with images too; no weight
   cache there); a 3-second clip takes about 0.3 s, the first one about 4 s
   while WebGPU compiles. The audio tower runs on WebGPU: on the CPU
   (WebAssembly) it takes about 18 s per clip, on the page's main thread. Not
