@@ -76,6 +76,9 @@ class VectorStoreStats {
 /// `'<profile id>\u001F<modality>'` for an image or audio binding. Profile ids
 /// cannot contain U+001F, so a qualified id never equals an id an older
 /// version is asked to open, and every older reader refuses the location.
+/// The one limit: an app on flutter_edge_ai_rag 1.0, which did not reserve
+/// U+001F, could open an image or audio location as text by asking for the
+/// qualified id itself — no realistic profile id contains that character.
 ///
 /// An image or audio binding additionally writes a version-2 record
 /// `(unqualified profile id, dimension, documents)`, cross-checked against the
