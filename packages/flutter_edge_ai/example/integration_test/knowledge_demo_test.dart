@@ -22,7 +22,9 @@
 // - Moonshine Tiny: KNOWLEDGE_STT_MODEL_FILE + KNOWLEDGE_STT_TOKENIZER_FILE,
 //   else downloaded (109 MB).
 // Options: KNOWLEDGE_DEMO_PACE=1.5 (slower; 1.0 by default),
-// KNOWLEDGE_DEMO_SHOTS=true (PNG screenshots into <documents>/knowledge_shots).
+// KNOWLEDGE_DEMO_SHOTS=true (PNG screenshots into <documents>/knowledge_shots,
+// or KNOWLEDGE_DEMO_SHOTS_DIR — on the iOS Simulator a Mac path survives the
+// app, which `flutter test` uninstalls at the end).
 //
 // Record it:
 //   iOS Simulator (CPU there): xcrun simctl boot "iPhone 17 Pro"; then
@@ -42,37 +44,19 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter_edge_ai/flutter_edge_ai.dart';
-import 'package:flutter_edge_ai_example/gemma_bootstrap.dart';
-import 'package:flutter_edge_ai_example/knowledge/knowledge_app_dependencies.dart'
-    show kKnowledgeLibraryKey;
 import 'package:flutter_edge_ai_example/knowledge/knowledge_widgets.dart';
 import 'package:flutter_edge_ai_example/main.dart';
-import 'package:flutter_edge_ai_example/models/embedding_model.dart' as catalog;
-import 'package:flutter_edge_ai_example/models/model.dart';
-import 'package:flutter_edge_ai_example/models/stt_model.dart';
-import 'package:flutter_edge_ai_example/services/embedding_catalog_install.dart';
-import 'package:flutter_edge_ai_example/services/embedding_catalog_provenance.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-const _embedderFile = String.fromEnvironment('KNOWLEDGE_EMBEDDER_FILE');
-const _llmFile = String.fromEnvironment('KNOWLEDGE_LLM_FILE');
-const _sttModelFile = String.fromEnvironment('KNOWLEDGE_STT_MODEL_FILE');
-const _sttTokenizerFile = String.fromEnvironment(
-  'KNOWLEDGE_STT_TOKENIZER_FILE',
-);
+import 'knowledge_models.dart';
+
 const _paceDefine = String.fromEnvironment('KNOWLEDGE_DEMO_PACE');
 const _shots = bool.fromEnvironment('KNOWLEDGE_DEMO_SHOTS');
-
-const _embedder = catalog.EmbeddingModel.embeddingGemma2TextVisionAudio740m;
-const _llm = Model.gemma4_E2B_litertlm;
-const _stt = SttModel.moonshineTiny;
+const _shotsDir = String.fromEnvironment('KNOWLEDGE_DEMO_SHOTS_DIR');
 
 final double _pace = double.tryParse(_paceDefine) ?? 1.0;
 
@@ -87,72 +71,6 @@ final _shotBoundary = GlobalKey();
 void _log(String line) {
   // ignore: avoid_print
   print('[demo] $line');
-}
-
-// ── Provisioning (Rule 6b: called first in the test body) ──────────────────
-
-Future<void> _ensureModels() async {
-  final watch = Stopwatch()..start();
-  await bootstrapGemma();
-
-  // EmbeddingGemma 2 (740M): a local copy is accepted only with the pinned
-  // bytes, and then recorded as the catalog entry, as an install from the
-  // list would be.
-  if (_embedderFile.isNotEmpty) {
-    final digest = await sha256.bind(File(_embedderFile).openRead()).first;
-    expect(
-      '$digest',
-      _embedder.sha256,
-      reason: '$_embedderFile is not the pinned ${_embedder.filename}',
-    );
-    await FlutterEdgeAi.installEmbedder()
-        .modelFromFile(_embedderFile, filename: _embedder.filename)
-        .install();
-    await persistVerifiedEmbeddingCatalogSelection(
-      _embedder,
-      spec: EmbeddingModelSpec(
-        name: _embedder.filename,
-        modelSource: ModelSource.network(_embedder.url),
-        modelFilename: _embedder.filename,
-      ),
-    );
-  } else {
-    await withCatalogEmbedderSources(
-      FlutterEdgeAi.installEmbedder(),
-      _embedder,
-    ).install();
-  }
-
-  // Moonshine Tiny.
-  final stt = FlutterEdgeAi.installStt();
-  if (_sttModelFile.isNotEmpty) {
-    stt.modelFromFile(_sttModelFile).tokenizerFromFile(_sttTokenizerFile);
-  } else {
-    stt.modelFromNetwork(_stt.modelUrl).tokenizerFromNetwork(_stt.tokenizerUrl);
-  }
-  await stt.ofType(_stt.sttModelType).install();
-
-  // Gemma 4 E2B.
-  final llm = FlutterEdgeAi.installModel(
-    modelType: _llm.modelType,
-    fileType: _llm.fileType,
-  );
-  if (_llmFile.isNotEmpty) {
-    expect(
-      _llmFile.split(Platform.pathSeparator).last,
-      _llm.filename,
-      reason: 'the catalog recognizes Gemma 4 E2B by its file name',
-    );
-    llm.fromFile(_llmFile);
-  } else {
-    llm.fromNetwork(_llm.url);
-  }
-  await llm.install();
-
-  // A fresh library: no transcripts yet, nothing counted as indexed — the
-  // run shows every memo being transcribed and every item embedded.
-  await (await SharedPreferences.getInstance()).remove(kKnowledgeLibraryKey);
-  _log('models ready in ${watch.elapsedMilliseconds} ms');
 }
 
 // ── Driving ────────────────────────────────────────────────────────────────
@@ -206,7 +124,9 @@ Future<void> _screenshot(WidgetTester tester, String name) async {
   final png = await image.toByteData(format: ui.ImageByteFormat.png);
   image.dispose();
   final directory = await Directory(
-    '${(await getApplicationDocumentsDirectory()).path}/knowledge_shots',
+    _shotsDir.isNotEmpty
+        ? _shotsDir
+        : '${(await getApplicationDocumentsDirectory()).path}/knowledge_shots',
   ).create(recursive: true);
   final file = File(
     '${directory.path}/${(++_shot).toString().padLeft(2, '0')}_$name.png',
@@ -223,7 +143,7 @@ void main() {
   testWidgets('Knowledge demo: index, find a memo and a photo by text, ask', (
     tester,
   ) async {
-    await _ensureModels();
+    await ensureKnowledgeModels(log: _log);
     if (_desktop) await binding.setSurfaceSize(_phone);
     await tester.pumpWidget(
       RepaintBoundary(

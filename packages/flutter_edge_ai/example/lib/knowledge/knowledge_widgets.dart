@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import 'knowledge_dependencies.dart' show KnowledgeSetup;
 import 'knowledge_item.dart';
 import 'knowledge_prompt.dart';
 import 'knowledge_ranking.dart';
@@ -219,18 +220,31 @@ class LibraryTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final setup = vm.setup!;
+    final recording = vm.recording || vm.transcribingMemo;
+    // The recording banner floats over the list: Record is far down it.
+    return Stack(
+      children: [
+        _libraryList(setup, bottomPadding: recording ? 96 : 24),
+        if (recording)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 16,
+            child: _RecordingBanner(vm: vm),
+          ),
+      ],
+    );
+  }
+
+  Widget _libraryList(KnowledgeSetup setup, {required double bottomPadding}) {
     return ListView(
       key: const Key('knowledge-library'),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      padding: EdgeInsets.fromLTRB(16, 8, 16, bottomPadding),
       children: [
         _ErrorBanner(vm: vm),
         _ModelsCard(vm: vm, onOpenList: onOpenList),
         const SizedBox(height: 12),
         _IndexCard(vm: vm),
-        if (vm.recording || vm.transcribingMemo) ...[
-          const SizedBox(height: 12),
-          _RecordingBanner(vm: vm),
-        ],
         for (final kind in KnowledgeKind.values)
           if (kind != KnowledgeKind.memo || setup.audioSupported) ...[
             _SectionHeader(
@@ -886,9 +900,11 @@ class _MemoTile extends StatelessWidget {
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 300),
                       child: Text(
-                        memo.transcript == null
-                            ? 'Transcribed when it is indexed'
-                            : '“${memo.transcript}”',
+                        switch (memo.transcript) {
+                          null => 'Transcribed when it is indexed',
+                          '' => 'No speech heard',
+                          final transcript => '“$transcript”',
+                        },
                         key: ValueKey(memo.transcript),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -924,6 +940,7 @@ class _RecordingBanner extends StatelessWidget {
     return Material(
       key: const Key('knowledge-recording'),
       color: scheme.errorContainer,
+      elevation: 6,
       borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
@@ -1404,7 +1421,9 @@ class _ResultCard extends StatelessWidget {
     };
     final snippet = switch (item) {
       NoteItem(:final body) => body,
-      MemoItem(:final transcript?) => '“$transcript”',
+      MemoItem(:final transcript?) when transcript.isNotEmpty =>
+        '“$transcript”',
+      MemoItem(transcript: '') => 'No speech heard',
       MemoItem() => 'No transcript yet',
       PhotoItem() => 'Found by what is in the picture — no caption, no OCR',
     };
@@ -1634,7 +1653,9 @@ class AskTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        _QuestionSuggestions(onTap: llm == null || vm.asking ? null : onAsk),
+        // Suggestions until the first question; then the conversation.
+        if (vm.question == null)
+          _QuestionSuggestions(onTap: llm == null ? null : onAsk),
         if (vm.question case final question?) ...[
           const SizedBox(height: 16),
           Align(

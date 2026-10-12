@@ -301,8 +301,11 @@ final class _LlmAnswerer implements KnowledgeAnswerer {
   @override
   Future<String> warmUp() async {
     final model = await _model();
-    final backend = model.activeBackend?.name ?? 'web';
-    debugPrint('[Knowledge] language model on $backend');
+    final backend = model.activeBackend?.name ?? 'webgpu';
+    debugPrint(
+      '[Knowledge] language model on $backend (asked for '
+      '${_llm()?.backend?.name ?? 'the default'}${isIosSimulator ? ', iOS Simulator' : ''})',
+    );
     return backend;
   }
 

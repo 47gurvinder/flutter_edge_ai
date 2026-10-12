@@ -24,7 +24,7 @@ String buildKnowledgePrompt(String question, List<KnowledgeSource> sources) {
     final n = source.number;
     lines.add(switch (item) {
       NoteItem(:final title, :final body) => '[$n] Note "$title": $body',
-      MemoItem(:final transcript?) =>
+      MemoItem(:final transcript?) when transcript.trim().isNotEmpty =>
         '[$n] Voice memo, transcript: "${transcript.trim()}"',
       MemoItem() => '[$n] Voice memo (no transcript available)',
       PhotoItem() when source.attached => '[$n] Photo: the attached image',

@@ -84,7 +84,9 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
   }
 
   void _ask(String text) {
-    _question.text = text;
+    if (text.trim().isEmpty) return;
+    // The question moves into the conversation; the field is for the next.
+    _question.clear();
     FocusScope.of(context).unfocus();
     unawaited(_vm.ask(text));
   }
