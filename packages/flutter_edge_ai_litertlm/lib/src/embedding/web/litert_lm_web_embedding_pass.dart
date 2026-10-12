@@ -384,11 +384,12 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
       _engine = await _config.runtime.create(settings);
     } catch (e) {
       // Without ModelInfo on the web, a bundle with no vision encoder is
-      // refused here, by the runtime; say which bundle has one.
+      // refused here, by the runtime — among other failures this pass cannot
+      // tell apart without matching the message, so the hint is conditional.
       const visionHint =
-          '. To embed images the bundle needs a vision encoder: '
-          'embeddinggemma-2-text-270m has none; install '
-          'embeddinggemma-2-text-vision-440m.';
+          '. If the bundle has no vision encoder (embeddinggemma-2-text-270m '
+          'has none), install embeddinggemma-2-text-vision-440m to embed '
+          'images.';
       throw EmbeddingLoadException(
         'LiteRT-LM could not create the embedding engine for $_file '
         '(${_config.backend.name}${images ? ', with its vision encoder' : ''})'

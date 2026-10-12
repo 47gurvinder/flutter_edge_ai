@@ -19,6 +19,9 @@ import 'package:flutter_edge_ai/src/embedding/common_embedding_model.dart';
 // ignore: implementation_imports — the app-facing model over core's inline host, which is internal to core
 import 'package:flutter_edge_ai/src/embedding/embedding_host_web.dart'
     as inline;
+// ignore: implementation_imports — the only way to build a text + image input before core 2.4.0's public constructor
+import 'package:flutter_edge_ai/src/embedding/embedding_input.dart'
+    show debugCombinedEmbeddingInput;
 import 'package:flutter_edge_ai_litertlm/src/embedding/litert_lm_embedding_common.dart';
 import 'package:flutter_edge_ai_litertlm/src/embedding/web/litert_lm_web_embedding_pass.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -539,6 +542,21 @@ void main() {
       }
       expect(runtime.engine.calls, hasLength(1), reason: 'the probe only');
       await textOnly.close();
+
+      // Text with an image, on a pass that embeds both: still one vector per
+      // modality, so it is refused rather than sent as text (or as an image).
+      final withImages = _FakeRuntime();
+      final both = _pass(withImages, media: {EmbeddingModality.image});
+      await both.load();
+      await expectLater(
+        both.embed(
+          debugCombinedEmbeddingInput(text: 'a stop sign', images: [_png]),
+          TaskType.none,
+        ),
+        throwsA(isA<EmbeddingEngineException>()),
+      );
+      expect(withImages.engine.calls, hasLength(1), reason: 'the probe only');
+      await both.close();
     });
 
     test('an image the engine fails on is EmbeddingEngineException with the '
