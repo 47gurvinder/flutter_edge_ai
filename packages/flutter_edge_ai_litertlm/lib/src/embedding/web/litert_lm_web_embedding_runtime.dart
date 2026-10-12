@@ -27,6 +27,12 @@
 ///   // input: a string, or {type: 'image', data: ArrayBuffer}
 /// engine.delete()                                   // Promise<void>
 /// ```
+///
+/// With `backend: GPU` (4, the backend the pass asks for) `create` sets up the
+/// module's one WebGPU device itself, from
+/// `navigator.gpu.requestAdapter({powerPreference: 'high-performance'})`;
+/// [WindowLiteRtLmWebRuntime.webGpuSupport] asks the same question first, so
+/// a page without WebGPU is refused before `create`.
 library;
 
 import 'dart:js_interop';
@@ -96,6 +102,30 @@ final class WindowLiteRtLmWebRuntime implements LiteRtLmWebRuntime {
     return _hasEmbeddingEngine
         ? LiteRtLmWebRuntimeState.ready
         : LiteRtLmWebRuntimeState.embeddingEngineMissing;
+  }
+
+  /// `navigator.gpu.requestAdapter({powerPreference: 'high-performance'})`:
+  /// the adapter `@litert-lm/core` 0.18.0 itself asks for before it creates
+  /// a GPU engine (`createDefaultWebGpuDevice` in `litertlm_web.js`). The
+  /// adapter is only looked at: the runtime requests its own device from its
+  /// own adapter in `EmbeddingEngine.create`.
+  @override
+  Future<LiteRtLmWebGpuSupport> webGpuSupport() async {
+    final navigator = globalContext['navigator'];
+    if (navigator == null || navigator.isUndefinedOrNull) {
+      return LiteRtLmWebGpuSupport.noWebGpu;
+    }
+    final gpu = (navigator as JSObject)['gpu'];
+    if (gpu == null || gpu.isUndefinedOrNull) {
+      return LiteRtLmWebGpuSupport.noWebGpu;
+    }
+    final options = JSObject()..['powerPreference'] = 'high-performance'.toJS;
+    final adapter = await (gpu as JSObject)
+        .callMethod<JSPromise<JSAny?>>('requestAdapter'.toJS, options)
+        .toDart;
+    return adapter == null || adapter.isUndefinedOrNull
+        ? LiteRtLmWebGpuSupport.noAdapter
+        : LiteRtLmWebGpuSupport.available;
   }
 
   @override

@@ -14,8 +14,8 @@
 // response data is written EVEN WHEN A TEST FAILS — a failing W1 is exactly
 // when its comparison is needed — and the run may take 90 minutes: the first
 // run downloads EmbeddingGemma 1 (179 MB), MiniLM (90 MB) or the two
-// EmbeddingGemma 2 bundles (165 + 388 MB), and EmbeddingGemma 2 embeds on the
-// CPU in WebAssembly.
+// EmbeddingGemma 2 bundles (165 + 388 MB), and the LLM suite generates
+// replies next to EmbeddingGemma 2.
 import 'package:integration_test/integration_test_driver.dart';
 
 /// `responseFileKey` in integration_test/web_embeddings_support.dart. The

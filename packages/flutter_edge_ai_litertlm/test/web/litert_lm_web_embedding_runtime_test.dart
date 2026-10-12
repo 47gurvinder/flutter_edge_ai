@@ -6,10 +6,14 @@
 // - the loader states: no loader, a loader without `EmbeddingEngine` (an
 //   index.html written for the LLM only), a loader still importing, a loader
 //   that failed;
-// - the settings object `EmbeddingEngine.create` receives: `backend: 3` (CPU),
+// - the WebGPU question, on a stubbed `navigator.gpu` (the test browser may
+//   have no GPU): an adapter, no adapter, no `navigator.gpu` — asked with the
+//   runtime's own `powerPreference: 'high-performance'` — and a page without
+//   WebGPU refused before `EmbeddingEngine.create` is called;
+// - the settings object `EmbeddingEngine.create` receives: `backend: 4` (GPU),
 //   `maxInputLength: 1024`, and NO `visionBackend` key unless images are
 //   declared (the runtime tests `!== undefined`; a null would ask for a tower
-//   without a backend);
+//   without a backend), then `visionBackend: 4`;
 // - each request: a text part is the prefixed string, an image part is
 //   `{type: 'image', data: ArrayBuffer}` of exactly the file's bytes, options
 //   `{normalize: true, insertSpecialTokens: true, inputOverflowStrategy: 1}`;
@@ -40,12 +44,33 @@ void _js(String source) => globalContext.callMethod('eval'.toJS, source.toJS);
 T _eval<T extends JSAny?>(String source) =>
     globalContext.callMethod<T>('eval'.toJS, source.toJS);
 
-/// Removes everything a test may have put on the page.
+/// Removes everything a test may have put on the page, the `navigator.gpu`
+/// stub included (the browser's own getter is on the prototype).
 void _clearPage() => _js('''
   delete window.EmbeddingEngine;
   delete window.litertLmReady;
   delete window.__eg2;
+  delete navigator.gpu;
+  delete window.__gpuRequests;
 ''');
+
+/// Shadows `navigator.gpu` with a stub: [present] false is a browser without
+/// WebGPU; otherwise `requestAdapter` resolves to an adapter, or to null when
+/// [adapter] is false, and records the options it was asked with.
+void _stubGpu({bool present = true, bool adapter = true}) => _js('''
+  window.__gpuRequests = [];
+  Object.defineProperty(navigator, 'gpu', {
+    configurable: true,
+    value: ${present ? '''{
+      requestAdapter: async function (options) {
+        window.__gpuRequests.push(options);
+        return ${adapter ? '{ features: new Set(), limits: {} }' : 'null'};
+      },
+    }''' : 'undefined'},
+  });
+''');
+
+int get _gpuRequests => (globalContext['__gpuRequests']! as JSArray).length;
 
 /// A stub `EmbeddingEngine` of 0.18.0's shape that records what it is given.
 /// A text "token" is a space-separated word, plus BOS and EOS; an image is
@@ -130,6 +155,32 @@ final _png = Uint8List.fromList([
 void main() {
   tearDown(_clearPage);
 
+  group('webGpuSupport', () {
+    const runtime = WindowLiteRtLmWebRuntime();
+
+    test('an adapter: available, asked with the runtime\'s own '
+        'powerPreference', () async {
+      _stubGpu();
+      expect(await runtime.webGpuSupport(), LiteRtLmWebGpuSupport.available);
+      final options =
+          (globalContext['__gpuRequests']! as JSArray<JSObject>).toDart.single;
+      expect(
+        (options['powerPreference']! as JSString).toDart,
+        'high-performance',
+      );
+    });
+
+    test('requestAdapter() resolves to null: noAdapter', () async {
+      _stubGpu(adapter: false);
+      expect(await runtime.webGpuSupport(), LiteRtLmWebGpuSupport.noAdapter);
+    });
+
+    test('no navigator.gpu: noWebGpu', () async {
+      _stubGpu(present: false);
+      expect(await runtime.webGpuSupport(), LiteRtLmWebGpuSupport.noWebGpu);
+    });
+  });
+
   group('ensureReady', () {
     const runtime = WindowLiteRtLmWebRuntime();
 
@@ -179,6 +230,35 @@ void main() {
     });
   });
 
+  for (final (present, adapter, why) in [
+    (false, false, 'this browser has no WebGPU'),
+    (true, false, 'WebGPU found no GPU adapter'),
+  ]) {
+    test('a page where $why: the app gets the EmbeddingLoadException saying '
+        'EmbeddingGemma 2 needs WebGPU, and EmbeddingEngine.create is never '
+        'called', () async {
+      _installEngine();
+      _stubGpu(present: present, adapter: adapter);
+      await expectLater(
+        _start(images: true),
+        throwsA(
+          isA<EmbeddingLoadException>()
+              .having((e) => e.engine, 'engine', 'LiteRT-LM')
+              .having(
+                (e) => e.message,
+                'message',
+                allOf(
+                  startsWith('EmbeddingGemma 2 on the web needs WebGPU'),
+                  contains(why),
+                  contains('There is no CPU fallback'),
+                ),
+              ),
+        ),
+      );
+      expect(_count('settings'), 0, reason: 'create was called');
+    });
+  }
+
   test('a page without the shim line: the app gets the named '
       'EmbeddingLoadException', () async {
     _js('''
@@ -201,22 +281,25 @@ void main() {
     );
   });
 
-  test('text only: create gets CPU, maxInputLength 1024 and no vision keys; '
-      'the probe and each text are strings; the options are normalize, '
-      'special tokens and TRUNCATE (1)', () async {
+  test('text only: WebGPU asked once, then create gets GPU (4), '
+      'maxInputLength 1024 and no vision keys; the probe and each text are '
+      'strings; the options are normalize, special tokens and TRUNCATE '
+      '(1)', () async {
     _installEngine();
+    _stubGpu();
     final model = await _start();
     try {
+      expect(_gpuRequests, 1);
       expect(model.dimension, 4);
       expect(model.maxInputTokens, 1024);
-      expect(model.activeBackend, PreferredBackend.cpu);
+      expect(model.activeBackend, PreferredBackend.gpu);
 
       final settings = _recordedObject('settings', 0);
       expect(
         (settings['model']! as JSString).toDart,
         'blob:https://example.com/eg2',
       );
-      expect((settings['backend']! as JSNumber).toDartInt, 3);
+      expect((settings['backend']! as JSNumber).toDartInt, 4);
       expect((settings['maxInputLength']! as JSNumber).toDartInt, 1024);
       for (final key in [
         'visionBackend',
@@ -247,14 +330,16 @@ void main() {
     expect((_state['deletes']! as JSNumber).toDartInt, 1);
   });
 
-  test('images: create gets visionBackend 3 and 140 tokens; an image reaches '
-      'the engine as {type: "image", data: ArrayBuffer} of exactly its '
-      'bytes', () async {
+  test('images: create gets visionBackend 4 (GPU) and 140 tokens; an image '
+      'reaches the engine as {type: "image", data: ArrayBuffer} of exactly '
+      'its bytes', () async {
     _installEngine();
+    _stubGpu();
     final model = await _start(images: true);
     try {
       final settings = _recordedObject('settings', 0);
-      expect((settings['visionBackend']! as JSNumber).toDartInt, 3);
+      expect((settings['backend']! as JSNumber).toDartInt, 4);
+      expect((settings['visionBackend']! as JSNumber).toDartInt, 4);
       expect((settings['visionTokensPerImage']! as JSNumber).toDartInt, 140);
       expect(model.modalities, {
         EmbeddingModality.text,
@@ -284,6 +369,7 @@ void main() {
   test('an over-long text: EmbeddingInputTooLongException with the engine\'s '
       'counts, then the model keeps working', () async {
     _installEngine();
+    _stubGpu();
     final model = await _start();
     try {
       final words = List.filled(1500, 'w').join(' ');
@@ -308,6 +394,7 @@ void main() {
       'images were declared; computeEmbedding → EmbeddingEngineException with '
       'the JS message', () async {
     _installEngine();
+    _stubGpu();
     _js("window.__eg2.createError = 'NOT_FOUND: no vision encoder';");
     await expectLater(
       _start(images: true),

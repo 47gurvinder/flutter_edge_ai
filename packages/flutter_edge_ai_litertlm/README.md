@@ -208,8 +208,9 @@ final vector = await embedder.embed(
 ```
 
 - **Android, iOS, macOS, Linux and Windows, and the web (1.15.0).** On the web
-  the bundle runs through `@litert-lm/core`'s `EmbeddingEngine`, which needs
-  one more line in `web/index.html` — see [Web setup](#web-setup-early-preview).
+  the bundle runs through `@litert-lm/core`'s `EmbeddingEngine` on WebGPU,
+  which needs one more line in `web/index.html` — see
+  [Web setup](#web-setup-early-preview) — and a browser with WebGPU.
 - **Text on every bundle; images on the 440m (1.14.0 native, 1.15.0 web).** On
   the 270m, `getActiveEmbedder(supportImage: true)` fails with
   `EmbeddingLoadException` naming the 440m bundle (natively before any engine
@@ -221,11 +222,22 @@ final vector = await embedder.embed(
   at 512 and +560 MB at 1024). A longer input fails with
   `EmbeddingInputTooLongException`. Natively its `actualTokens` is null —
   LiteRT-LM's C API reports the overflow without a count; on the web it is the
-  exact count, which the engine reports from a truncated run — so there an
-  over-long input costs one full embedding before it is refused. Split before
-  embedding.
-- **CPU**, on the web too (WebAssembly). `activeBackend` is
-  `PreferredBackend.cpu`; `preferredBackend` is not applied.
+  exact count, which the engine reports after running the whole input in
+  1024-token windows (WebGPU averages them instead of truncating; the averaged
+  vector is never returned) — so there an over-long input costs a full
+  embedding of every window before it is refused. Split before embedding.
+- **CPU natively, WebGPU on the web.** `activeBackend` is
+  `PreferredBackend.cpu` on Android, iOS and desktop and
+  `PreferredBackend.gpu` on the web; `preferredBackend` is not applied. The web
+  has no CPU path for these bundles: the CPU (WebAssembly) backend of
+  `@litert-lm/core` 0.18.0 cannot read their external weights, so a browser
+  without WebGPU (no `navigator.gpu`, or no GPU adapter) fails
+  `getActiveEmbedder()` with an `EmbeddingLoadException` that says so, before
+  any engine is created. Web vectors come from WebGPU and differ slightly from
+  the native CPU ones: measured min cos about 0.995 for text and 0.998 for
+  images (Chrome 155, Tesla T4). Retrieval across platforms holds: web text
+  queries find natively embedded images and native queries find web-embedded
+  images, top-1 10/10 on the example's ten scenes.
 - **Disk:** the 165 MB bundle plus a 71 MB weight cache the engine writes at
   its first load. The 440m bundle adds a 218 MB vision cache and the 740m
   bundle writes 385 MB of caches in total, even for text-only use. The cache
@@ -319,23 +331,28 @@ page.
   `EmbeddingLoadException`. Text vectors do not depend on it. Image vectors
   do, so give an image store an id that names the budget: the text profile id
   plus `-vis140` (or `-vis70`).
+- **Next to an LLM on the web** the vision encoder does not fit: see
+  [Web setup](#web-setup-early-preview). Close the `.litertlm` LLM before
+  loading the 440m with images, or embed text only.
 - **Cost** (CPU, measured): a 388 MB bundle; at every load the engine writes a
   218 MB vision weight cache next to the 71 MB text cache in the app's cache
   directory, also when you only embed text. The first image adds about 385 MB
   of RAM on an M4 Pro Mac and about 500 MB on a Pixel 8. Per image at 140
   tokens: about 0.35 s on an Apple-silicon Mac, about 2 s on an Android flagship
   (Pixel 8 Pro 1.8 s, Pixel 8a 2.3 s), more on mid-range phones and rising
-  under sustained load; 70 tokens takes about half. LiteRT-LM's thread setting
-  reaches the text tower only; images run with its default threads. A 440m
-  loaded for text alone still loads its vision tower: for text use the 270m.
+  under sustained load; 70 tokens takes about half. On the web (WebGPU, Tesla
+  T4) an image takes about 0.33 s and a short text about 0.12 s. LiteRT-LM's
+  thread setting reaches the text tower only; images run with its default
+  threads. A 440m loaded for text alone still loads its vision tower: for
+  text use the 270m.
 - The example app's **Image Search** screen indexes photos (or ten bundled
   sample pictures) in a RAG image index and searches them by text and by
   photo; choose "EmbeddingGemma 2 Text + Vision (440M)" under Embedding Models
   first.
 
-`EmbeddingModel.activeBackend` is `cpu` on native and for EmbeddingGemma 2 on
-the web, the only backend this package's embedder uses, so `preferredBackend`
-is not applied. For EmbeddingGemma 1 on the web it is `null` and LiteRT.js
+`EmbeddingModel.activeBackend` is `cpu` on native and `gpu` for EmbeddingGemma
+2 on the web — the only backend this package's embedder uses on each — so
+`preferredBackend` is not applied. For EmbeddingGemma 1 on the web it is `null` and LiteRT.js
 picks: `window.getLiteRtEmbeddingAccelerator()` names where
 the output buffer lived after the first embedding, and
 `window.getLiteRtEmbeddingFullyAccelerated()` says whether the graph landed
@@ -454,14 +471,22 @@ window.litertLmReady = (async () => {
 ```
 
 `window.EmbeddingEngine` (1.15.0) is what EmbeddingGemma 2 `.litertlm`
-embedders run on, text and images, on the CPU (WebAssembly); WebGPU is not used
-for them yet. A page without that line fails the embedder's load with an
-`EmbeddingLoadException` that names it. The LLM engine does not need it.
+embedders run on, text and images, on WebGPU. A page without that line fails
+the embedder's load with an `EmbeddingLoadException` that names it; so does a
+browser without WebGPU, which has no fallback here (the CPU path of
+`@litert-lm/core` 0.18.0 cannot read these bundles' external weights). The LLM
+engine does not need the line.
 
 An LLM and an EmbeddingGemma 2 embedder on the same page share one WebAssembly
-module, so they take turns: an embedding, or an embedder's load, waits while a
-reply is being generated (until its stream ends, even if you stopped listening),
-and a reply waits for an embedding in progress.
+module and one WebGPU device, so they take turns and their GPU memory adds up:
+an embedding, or an embedder's load, waits while a reply is being generated
+(until its stream ends, even if you stopped listening), and a reply waits for
+an embedding in progress. The module has 4 GB of memory (WebAssembly is
+32-bit), and the 440m's vision encoder does not fit in it next to Gemma 4 E2B
+(measured: the vision engine alone takes about 3.3 GB): whichever loads
+second fails, the embedder with an `EmbeddingLoadException` that says to close
+the LLM first. A text-only embedder — the 270m, or the 440m without
+`supportImage` — loads next to the LLM.
 
 Native platforms need no web setup.
 
@@ -473,7 +498,7 @@ Native platforms need no web setup.
 | iOS      | ✅ FFI (GPU via Metal on device; CPU on simulator) |
 | macOS / Linux | ✅ FFI (GPU via Metal / Vulkan; NPU on Qualcomm Linux arm64 — opt-in, below) |
 | Windows  | ✅ FFI (CPU + GPU via DirectX 12 + Intel NPU) |
-| Web      | ⚠️ early preview via `@litert-lm/core` (CDN; LLMs text-only; EmbeddingGemma 2 text and images on CPU) |
+| Web      | ⚠️ early preview via `@litert-lm/core` (CDN; LLMs text-only; EmbeddingGemma 2 text and images on WebGPU) |
 
 The native library (`native-v0.18.0-d`, LiteRT-LM v0.18.0) is fetched at build
 time by `hook/build.dart` from a SHA256-verified GitHub release. The app still

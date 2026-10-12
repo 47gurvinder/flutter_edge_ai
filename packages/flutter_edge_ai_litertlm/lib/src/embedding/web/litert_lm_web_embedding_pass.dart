@@ -19,27 +19,41 @@
 //   is page-global and shared with the `.litertlm` LLM engine, whose calls the
 //   runtime does not order against these: the create + probe and every
 //   `computeEmbedding` take `liteRtLmPageLock`, as the LLM's create,
-//   conversation and generation do (see that file for why). `delete()` never
-//   suspends and does not wait for it.
-// - `maxInputLength: 1024` (D21, the runtime's own default), CPU/WASM for the
-//   text and the vision tower. WebGPU is not the default until the drive
-//   suite's NaN/zero and cosine-against-native-CPU check has passed on it (the
-//   model card warns against fp16) and M11 has shown WASM blocks frames.
+//   conversation and generation do (see that file for why). The two engines
+//   also share the module's one WebGPU device. `delete()` never suspends and
+//   does not wait for it.
+// - `maxInputLength: 1024` (D21, the runtime's own default), WebGPU for the
+//   text and the vision tower. The CPU (WebAssembly) path of `@litert-lm/core`
+//   0.18.0 cannot load the EmbeddingGemma 2 bundles: `EmbeddingEngine.create`
+//   fails with "Failed to get external weight for buffer id …" for the 270m
+//   and the 440m alike (measured on Chrome 155, and on the 0.19.0 nightly of
+//   2026-10-11). WebGPU loads them, and its vectors match the native CPU
+//   goldens (text cos >= 0.9948, images >= 0.9976, no NaN or zero vector), so
+//   WebGPU is the backend — and there is no CPU fallback.
+// - A page without WebGPU (no `navigator.gpu`, or no adapter) is refused
+//   before `EmbeddingEngine.create`, with an EmbeddingLoadException that says
+//   why, instead of the runtime's "No GPU adapter found." deep in the create.
+//   The runtime sets up its WebGPU device itself, in `create`.
 // - The vision tower is created only when images are declared
 //   (`visionBackend` unset = vision disabled on the web), at 140 or 70 tokens
 //   per image (D25). The web runtime has no ModelInfo, so a bundle without a
 //   vision encoder (the 270m) is refused by `EmbeddingEngine.create` itself;
 //   the load error then says which bundle embeds images.
 // - At load the pass embeds one over-long probe text under TRUNCATE: the
-//   vector's length is the model's dimension, `truncatedLength` is the input
-//   limit the engine really enforces (prefix, BOS and EOS included), and a NaN
-//   or all-zero vector — the fp16 failure — refuses the load instead of
-//   serving wrong vectors.
-// - Every request runs under TRUNCATE: an input the engine had to cut comes
-//   back with `truncatedLength` set, and is thrown as
-//   EmbeddingInputTooLongException with the engine's exact counts
-//   (`inputLength`, `truncatedLength`) — the truncated vector is never
-//   returned.
+//   vector's length is the model's dimension, and a NaN or all-zero vector —
+//   the fp16 failure — refuses the load instead of serving wrong vectors. The
+//   input limit the engine really enforces (prefix, BOS and EOS included)
+//   comes from what it did with the probe: on the CPU path it truncates and
+//   reports `truncatedLength`; on WebGPU `@litert-lm/core` 0.18.0 ignores the
+//   overflow strategy (TRUNCATE and ERROR alike) and always splits an
+//   over-long input into windows of its text signature and averages them
+//   (`numChunks` > 1, no `truncatedLength`; measured on Chrome 155: 1024
+//   tokens are one window, 1025 are two). There the limit is the window,
+//   pinned by embedding exactly 1024 tokens (one window) and 1025 (two).
+// - Every request runs under TRUNCATE. An input the engine had to cut
+//   (`truncatedLength`) or split (`numChunks` > 1) is thrown as
+//   EmbeddingInputTooLongException with the engine's exact count
+//   (`inputLength`) — the truncated or averaged vector is never returned.
 // - Under `WebStorageMode.streaming` the model path is `opfs://`, which the
 //   runtime's fetch() cannot open: it is resolved to a `blob:` URL first, and
 //   that URL — created by this pass — is revoked once the engine has read it.
@@ -56,10 +70,13 @@ import '../vision_budget.dart' show liteRtLmDefaultVisionTokensPerImage;
 /// The `@litert-lm/core` backends the pass can ask for (`Backend.CPU`,
 /// `Backend.GPU`).
 enum LiteRtLmWebBackend {
-  /// XNNPack on WebAssembly.
+  /// XNNPack on WebAssembly. `@litert-lm/core` 0.18.0 cannot load the
+  /// EmbeddingGemma 2 bundles on it (their external weights); the pass says
+  /// so when `EmbeddingEngine.create` fails here.
   cpu,
 
-  /// WebGPU.
+  /// WebGPU: the default, and the backend the EmbeddingGemma 2 bundles load
+  /// on.
   gpu,
 }
 
@@ -150,12 +167,32 @@ enum LiteRtLmWebRuntimeState {
   embeddingEngineMissing,
 }
 
+/// Whether the browser can give the runtime a WebGPU device.
+enum LiteRtLmWebGpuSupport {
+  /// `navigator.gpu` returned an adapter.
+  available,
+
+  /// The browser has no `navigator.gpu`: WebGPU is off or not implemented
+  /// (or the page is not a secure context).
+  noWebGpu,
+
+  /// `navigator.gpu.requestAdapter()` returned null: WebGPU is there, but no
+  /// GPU is available to it (blocklisted driver, no GPU, headless).
+  noAdapter,
+}
+
 /// The page's `@litert-lm/core` embedding runtime, as the pass uses it.
 abstract interface class LiteRtLmWebRuntime {
   /// Waits for the page's loader (`window.litertLmReady`) when there is one,
   /// then reports whether `window.EmbeddingEngine` exists. Throws when the
   /// loader itself failed (the module could not be imported).
   Future<LiteRtLmWebRuntimeState> ensureReady();
+
+  /// Asks the browser for a WebGPU adapter as `@litert-lm/core` 0.18.0 does
+  /// before it creates a GPU engine (`navigator.gpu.requestAdapter({
+  /// powerPreference: 'high-performance'})`). Throws when the request itself
+  /// fails.
+  Future<LiteRtLmWebGpuSupport> webGpuSupport();
 
   /// `EmbeddingEngine.create(settings)`.
   Future<LiteRtLmWebEngine> create(LiteRtLmWebEngineSettings settings);
@@ -184,7 +221,7 @@ final class LiteRtLmWebEmbeddingConfig {
     required this.revokeUrl,
     this.declaredMedia = const {},
     this.visionTokensPerImage = liteRtLmDefaultVisionTokensPerImage,
-    this.backend = LiteRtLmWebBackend.cpu,
+    this.backend = LiteRtLmWebBackend.gpu,
     @visibleForTesting this.minInputLength,
   });
 
@@ -213,7 +250,9 @@ final class LiteRtLmWebEmbeddingConfig {
   final int visionTokensPerImage;
 
   /// The backend of the text tower, and of the vision tower when images are
-  /// declared. CPU/WASM until WebGPU passes the drive suite's check.
+  /// declared: WebGPU. CPU is left selectable for the drive suite, which
+  /// records that `@litert-lm/core` 0.18.0 still cannot load the bundles on
+  /// it; nothing in the package selects it.
   final LiteRtLmWebBackend backend;
 
   /// `minInputLength`; null leaves the runtime's default (= the max input
@@ -230,13 +269,20 @@ EmbeddingPass buildLiteRtLmWebEmbeddingPass(
 /// The `index.html` line the page needs for EmbeddingGemma 2, word for word.
 const liteRtLmWebShimLine = 'window.EmbeddingEngine = m.EmbeddingEngine;';
 
-/// The load probe: about 9,000 tokens of one repeated word — longer than the
-/// largest text signature of any EmbeddingGemma 2 bundle (8192), so the engine
-/// always truncates it and reports the limit it enforces.
-final _probeText = List.filled(9000, 'the').join(' ');
+/// The words of the load probe: 9,000 of one word that the Gemma tokenizer
+/// reads as one token each — longer than the largest text signature of any
+/// EmbeddingGemma 2 bundle (8192), so the engine always cuts or splits it.
+const _probeWords = 9000;
 
-/// Every request: L2-normalised, BOS and EOS added (D26), and an over-long
-/// input truncated so the response carries the engine's exact counts.
+/// [count] repetitions of `the`, one token each.
+String _the(int count) => List.filled(count, 'the').join(' ');
+
+final _probeText = _the(_probeWords);
+
+/// Every request: L2-normalised, BOS and EOS added (D26), and TRUNCATE for an
+/// over-long input, so the response carries the engine's exact counts (on
+/// WebGPU the engine ignores the strategy and splits the input instead; the
+/// counts are there either way).
 const _options = LiteRtLmWebEmbeddingOptions(
   normalize: true,
   insertSpecialTokens: true,
@@ -252,6 +298,7 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
 
   LiteRtLmWebEngine? _engine;
   int _dimension = 0;
+  int? _maxInputTokens;
   bool _images = false;
   bool _loading = false;
   bool _loaded = false;
@@ -275,28 +322,30 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
       );
     }
     await _requireRuntime();
+    if (_config.backend == LiteRtLmWebBackend.gpu) await _requireWebGpu();
     final images = media.contains(EmbeddingModality.image);
     // Both suspend inside the page's WebAssembly module (the create reads the
     // model stream), so they take the page lock the LLM engine takes too.
-    final (settings, probe) = await liteRtLmPageLock.run(() async {
-      final settings = await _createEngine(images);
-      try {
-        return (
-          settings,
-          await _engine!.computeEmbedding(
+    final (settings, probe, maxInputTokens) = await liteRtLmPageLock.run(
+      () async {
+        final settings = await _createEngine(images);
+        final engine = _engine!;
+        try {
+          final probe = await engine.computeEmbedding(
             LiteRtLmWebText(_probeText),
             _options,
-          ),
-        );
-      } catch (e) {
-        throw EmbeddingLoadException(
-          'LiteRT-LM created the embedding engine for $_file but could not '
-          'embed with it (${_config.backend.name}): $e',
-          engine: liteRtLmEngineTag,
-          cause: e,
-        );
-      }
-    });
+          );
+          return (settings, probe, await _inputLimit(engine, probe));
+        } catch (e) {
+          throw EmbeddingLoadException(
+            'LiteRT-LM created the embedding engine for $_file but could not '
+            'embed with it (${_config.backend.name}): $e',
+            engine: liteRtLmEngineTag,
+            cause: e,
+          );
+        }
+      },
+    );
     final dimension = probe.embedding.length;
     if (dimension == 0) {
       throw EmbeddingLoadException(
@@ -312,19 +361,17 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
         engine: liteRtLmEngineTag,
       );
     }
-    // The limit the engine enforces: the largest text signature it prepared
-    // (the smallest of the bundle's at or above `maxInputLength`, D21). The
-    // probe is longer than any, so it is always cut there.
-    final maxInputTokens = probe.truncatedLength;
     if (maxInputTokens == null) {
       edgeAiLog(
         '[LiteRtLmWebEmbeddingPass] $_file embedded '
-        '${probe.inputLength} tokens without truncating: its input limit is '
+        '${probe.inputLength} tokens in ${probe.numChunks} window(s) without '
+        'truncating, and its window could not be pinned: its input limit is '
         'unknown, so maxInputTokens is null.',
       );
     }
 
     _dimension = dimension;
+    _maxInputTokens = maxInputTokens;
     _images = images;
     _loaded = true;
     edgeAiLog(
@@ -337,6 +384,50 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
       modalities: {EmbeddingModality.text, if (images) EmbeddingModality.image},
       imageFormats: images ? liteRtLmImageFormats : const {},
     );
+  }
+
+  /// The input limit the engine enforces — the text signature it prepared,
+  /// the smallest of the bundle's at or above `maxInputLength` (D21) — read
+  /// from what it did with the [probe], which is longer than any signature:
+  /// - cut it (the CPU path): `truncatedLength` is the limit;
+  /// - split it into windows and averaged them (WebGPU, which ignores the
+  ///   overflow strategy): the window is the limit. It is pinned, not
+  ///   guessed: [liteRtLmMaxInputLength] tokens must be one window and one
+  ///   token more two, by the engine's own counts;
+  /// - neither: null (a model whose limit is beyond the probe).
+  Future<int?> _inputLimit(
+    LiteRtLmWebEngine engine,
+    LiteRtLmWebEmbedding probe,
+  ) async {
+    if (probe.truncatedLength case final limit?) return limit;
+    if (probe.numChunks <= 1) return null;
+    // BOS and EOS, as the engine counted them around the probe's words.
+    final special = probe.inputLength - _probeWords;
+    final words = liteRtLmMaxInputLength - special;
+    if (special < 0 || words < 1) return null;
+    final atLimit = await engine.computeEmbedding(
+      LiteRtLmWebText(_the(words)),
+      _options,
+    );
+    final overLimit = await engine.computeEmbedding(
+      LiteRtLmWebText(_the(words + 1)),
+      _options,
+    );
+    final pinned =
+        atLimit.inputLength == liteRtLmMaxInputLength &&
+        atLimit.numChunks == 1 &&
+        atLimit.truncatedLength == null &&
+        overLimit.inputLength == liteRtLmMaxInputLength + 1 &&
+        overLimit.numChunks == 2;
+    edgeAiLog(
+      '[LiteRtLmWebEmbeddingPass] $_file: the engine split the '
+      '${probe.inputLength}-token probe into ${probe.numChunks} windows '
+      'instead of truncating it (${_config.backend.name}); '
+      '${atLimit.inputLength} tokens took ${atLimit.numChunks}, '
+      '${overLimit.inputLength} took ${overLimit.numChunks}'
+      '${pinned ? ': the window is $liteRtLmMaxInputLength' : ''}.',
+    );
+    return pinned ? liteRtLmMaxInputLength : null;
   }
 
   Future<void> _requireRuntime() async {
@@ -374,10 +465,61 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
     }
   }
 
+  /// Refuses a page that cannot run the GPU backend, before anything is
+  /// created: there is no CPU path to fall back to.
+  Future<void> _requireWebGpu() async {
+    final LiteRtLmWebGpuSupport support;
+    try {
+      support = await _config.runtime.webGpuSupport();
+    } catch (e) {
+      throw EmbeddingLoadException(
+        _webGpuRefusal('asking the browser for a WebGPU adapter failed: $e'),
+        engine: liteRtLmEngineTag,
+        cause: e,
+      );
+    }
+    switch (support) {
+      case LiteRtLmWebGpuSupport.available:
+        return;
+      case LiteRtLmWebGpuSupport.noWebGpu:
+        throw EmbeddingLoadException(
+          _webGpuRefusal('this browser has no WebGPU (navigator.gpu)'),
+          engine: liteRtLmEngineTag,
+        );
+      case LiteRtLmWebGpuSupport.noAdapter:
+        throw EmbeddingLoadException(
+          _webGpuRefusal(
+            'WebGPU found no GPU adapter (navigator.gpu.requestAdapter() '
+            'returned null)',
+          ),
+          engine: liteRtLmEngineTag,
+        );
+    }
+  }
+
+  String _webGpuRefusal(String why) =>
+      'EmbeddingGemma 2 on the web needs WebGPU, and $why, so $_file was not '
+      'loaded. There is no CPU fallback: the CPU (WebAssembly) path of '
+      '@litert-lm/core 0.18.0 cannot read the external weights of the '
+      'EmbeddingGemma 2 .litertlm bundles. Use a browser with WebGPU enabled '
+      'and a GPU it can use.';
+
   /// Creates the engine into [_engine] and returns the settings it got.
   Future<LiteRtLmWebEngineSettings> _createEngine(bool images) async {
     final rawPath = _config.modelPath;
-    final url = await _config.resolveUrl(rawPath);
+    final String url;
+    try {
+      url = await _config.resolveUrl(rawPath);
+    } catch (e) {
+      // Named here: unwrapped, a JS error reached the app as a bare
+      // "TypeError: Failed to fetch" with no file and no step in it.
+      throw EmbeddingLoadException(
+        'LiteRT-LM could not open $_file from the page\'s model storage '
+        '($rawPath): $e',
+        engine: liteRtLmEngineTag,
+        cause: e,
+      );
+    }
     final settings = LiteRtLmWebEngineSettings(
       modelUrl: url,
       backend: _config.backend,
@@ -393,14 +535,30 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
       // Without ModelInfo on the web, a bundle with no vision encoder is
       // refused here, by the runtime — among other failures this pass cannot
       // tell apart without matching the message, so the hint is conditional.
+      // So is a vision encoder that does not fit next to a loaded LLM: the
+      // page's one WebAssembly module has 4 GB of memory (wasm32), which the
+      // 440m's vision engine (3.3 GB of it) and Gemma 4 E2B do not share —
+      // measured on Chrome 155: "Failed to modify graph with delegate" with
+      // the LLM loaded, fine once it is closed.
       const visionHint =
           '. If the bundle has no vision encoder (embeddinggemma-2-text-270m '
           'has none), install embeddinggemma-2-text-vision-440m to embed '
-          'images.';
+          'images. If a .litertlm LLM is loaded on this page, close it first: '
+          'the page\'s @litert-lm/core WebAssembly module has 4 GB of memory, '
+          'and the vision encoder does not fit in it next to an LLM such as '
+          'Gemma 4 E2B.';
+      // Every EmbeddingGemma 2 bundle fails here on the CPU, with "Failed to
+      // get external weight for buffer id …": say why, whatever the message.
+      const cpuHint =
+          '. The CPU (WebAssembly) path of @litert-lm/core 0.18.0 cannot read '
+          'the external weights of the EmbeddingGemma 2 .litertlm bundles; '
+          'they load on WebGPU, the default backend.';
+      final cpu = _config.backend == LiteRtLmWebBackend.cpu;
       throw EmbeddingLoadException(
         'LiteRT-LM could not create the embedding engine for $_file '
         '(${_config.backend.name}${images ? ', with its vision encoder' : ''})'
-        ': $e${images ? visionHint : ''}',
+        // On the CPU path the CPU is the reason, with or without images.
+        ': $e${cpu ? cpuHint : (images ? visionHint : '')}',
         engine: liteRtLmEngineTag,
         cause: e,
       );
@@ -466,13 +624,23 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
           engine: liteRtLmEngineTag,
         );
       }
-      throw EmbeddingInputTooLongException(
-        'The input is ${response.inputLength} tokens (task prefix, BOS and '
-        'EOS included); $_file takes at most $limit. Nothing was returned for '
-        'it; split the text and embed the pieces.',
-        maxInputTokens: limit,
-        actualTokens: response.inputLength,
-      );
+      throw _tooLong(response.inputLength, limit);
+    }
+    if (response.numChunks > 1) {
+      // WebGPU: the engine averaged windows of the input instead of cutting
+      // it — a vector of a different kind than every other in the index.
+      final limit = _maxInputTokens;
+      if (image || limit == null) {
+        throw EmbeddingEngineException(
+          'LiteRT-LM split the ${response.inputLength}-token '
+          '${image ? 'image' : 'input'} for $_file into '
+          '${response.numChunks} windows and averaged them'
+          '${limit == null ? ' (its window is unknown)' : ''}; nothing was '
+          'returned for it.${image ? '' : ' Split the text and embed the pieces.'}',
+          engine: liteRtLmEngineTag,
+        );
+      }
+      throw _tooLong(response.inputLength, limit);
     }
     final vector = response.embedding;
     if (vector.length != _dimension) {
@@ -491,6 +659,15 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
     }
     return vector;
   }
+
+  EmbeddingInputTooLongException _tooLong(int actual, int limit) =>
+      EmbeddingInputTooLongException(
+        'The input is $actual tokens (task prefix, BOS and EOS included); '
+        '$_file takes at most $limit. Nothing was returned for it; split the '
+        'text and embed the pieces.',
+        maxInputTokens: limit,
+        actualTokens: actual,
+      );
 
   @override
   Future<void> close() async {

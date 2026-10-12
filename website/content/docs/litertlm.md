@@ -17,7 +17,7 @@ there's no manual native setup.
 
 The same package also ships **`LiteRtEmbeddingBackend`**: EmbeddingGemma 2 from
 one `.litertlm` bundle (native: text since 1.13.0, images from the 440m bundle
-since 1.14.0; Web: both since 1.15.0, on the CPU) and EmbeddingGemma 1 / Gecko
+since 1.14.0; Web: both since 1.15.0, on WebGPU) and EmbeddingGemma 1 / Gecko
 `.tflite` models through the LiteRT C API (and LiteRT.js on web) — see
 [Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2).
 
@@ -230,11 +230,17 @@ window.litertLmReady = (async () => {
 ```
 
 `window.EmbeddingEngine` (1.15.0) is what EmbeddingGemma 2 embedders run on in
-the browser — text and images, on the CPU (WebAssembly). A page without it
-fails the embedder's load with an `EmbeddingLoadException` naming the line. An
-LLM and an embedder on the same page share one WebAssembly module and take
-turns: an embedding waits while a reply is being generated, and a reply waits
-for an embedding in progress.
+the browser — text and images, on WebGPU. A page without it fails the
+embedder's load with an `EmbeddingLoadException` naming the line, and so does a
+browser without WebGPU: there is no CPU fallback, because the CPU (WebAssembly)
+path of `@litert-lm/core` 0.18.0 cannot read these bundles' external weights.
+An LLM and an embedder on the same page share one WebAssembly module and one
+WebGPU device, and take turns: an embedding waits while a reply is being
+generated, and a reply waits for an embedding in progress. The module has 4 GB
+of memory, and the 440m's vision encoder does not fit in it next to Gemma 4
+E2B (measured): whichever loads second fails. Close the LLM before loading the
+440m with images, or embed text only — the 270m, or the 440m without images,
+loads next to the LLM.
 
 Native platforms need no web setup.
 

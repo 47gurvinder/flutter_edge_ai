@@ -31,7 +31,7 @@ native platforms).
 - **Embeddings**: LiteRT runs `.tflite` models (EmbeddingGemma 1, Gecko) and
   EmbeddingGemma 2 `.litertlm` bundles — text, and JPEG/PNG/GIF/BMP images
   with the 440m bundle, on native platforms and (since litertlm 1.15.0, on
-  the CPU) on the Web; ONNX runs `.onnx`
+  WebGPU) on the Web; ONNX runs `.onnx`
   models (MiniLM, EmbeddingGemma). The `.tflite` and `.onnx` models take their
   tokenizer from `flutter_edge_ai_embeddings`; an EmbeddingGemma 2 bundle
   carries its own. On the Web, ONNX embeddings accept WordPiece (BERT-style)

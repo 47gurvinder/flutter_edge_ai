@@ -54,6 +54,10 @@ final class _Runtime implements LiteRtLmWebRuntime {
       LiteRtLmWebRuntimeState.ready;
 
   @override
+  Future<LiteRtLmWebGpuSupport> webGpuSupport() async =>
+      LiteRtLmWebGpuSupport.available;
+
+  @override
   Future<LiteRtLmWebEngine> create(LiteRtLmWebEngineSettings settings) async {
     creates++;
     return engine;
