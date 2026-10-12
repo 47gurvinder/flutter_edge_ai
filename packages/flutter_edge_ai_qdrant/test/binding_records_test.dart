@@ -265,6 +265,72 @@ void main() {
       });
     });
 
+    group('v1 qualified, v2 absent, the location holds documents', () {
+      Matcher ambiguous() => throwsA(
+        isA<VectorStoreException>().having(
+          (error) => error.message,
+          'message',
+          allOf(contains('ambiguous'), contains(r'\u001Fimage')),
+        ),
+      );
+
+      test('a lost binding record is not guessed back', () async {
+        final store = await openStore();
+        await store.bind(_binding(_profileA, EmbeddingModality.image));
+        await store.addDocument(
+          id: 'photo',
+          content: 'content://media/1',
+          embedding: const [1, 0, 0, 0],
+        );
+        await store.close();
+        Directory(
+          p.join(temp.path, _storeDirName, _bindingDirectoryName),
+        ).deleteSync(recursive: true);
+
+        final reopened = await openStore();
+        expect(reopened.readBinding(), ambiguous());
+        expect(
+          reopened.bind(_binding(_profileA, EmbeddingModality.image)),
+          ambiguous(),
+        );
+        expect(record(_bindingDirectoryName), isNull);
+      });
+
+      test(
+        'an older text store whose id contains U+001F stays text-only',
+        () async {
+          // What flutter_edge_ai_qdrant 2.0.1 could write: a TEXT binding with
+          // documents, under an id that happens to end in "\u001Fimage".
+          final store = await openStore();
+          await store.bind(_binding(_profileA));
+          await store.addDocument(
+            id: 'text',
+            content: 'a text chunk',
+            embedding: const [1, 0, 0, 0],
+          );
+          await store.close();
+          Directory(
+            p.join(temp.path, _storeDirName, _profileDirectoryName),
+          ).deleteSync(recursive: true);
+          await writeV1('legacy-v1\u001Fimage');
+
+          final reopened = await openStore();
+          expect(reopened.readBinding(), ambiguous());
+          expect(
+            reopened.addDocument(
+              id: 'photo',
+              content: 'content://media/1',
+              embedding: const [0, 1, 0, 0],
+            ),
+            throwsA(isA<VectorStoreException>()),
+            reason: 'no media vector may land next to the text ones',
+          );
+          expect(record(_bindingDirectoryName), isNull);
+          expect((await reopened.getStats()).documentCount, 1);
+        },
+      );
+    });
+
     test('concurrent repairs agree on one record', () async {
       await writeV1('embedder-a-v1\u001Faudio');
       final stores = [for (var i = 0; i < 4; i++) await openStore()];

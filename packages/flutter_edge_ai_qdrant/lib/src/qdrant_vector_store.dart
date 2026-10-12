@@ -643,6 +643,7 @@ final class QdrantVectorStore extends VectorStoreRepository {
     // 2.0 included: publish it if absent, then it must be ours.
     final profileDirectory = _profileDirectoryFor(databasePath);
     var v1 = await _readV1Record(profileDirectory);
+    final publishedV1 = v1 == null;
     if (v1 == null) {
       await _publishRecord(
         storeDirectory: _storeDirFor(databasePath),
@@ -667,7 +668,10 @@ final class QdrantVectorStore extends VectorStoreRepository {
       _refuseRebind(existing, binding);
     }
 
-    if (binding.documents != EmbeddingModality.text) {
+    // A media binding's record: ours to write when this call published the
+    // profile record. A profile record that was already there without it is
+    // the ambiguous state _readBindingRecords repairs only for an empty store.
+    if (binding.documents != EmbeddingModality.text && publishedV1) {
       final bindingDirectory = _bindingDirectoryFor(databasePath);
       if (await _readV2Record(bindingDirectory) == null) {
         await _publishV2(databasePath, binding);
@@ -689,9 +693,15 @@ final class QdrantVectorStore extends VectorStoreRepository {
   /// Reads the binding: the reader truth table documented on
   /// [VectorStoreBinding], including the repair of a qualified profile record
   /// whose version-2 record a crash kept from being published.
-  static Future<VectorStoreBinding?> _readBindingRecords(
-    String databasePath,
-  ) async {
+  ///
+  /// The repair runs only while the location holds no points. A qualified
+  /// profile record without its binding record is either that interrupted
+  /// bind — published before any document could be written — or a text
+  /// location an older version bound to an id that happens to contain
+  /// U+001F. Read as a media binding, the second would start taking media
+  /// vectors next to its text ones, so with documents present this refuses,
+  /// as the sqlite store refuses the same records.
+  Future<VectorStoreBinding?> _readBindingRecords(String databasePath) async {
     final v1 = await _readV1Record(_profileDirectoryFor(databasePath));
     final bindingDirectory = _bindingDirectoryFor(databasePath);
     var v2 = await _readV2Record(bindingDirectory);
@@ -719,9 +729,20 @@ final class QdrantVectorStore extends VectorStoreRepository {
       return binding;
     }
     if (v2 == null) {
+      if (!await _holdsNoPoints(databasePath)) {
+        throw VectorStoreException(
+          'The qdrant location $databasePath is ambiguous: its profile record '
+          'names "${binding.profile.id}\\u001F${binding.documents.name}" '
+          '(${binding.profile.dimension}D) without the binding record '
+          '$bindingDirectory, and it holds documents. That is either a '
+          '${binding.documents.name} binding whose binding record was lost, '
+          'or a text location an older version bound to an id containing '
+          'U+001F; this store will not guess. Use a different location.',
+        );
+      }
       // Published after the profile record, so a crash in between leaves
-      // exactly this. Idempotent: every repairer publishes the same record
-      // through the same rename-CAS.
+      // exactly this, before any document. Idempotent: every repairer
+      // publishes the same record through the same rename-CAS.
       await _publishV2(databasePath, binding);
       v2 = await _readV2Record(bindingDirectory);
       if (v2 == null) {
@@ -740,6 +761,23 @@ final class QdrantVectorStore extends VectorStoreRepository {
       );
     }
     return binding;
+  }
+
+  /// Whether the location holds no points, as far as this store can tell. A
+  /// shard on disk that this store has not opened counts as holding some.
+  Future<bool> _holdsNoPoints(String databasePath) async {
+    final client = _client;
+    if (client != null) {
+      try {
+        return await client.count() == 0;
+      } on QdrantException catch (e) {
+        throw VectorStoreException(
+          'Cannot count the points at $databasePath to check its binding',
+          e,
+        );
+      }
+    }
+    return !_ownedDirectoryContainsShardData(_storeDirFor(databasePath));
   }
 
   static Future<void> _publishV2(
