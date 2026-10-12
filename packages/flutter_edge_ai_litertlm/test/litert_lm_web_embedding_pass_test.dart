@@ -6,11 +6,13 @@
 // anything is created (no navigator.gpu, no adapter, a failed request) and the
 // reason a CPU create fails, the settings that reach `EmbeddingEngine.create`
 // (GPU, maxInputLength 1024, the vision tower only when images are declared,
-// the budget), the load probe (dimension, the limit
-// the engine enforces, NaN/zero refused), what reaches `computeEmbedding`
-// (`taskType.prefix + text` for all nine task types, image bytes untouched,
-// normalize + special tokens + TRUNCATE), the typed overflow with the engine's
-// exact counts, `opfs://` resolve and revoke, close, and one case through
+// the budget), the load probe (dimension, NaN/zero refused, and the limit the
+// engine enforces: where it cuts, and — WebGPU, which ignores the overflow
+// strategy and averages windows — its window, pinned at 1024/1025 tokens and
+// never guessed), what reaches `computeEmbedding` (`taskType.prefix + text`
+// for all nine task types, image bytes untouched, normalize + special tokens +
+// TRUNCATE), the typed overflow with the engine's exact counts for a cut or a
+// split input, `opfs://` resolve and revoke, close, and one case through
 // core's inline host.
 
 import 'dart:typed_data';
@@ -29,9 +31,14 @@ import 'package:flutter_edge_ai_litertlm/src/embedding/web/litert_lm_web_embeddi
 import 'package:flutter_test/flutter_test.dart';
 
 /// "Tokens" as the fake engine counts them: one per character of a text part
-/// (prefix included), plus BOS and EOS when special tokens are on; an image is
-/// [_imageTokens].
+/// (prefix included), plus BOS and EOS when special tokens are on — except the
+/// pass's probes, runs of `the`, which count one per word as the real
+/// tokenizer reads them; an image is [_imageTokens].
 const _imageTokens = 140;
+
+int _textTokens(String text) => RegExp(r'^the( the)*$').hasMatch(text)
+    ? text.split(' ').length
+    : text.length;
 
 /// The unit vector the fake returns when asked to normalise, and the raw one
 /// otherwise — so a pass that stops asking for normalisation is visible.
@@ -57,7 +64,7 @@ final class _FakeEngine implements LiteRtLmWebEngine {
     if (runtime.computeError case final error?) throw error;
     final special = options.insertSpecialTokens ? 2 : 0;
     final tokens = switch (input) {
-      LiteRtLmWebText(:final text) => text.length + special,
+      LiteRtLmWebText(:final text) => _textTokens(text) + special,
       LiteRtLmWebImage() => _imageTokens + special,
     };
     // The largest signature the engine prepared.
@@ -70,6 +77,16 @@ final class _FakeEngine implements LiteRtLmWebEngine {
         inputLength: tokens,
         truncatedLength: null,
         numChunks: 1,
+      );
+    }
+    if (runtime.webGpu) {
+      // @litert-lm/core 0.18.0 on WebGPU: whatever the strategy, windows of
+      // the signature, averaged (measured on Chrome 155).
+      return (
+        embedding: vector,
+        inputLength: tokens,
+        truncatedLength: null,
+        numChunks: (tokens + limit - 1) ~/ limit,
       );
     }
     return switch (options.inputOverflowStrategy) {
@@ -109,6 +126,10 @@ final class _FakeRuntime implements LiteRtLmWebRuntime {
 
   /// A model whose limit is beyond the probe: nothing is ever truncated.
   bool neverTruncates = false;
+
+  /// The engine's WebGPU behaviour: the overflow strategy is ignored, and an
+  /// over-long input is split into windows of [maxSignature] and averaged.
+  bool webGpu = false;
 
   List<double> Function(LiteRtLmWebInput input)? vectorFor;
 
@@ -611,6 +632,103 @@ void main() {
       final closed = _pass(_FakeRuntime());
       await closed.close();
       await expectLater(closed.load(), throwsStateError);
+    });
+  });
+
+  group('WebGPU, where the engine ignores the overflow strategy and averages '
+      'windows', () {
+    test('the window is pinned at load: 1024 tokens are one window, 1025 '
+        'two, so maxInputTokens is 1024', () async {
+      final runtime = _FakeRuntime()..webGpu = true;
+      final pass = _pass(runtime);
+
+      final info = await pass.load();
+
+      expect(info.maxInputTokens, 1024);
+      final texts = [
+        for (final (input, _) in runtime.engine.calls)
+          (input as LiteRtLmWebText).text.split(' ').length,
+      ];
+      expect(
+        texts,
+        [9000, 1022, 1023],
+        reason:
+            'the probe, then 1024 and '
+            '1025 tokens with BOS and EOS',
+      );
+      await pass.close();
+    });
+
+    for (final window in [1000, 2048]) {
+      test('a window of $window is not taken for 1024: maxInputTokens is '
+          'null', () async {
+        final runtime = _FakeRuntime()
+          ..webGpu = true
+          ..maxSignature = window;
+        final pass = _pass(runtime);
+        expect((await pass.load()).maxInputTokens, isNull);
+        await pass.close();
+      });
+    }
+
+    test('an over-long text the engine split is '
+        'EmbeddingInputTooLongException with the engine\'s exact count; the '
+        'averaged vector is never returned, and the pass keeps '
+        'working', () async {
+      final runtime = _FakeRuntime()..webGpu = true;
+      final pass = _pass(runtime);
+      await pass.load();
+      final prefix = TaskType.retrievalQuery.prefix.length;
+      final fits = 'x' * (1024 - prefix - 2);
+      expect(
+        await pass.embed(EmbeddingInput.text(fits), TaskType.retrievalQuery),
+        _unit,
+      );
+      for (final extra in [1, 2000]) {
+        await expectLater(
+          pass.embed(
+            EmbeddingInput.text('$fits${'y' * extra}'),
+            TaskType.retrievalQuery,
+          ),
+          throwsA(
+            isA<EmbeddingInputTooLongException>()
+                .having((e) => e.maxInputTokens, 'maxInputTokens', 1024)
+                .having((e) => e.actualTokens, 'actualTokens', 1024 + extra),
+          ),
+        );
+      }
+      expect(await pass.embed(EmbeddingInput.text('ok'), TaskType.none), _unit);
+      await pass.close();
+    });
+
+    test('split with no pinned window, or a split image: '
+        'EmbeddingEngineException, nothing returned', () async {
+      final runtime = _FakeRuntime()
+        ..webGpu = true
+        ..maxSignature = 100;
+      final pass = _pass(runtime, media: {EmbeddingModality.image});
+      expect((await pass.load()).maxInputTokens, isNull);
+      await expectLater(
+        pass.embed(EmbeddingInput.text('z' * 300), TaskType.none),
+        throwsA(
+          isA<EmbeddingEngineException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('into 4 windows'), contains('window is unknown')),
+          ),
+        ),
+      );
+      await expectLater(
+        pass.embed(EmbeddingInput.image(_png), TaskType.none),
+        throwsA(
+          isA<EmbeddingEngineException>().having(
+            (e) => e.message,
+            'message',
+            contains('image'),
+          ),
+        ),
+      );
+      await pass.close();
     });
   });
 

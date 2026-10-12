@@ -40,15 +40,20 @@
 //   vision encoder (the 270m) is refused by `EmbeddingEngine.create` itself;
 //   the load error then says which bundle embeds images.
 // - At load the pass embeds one over-long probe text under TRUNCATE: the
-//   vector's length is the model's dimension, `truncatedLength` is the input
-//   limit the engine really enforces (prefix, BOS and EOS included), and a NaN
-//   or all-zero vector — the fp16 failure — refuses the load instead of
-//   serving wrong vectors.
-// - Every request runs under TRUNCATE: an input the engine had to cut comes
-//   back with `truncatedLength` set, and is thrown as
-//   EmbeddingInputTooLongException with the engine's exact counts
-//   (`inputLength`, `truncatedLength`) — the truncated vector is never
-//   returned.
+//   vector's length is the model's dimension, and a NaN or all-zero vector —
+//   the fp16 failure — refuses the load instead of serving wrong vectors. The
+//   input limit the engine really enforces (prefix, BOS and EOS included)
+//   comes from what it did with the probe: on the CPU path it truncates and
+//   reports `truncatedLength`; on WebGPU `@litert-lm/core` 0.18.0 ignores the
+//   overflow strategy (TRUNCATE and ERROR alike) and always splits an
+//   over-long input into windows of its text signature and averages them
+//   (`numChunks` > 1, no `truncatedLength`; measured on Chrome 155: 1024
+//   tokens are one window, 1025 are two). There the limit is the window,
+//   pinned by embedding exactly 1024 tokens (one window) and 1025 (two).
+// - Every request runs under TRUNCATE. An input the engine had to cut
+//   (`truncatedLength`) or split (`numChunks` > 1) is thrown as
+//   EmbeddingInputTooLongException with the engine's exact count
+//   (`inputLength`) — the truncated or averaged vector is never returned.
 // - Under `WebStorageMode.streaming` the model path is `opfs://`, which the
 //   runtime's fetch() cannot open: it is resolved to a `blob:` URL first, and
 //   that URL — created by this pass — is revoked once the engine has read it.
@@ -264,10 +269,15 @@ EmbeddingPass buildLiteRtLmWebEmbeddingPass(
 /// The `index.html` line the page needs for EmbeddingGemma 2, word for word.
 const liteRtLmWebShimLine = 'window.EmbeddingEngine = m.EmbeddingEngine;';
 
-/// The load probe: about 9,000 tokens of one repeated word — longer than the
-/// largest text signature of any EmbeddingGemma 2 bundle (8192), so the engine
-/// always truncates it and reports the limit it enforces.
-final _probeText = List.filled(9000, 'the').join(' ');
+/// The words of the load probe: 9,000 of one word that the Gemma tokenizer
+/// reads as one token each — longer than the largest text signature of any
+/// EmbeddingGemma 2 bundle (8192), so the engine always cuts or splits it.
+const _probeWords = 9000;
+
+/// [count] repetitions of `the`, one token each.
+String _the(int count) => List.filled(count, 'the').join(' ');
+
+final _probeText = _the(_probeWords);
 
 /// Every request: L2-normalised, BOS and EOS added (D26), and an over-long
 /// input truncated so the response carries the engine's exact counts.
@@ -286,6 +296,7 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
 
   LiteRtLmWebEngine? _engine;
   int _dimension = 0;
+  int? _maxInputTokens;
   bool _images = false;
   bool _loading = false;
   bool _loaded = false;
@@ -313,25 +324,26 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
     final images = media.contains(EmbeddingModality.image);
     // Both suspend inside the page's WebAssembly module (the create reads the
     // model stream), so they take the page lock the LLM engine takes too.
-    final (settings, probe) = await liteRtLmPageLock.run(() async {
-      final settings = await _createEngine(images);
-      try {
-        return (
-          settings,
-          await _engine!.computeEmbedding(
+    final (settings, probe, maxInputTokens) = await liteRtLmPageLock.run(
+      () async {
+        final settings = await _createEngine(images);
+        final engine = _engine!;
+        try {
+          final probe = await engine.computeEmbedding(
             LiteRtLmWebText(_probeText),
             _options,
-          ),
-        );
-      } catch (e) {
-        throw EmbeddingLoadException(
-          'LiteRT-LM created the embedding engine for $_file but could not '
-          'embed with it (${_config.backend.name}): $e',
-          engine: liteRtLmEngineTag,
-          cause: e,
-        );
-      }
-    });
+          );
+          return (settings, probe, await _inputLimit(engine, probe));
+        } catch (e) {
+          throw EmbeddingLoadException(
+            'LiteRT-LM created the embedding engine for $_file but could not '
+            'embed with it (${_config.backend.name}): $e',
+            engine: liteRtLmEngineTag,
+            cause: e,
+          );
+        }
+      },
+    );
     final dimension = probe.embedding.length;
     if (dimension == 0) {
       throw EmbeddingLoadException(
@@ -347,19 +359,17 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
         engine: liteRtLmEngineTag,
       );
     }
-    // The limit the engine enforces: the largest text signature it prepared
-    // (the smallest of the bundle's at or above `maxInputLength`, D21). The
-    // probe is longer than any, so it is always cut there.
-    final maxInputTokens = probe.truncatedLength;
     if (maxInputTokens == null) {
       edgeAiLog(
         '[LiteRtLmWebEmbeddingPass] $_file embedded '
-        '${probe.inputLength} tokens without truncating: its input limit is '
+        '${probe.inputLength} tokens in ${probe.numChunks} window(s) without '
+        'truncating, and its window could not be pinned: its input limit is '
         'unknown, so maxInputTokens is null.',
       );
     }
 
     _dimension = dimension;
+    _maxInputTokens = maxInputTokens;
     _images = images;
     _loaded = true;
     edgeAiLog(
@@ -372,6 +382,50 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
       modalities: {EmbeddingModality.text, if (images) EmbeddingModality.image},
       imageFormats: images ? liteRtLmImageFormats : const {},
     );
+  }
+
+  /// The input limit the engine enforces — the text signature it prepared,
+  /// the smallest of the bundle's at or above `maxInputLength` (D21) — read
+  /// from what it did with the [probe], which is longer than any signature:
+  /// - cut it (the CPU path): `truncatedLength` is the limit;
+  /// - split it into windows and averaged them (WebGPU, which ignores the
+  ///   overflow strategy): the window is the limit. It is pinned, not
+  ///   guessed: [liteRtLmMaxInputLength] tokens must be one window and one
+  ///   token more two, by the engine's own counts;
+  /// - neither: null (a model whose limit is beyond the probe).
+  Future<int?> _inputLimit(
+    LiteRtLmWebEngine engine,
+    LiteRtLmWebEmbedding probe,
+  ) async {
+    if (probe.truncatedLength case final limit?) return limit;
+    if (probe.numChunks <= 1) return null;
+    // BOS and EOS, as the engine counted them around the probe's words.
+    final special = probe.inputLength - _probeWords;
+    final words = liteRtLmMaxInputLength - special;
+    if (special < 0 || words < 1) return null;
+    final atLimit = await engine.computeEmbedding(
+      LiteRtLmWebText(_the(words)),
+      _options,
+    );
+    final overLimit = await engine.computeEmbedding(
+      LiteRtLmWebText(_the(words + 1)),
+      _options,
+    );
+    final pinned =
+        atLimit.inputLength == liteRtLmMaxInputLength &&
+        atLimit.numChunks == 1 &&
+        atLimit.truncatedLength == null &&
+        overLimit.inputLength == liteRtLmMaxInputLength + 1 &&
+        overLimit.numChunks == 2;
+    edgeAiLog(
+      '[LiteRtLmWebEmbeddingPass] $_file: the engine split the '
+      '${probe.inputLength}-token probe into ${probe.numChunks} windows '
+      'instead of truncating it (${_config.backend.name}); '
+      '${atLimit.inputLength} tokens took ${atLimit.numChunks}, '
+      '${overLimit.inputLength} took ${overLimit.numChunks}'
+      '${pinned ? ': the window is $liteRtLmMaxInputLength' : ''}.',
+    );
+    return pinned ? liteRtLmMaxInputLength : null;
   }
 
   Future<void> _requireRuntime() async {
@@ -559,13 +613,23 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
           engine: liteRtLmEngineTag,
         );
       }
-      throw EmbeddingInputTooLongException(
-        'The input is ${response.inputLength} tokens (task prefix, BOS and '
-        'EOS included); $_file takes at most $limit. Nothing was returned for '
-        'it; split the text and embed the pieces.',
-        maxInputTokens: limit,
-        actualTokens: response.inputLength,
-      );
+      throw _tooLong(response.inputLength, limit);
+    }
+    if (response.numChunks > 1) {
+      // WebGPU: the engine averaged windows of the input instead of cutting
+      // it — a vector of a different kind than every other in the index.
+      final limit = _maxInputTokens;
+      if (image || limit == null) {
+        throw EmbeddingEngineException(
+          'LiteRT-LM split the ${response.inputLength}-token '
+          '${image ? 'image' : 'input'} for $_file into '
+          '${response.numChunks} windows and averaged them'
+          '${limit == null ? ' (its window is unknown)' : ''}; nothing was '
+          'returned for it.${image ? '' : ' Split the text and embed the pieces.'}',
+          engine: liteRtLmEngineTag,
+        );
+      }
+      throw _tooLong(response.inputLength, limit);
     }
     final vector = response.embedding;
     if (vector.length != _dimension) {
@@ -584,6 +648,15 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
     }
     return vector;
   }
+
+  EmbeddingInputTooLongException _tooLong(int actual, int limit) =>
+      EmbeddingInputTooLongException(
+        'The input is $actual tokens (task prefix, BOS and EOS included); '
+        '$_file takes at most $limit. Nothing was returned for it; split the '
+        'text and embed the pieces.',
+        maxInputTokens: limit,
+        actualTokens: actual,
+      );
 
   @override
   Future<void> close() async {
