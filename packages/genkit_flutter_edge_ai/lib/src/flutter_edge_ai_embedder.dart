@@ -4,95 +4,126 @@ import 'package:genkit/plugin.dart';
 import 'backend_parse.dart';
 import 'flutter_edge_ai_options.dart';
 import 'flutter_edge_ai_runtime.dart';
+import 'runtime_errors.dart';
 
 /// Creates a Genkit [Embedder] action backed by flutter_edge_ai's embedding model.
 ///
-/// Every request resolves the model through [FlutterEdgeAiRuntime.getActiveEmbedder]
-/// — a cache hit in flutter_edge_ai — instead of keeping one: the model a
-/// previous request got may have been closed or replaced since. When the model
-/// is closed between that lookup and the request (`EmbedderClosedException`,
-/// which means the request never ran), it is resolved again and the request
-/// retried once.
+/// The embedding model comes from flutter_edge_ai on every call, which reuses
+/// the loaded one while nothing changed; a handle kept here could have been
+/// closed or replaced since. When the model is closed between that lookup and
+/// the request (`EmbedderClosedException`, which means the request never ran),
+/// it is resolved again and the request retried once. Texts are embedded as
+/// search queries unless the options say `taskType: 'retrievalDocument'`,
+/// which is what documents being indexed need: EmbeddingGemma prefixes the
+/// two differently.
 Embedder<FlutterEdgeAiEmbedConfig> createFlutterEdgeAiEmbedder({
   required String name,
   required FlutterEdgeAiRuntime runtime,
 }) {
   return Embedder<FlutterEdgeAiEmbedConfig>(
     name: name,
-    fn: (request, _) async {
-      // Parse optional backend preference. The getter is read inside the try:
-      // it casts lazily, so a non-string value must fail as INVALID_ARGUMENT
-      // here rather than as a TypeError later.
-      String? configPreferredBackend;
-      if (request.options != null) {
-        try {
-          configPreferredBackend = FlutterEdgeAiEmbedConfig.fromJson(
-            request.options!,
-          ).preferredBackend;
-        } catch (e) {
-          throw GenkitException(
-            'Invalid embed options: $e',
-            status: StatusCode.invalidArgument,
-          );
-        }
-      }
+    customOptions: FlutterEdgeAiEmbedConfig.$schema,
+    fn: (request, context) async {
+      context.cancel?.throwIfCancelled();
+      final options = await _parseEmbedOptions(request.options);
+      final backend = parsePreferredBackend(options?.preferredBackend);
+      final taskType = switch (options?.taskType) {
+        null || 'retrievalQuery' => gemma.TaskType.retrievalQuery,
+        'retrievalDocument' => gemma.TaskType.retrievalDocument,
+        // The schema lists the two above; a value it lets through is a bug.
+        final other => throw StateError('Unhandled taskType "$other"'),
+      };
 
-      // Parse preferredBackend string to enum.
-      final backend = parsePreferredBackend(configPreferredBackend);
+      // Extract text from each document before loading anything: a document
+      // with no text would be embedded as an empty string.
+      final texts = [
+        for (final (index, doc) in request.input.indexed)
+          _documentText(doc, index),
+      ];
 
       // One text input per document.
       final inputs = [
-        for (final doc in request.input)
-          gemma.EmbeddingInput.text(_documentToText(doc)),
+        for (final text in texts) gemma.EmbeddingInput.text(text),
       ];
 
-      final vectors = await _embedAll(runtime, backend, inputs);
+      // Asked for on every call: flutter_edge_ai reuses the loaded embedder
+      // while it is open and nothing changed, and builds a new one when the
+      // active embedder or the backend did — a handle cached here would miss
+      // both.
+      Future<List<List<double>>> attempt() async {
+        final embedder = await withRuntimeErrors(
+          'Could not load the on-device embedder',
+          () => runtime.getActiveEmbedder(preferredBackend: backend),
+        );
+        context.cancel?.throwIfCancelled();
+        return embedder.embedAll(inputs, taskType: taskType);
+      }
+
+      // EmbedderClosedException means the request never ran: the model was
+      // closed between the lookup and the request. Resolve it again, once.
+      List<List<double>> vectors;
+      try {
+        vectors = await attempt();
+      } on gemma.EmbedderClosedException {
+        vectors = await attempt();
+      }
+      context.cancel?.throwIfCancelled();
+      if (vectors.length != texts.length) {
+        throw GenkitException(
+          'The on-device embedder returned ${vectors.length} vectors for '
+          '${texts.length} documents.',
+          status: StatusCode.internal,
+        );
+      }
 
       return EmbedResponse(
-        embeddings: vectors
-            .asMap()
-            .entries
-            .map(
-              (entry) => Embedding(
-                embedding: entry.value,
-                metadata: request.input[entry.key].metadata,
-              ),
-            )
-            .toList(growable: false),
+        embeddings: [
+          for (final (index, vector) in vectors.indexed)
+            Embedding(
+              embedding: vector,
+              metadata: request.input[index].metadata,
+            ),
+        ],
       );
     },
   );
 }
 
-/// Embeds [inputs] with the active embedder, resolving it again — once — when
-/// it was closed before the request ran.
-Future<List<List<double>>> _embedAll(
-  FlutterEdgeAiRuntime runtime,
-  gemma.PreferredBackend? backend,
-  List<gemma.EmbeddingInput> inputs,
+/// Reads the embed options, or throws INVALID_ARGUMENT for a value of the
+/// wrong type or one the schema does not list.
+Future<FlutterEdgeAiEmbedConfig?> _parseEmbedOptions(
+  Map<String, dynamic>? options,
 ) async {
-  Future<List<List<double>>> attempt() async {
-    final model = await runtime.getActiveEmbedder(preferredBackend: backend);
-    // retrievalQuery: what 0.8.0's `generateEmbeddings(texts)` defaulted to,
-    // so the same documents keep the same vectors.
-    return model.embedAll(inputs, taskType: gemma.TaskType.retrievalQuery);
+  if (options == null) return null;
+  final errors = await FlutterEdgeAiEmbedConfig.$schema.validate(options);
+  if (errors.isNotEmpty) {
+    throw GenkitException(
+      'Invalid embed options: '
+      '${errors.map((e) => e.toErrorString()).join('; ')}',
+      status: StatusCode.invalidArgument,
+    );
   }
-
-  try {
-    return await attempt();
-  } on gemma.EmbedderClosedException {
-    return attempt();
-  }
+  return FlutterEdgeAiEmbedConfig.fromJson(options);
 }
 
-/// Extracts plain text from a [DocumentData] by joining its text parts.
-String _documentToText(DocumentData doc) {
+/// The text of a document, its text parts joined by spaces. A document with
+/// no text — no text part, only empty ones, or only images — is an
+/// INVALID_ARGUMENT: it would be embedded as an empty string, and the
+/// embedder takes text only.
+String _documentText(DocumentData doc, int index) {
   final buffer = StringBuffer();
   for (final part in doc.content) {
-    if (part.isText) {
-      if (buffer.isNotEmpty) buffer.write(' ');
-      buffer.write(part.text);
-    }
+    final text = part.isText ? part.text : null;
+    if (text == null || text.isEmpty) continue;
+    if (buffer.isNotEmpty) buffer.write(' ');
+    buffer.write(text);
+  }
+  if (buffer.isEmpty) {
+    throw GenkitException(
+      'Document $index has no text part; the on-device embedder takes text '
+      'only.',
+      status: StatusCode.invalidArgument,
+    );
   }
   return buffer.toString();
 }
