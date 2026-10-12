@@ -465,7 +465,7 @@ nm -gU packages/flutter_edge_ai_litertlm/native/litert_lm/prebuilt/<dir>/libLite
 Run `nm -gU | grep -c '_litert_lm_'` — expect ~50 symbols (matches `bindings.dart` lookupFunction count).
 
 **EmbeddingEngine exports (EmbeddingGemma 2).** `verify_tarball_manifest.sh` runs
-`check_embedding_exports.py` on every tarball: `libLiteRtLm` must export the 27
+`check_embedding_exports.py` on every tarball: `libLiteRtLm` must export the 28
 EmbeddingEngine / ModelInfo / error-reporter functions the `.litertlm` embedding
 pass calls (`liteRtLmEmbeddingSymbols` in `lib/src/embedding/litert_lm_embedding_pass.dart`;
 a VM test keeps the two lists equal). They leave through visibility attributes,
@@ -481,7 +481,13 @@ an EG2 load on that platform. On a **LiteRT-LM pin bump** also:
   `compute_embedding` on one well-formed text part must still mean overflow and
   nothing else (`embedding_litert_compiled_model_executor.cc`, `embedding_engine_impl.cc`,
   `c/embedding_engine.cc`). If another InvalidArgument became reachable, the pass's
-  overflow mapping is wrong for that pin.
+  overflow mapping is wrong for that pin;
+- and on an IMAGE request, status 3 must still mean the image failed to decode
+  (stb, `stb_image_preprocessor.cc`: a corrupt or truncated file) — the pass maps
+  it to `EmbeddingEngineException(nativeCode: 3)`, never to an overflow, because
+  at 140 vision tokens an image cannot reach the 1024-token cap. Re-check too that
+  the bundles' vision signatures are still `[70, 140]` and that 200/280 still fail
+  (`LiteRtEmbeddingBackend` accepts only 140 and 70).
 
 ### 7. **Real `pub get` smoke test in a fresh project**
 
