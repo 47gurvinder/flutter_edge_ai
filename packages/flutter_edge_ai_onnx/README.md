@@ -44,13 +44,13 @@ await FlutterEdgeAi.initialize(
 
 Either arm can be registered on its own — they don't depend on each other.
 
-> **0.5.7 needs `flutter_edge_ai` 2.3.0, and 2.3.0 needs every
+> **0.5.8 needs `flutter_edge_ai` 2.3.0, and 2.3.0 needs every
 > flutter_edge_ai package upgraded together:** `flutter_edge_ai_litertlm`
 > 1.13.0 · `flutter_edge_ai_embeddings` 2.3.0 · `flutter_edge_ai_mediapipe`
-> 1.2.1 · `flutter_edge_ai_builtin_ai` 0.3.4 · `flutter_edge_ai_speech` 0.5.6 ·
+> 1.2.2 · `flutter_edge_ai_builtin_ai` 0.3.5 · `flutter_edge_ai_speech` 0.5.6 ·
 > `flutter_edge_ai_agent` 0.2.9 · `flutter_edge_ai_rag` 1.1.0 ·
 > `flutter_edge_ai_sqlite` 2.1.0 · `flutter_edge_ai_qdrant` 2.1.0 ·
-> `genkit_flutter_edge_ai` 0.8.2. Run `flutter pub upgrade`; the
+> `genkit_flutter_edge_ai` 0.9.1. Run `flutter pub upgrade`; the
 > [migration guide](https://flutteredge.ai/docs/migration) lists the API
 > changes.
 

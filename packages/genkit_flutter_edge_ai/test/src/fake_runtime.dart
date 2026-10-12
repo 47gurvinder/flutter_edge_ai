@@ -12,8 +12,12 @@ class FakeRuntime implements FlutterEdgeAiRuntime {
     : modelToReturn = model ?? FakeInferenceModel(),
       embedderToReturn = embedder ?? FakeEmbeddingModel();
 
-  final FakeInferenceModel modelToReturn;
-  final FakeEmbeddingModel embedderToReturn;
+  /// What [getActiveModel] returns; a test swaps it to stand for a newly
+  /// built model.
+  FakeInferenceModel modelToReturn;
+
+  /// What [getActiveEmbedder] returns once [embedderQueue] is empty.
+  FakeEmbeddingModel embedderToReturn;
 
   /// Handed out, in order, before [embedderToReturn] — so a test can serve a
   /// model that is already closed and then a fresh one.
@@ -23,6 +27,9 @@ class FakeRuntime implements FlutterEdgeAiRuntime {
 
   bool? lastEnableSpeculativeDecoding;
   gemma.PreferredBackend? lastPreferredBackend;
+
+  /// When set, [getActiveModel] and [getActiveEmbedder] throw it.
+  Object? loadError;
   gemma.PreferredBackend? lastPreferredVisionBackend;
   gemma.PreferredBackend? lastPreferredAudioBackend;
 
@@ -37,6 +44,7 @@ class FakeRuntime implements FlutterEdgeAiRuntime {
     gemma.PreferredBackend? preferredAudioBackend,
   }) async {
     getActiveModelCallCount++;
+    if (loadError case final error?) throw error;
     modelToReturn._maxTokens = maxTokens;
     lastEnableSpeculativeDecoding = enableSpeculativeDecoding;
     lastPreferredBackend = preferredBackend;
@@ -50,6 +58,7 @@ class FakeRuntime implements FlutterEdgeAiRuntime {
     gemma.PreferredBackend? preferredBackend,
   }) async {
     getActiveEmbedderCallCount++;
+    if (loadError case final error?) throw error;
     lastPreferredBackend = preferredBackend;
     return embedderQueue.isEmpty ? embedderToReturn : embedderQueue.removeAt(0);
   }
@@ -70,10 +79,11 @@ class FakeInferenceModel extends gemma.InferenceModel {
   @override
   gemma.PreferredBackend? get activeBackend => null;
 
+  final List<void Function()> _closeListeners = [];
+
   @override
-  void addCloseListener(void Function() listener) {
-    // No-op: the fake holds no native handle to close.
-  }
+  void addCloseListener(void Function() listener) =>
+      _closeListeners.add(listener);
 
   @override
   gemma.InferenceModelSession? get session => null;
@@ -87,6 +97,7 @@ class FakeInferenceModel extends gemma.InferenceModel {
   gemma.ToolChoice? lastToolChoice;
   String? lastSystemInstruction;
   int? lastMaxFunctionBufferLength;
+  int? lastMaxOutputTokens;
   ({double? temperature, int? topK, double? topP, int? randomSeed})?
   lastSampling;
 
@@ -113,6 +124,7 @@ class FakeInferenceModel extends gemma.InferenceModel {
     lastToolChoice = toolChoice;
     lastSystemInstruction = systemInstruction;
     lastMaxFunctionBufferLength = maxFunctionBufferLength;
+    lastMaxOutputTokens = maxOutputTokens;
     lastSampling = (
       temperature: temperature,
       topK: topK,
@@ -139,8 +151,16 @@ class FakeInferenceModel extends gemma.InferenceModel {
     throw UnimplementedError('FakeInferenceModel.createSession');
   }
 
+  /// Fires the close listeners, as a real model does when core closes it to
+  /// build another.
   @override
-  Future<void> close() async {}
+  Future<void> close() async {
+    final listeners = [..._closeListeners];
+    _closeListeners.clear();
+    for (final listener in listeners) {
+      listener();
+    }
+  }
 }
 
 /// Fake chat that returns preconfigured responses.
@@ -163,6 +183,16 @@ class FakeInferenceChat extends gemma.InferenceChat {
 
   int addQueryChunkCallCount = 0;
 
+  /// What the chat's session reports after a generation; without it the
+  /// session is unset, as on an engine that reports nothing.
+  gemma.SessionMetrics? sessionMetrics;
+
+  @override
+  gemma.InferenceModelSession get session => switch (sessionMetrics) {
+    final metrics? => _MetricsSession(metrics),
+    null => throw StateError('FakeInferenceChat has no session'),
+  };
+
   @override
   Future<void> initSession() async {
     // No-op: no real session needed.
@@ -175,8 +205,12 @@ class FakeInferenceChat extends gemma.InferenceChat {
     bool prefix = false,
   ]) async {
     addQueryChunkCallCount++;
+    if (addQueryChunkError case final error?) throw error;
     receivedMessages.add(message);
   }
+
+  /// When set, [addQueryChunk] fails with it.
+  Object? addQueryChunkError;
 
   /// When set, [generateChatResponse] waits on it, so a test can cancel in
   /// the middle of a generation; [stopGeneration] completes it.
@@ -322,4 +356,18 @@ final class FakeEmbeddingModel extends gemma.EmbeddingModel {
       listener();
     }
   }
+}
+
+/// A session that only reports its metrics.
+class _MetricsSession implements gemma.InferenceModelSession {
+  _MetricsSession(this.metrics);
+
+  final gemma.SessionMetrics metrics;
+
+  @override
+  gemma.SessionMetrics getSessionMetrics() => metrics;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('_MetricsSession: ${invocation.memberName}');
 }
