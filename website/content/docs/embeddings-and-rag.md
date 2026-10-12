@@ -144,30 +144,68 @@ final photos = await rag.open(
 );
 await photos.add(
   id: 'photo-1',
-  document: EmbeddingInput.image(jpegBytes), // the encoded file
+  document: EmbeddingInput.image(await uprightAndSmall(photoBytes)), // below
   content: photoPath, // a reference to the photo, never its bytes
 );
 final hits = await photos.search(query: EmbeddingInput.text('a red bicycle'));
 ```
 
-- **Formats:** JPEG, PNG, GIF and BMP. HEIC, WebP, TIFF and AVIF throw
-  **EmbeddingFormatNotSupportedException** (naming the detected and the
-  accepted formats) before anything is sent: convert them first. A corrupt or
-  truncated file of an accepted type throws **EmbeddingEngineException**
-  (native code 3) and the embedder keeps working. One image per vector.
+**Pass upright, downscaled images.** The engine decodes the file itself and
+ignores EXIF orientation, so a portrait photo from a phone camera — stored
+sideways with an orientation tag — is embedded lying on its side (measured: cos
+0.89 against the same picture upright). It also decodes at full size, which a
+12 MP photo pays for in time and memory. Decode with Flutter first: it applies
+the orientation and decodes straight to the target size.
+
+```dart
+import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
+/// [photo] upright and at most 1024 px on its long side, as PNG.
+Future<Uint8List> uprightAndSmall(Uint8List photo) async {
+  final codec = await ui.instantiateImageCodecWithSize(
+    await ui.ImmutableBuffer.fromUint8List(photo),
+    getTargetSize: (w, h) => math.max(w, h) <= 1024
+        ? const ui.TargetImageSize()
+        : w >= h
+        ? const ui.TargetImageSize(width: 1024)
+        : const ui.TargetImageSize(height: 1024),
+  );
+  final image = (await codec.getNextFrame()).image;
+  final png = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  codec.dispose();
+  return png!.buffer.asUint8List();
+}
+```
+
+This also converts what Flutter decodes and the engine does not (WebP; HEIC on
+Android). Keep the original for display; give the model the result. The
+example app writes BMP instead of PNG, which is cheaper.
+
+- **Formats the engine decodes:** JPEG, PNG, GIF and BMP. HEIC, WebP, TIFF and
+  AVIF throw **EmbeddingFormatNotSupportedException** (naming the detected and
+  the accepted formats) before anything is sent: decode them as above. A
+  corrupt or truncated file of an accepted type throws
+  **EmbeddingEngineException** (native code 3) and the embedder keeps working.
+  One image per vector.
 - **Vision budget:** 140 tokens per image by default, the closest to the
-  reference model. **LiteRtEmbeddingBackend(visionTokensPerImage: 70)** is
-  about twice as fast with slightly different image vectors; any other value
-  throws **EmbeddingLoadException**. Text vectors do not depend on it; image
-  stores do, so their profile id names it (`-vis140`, `-vis70`).
+  reference model (min cos 0.985 on our test images).
+  **LiteRtEmbeddingBackend(visionTokensPerImage: 70)** — what the model card
+  and Google AI Edge Gallery use — is about twice as fast with slightly lower
+  fidelity (min cos 0.970). Any other value throws **EmbeddingLoadException**.
+  Text vectors do not depend on it; image stores do, so their profile id names
+  it (`-vis140`, `-vis70`).
 - **Cost** (CPU, measured): a 388 MB bundle; a 218 MB vision weight cache
   written at every load, next to the 71 MB text cache in the app's cache
   directory, also when you embed only text. The first image adds about 385 MB
   of RAM on an M4 Pro Mac and about 500 MB on a Pixel 8. Per image at 140
   tokens: about 0.35 s on an Apple-silicon Mac, about 2 s on an Android
   flagship (Pixel 8 Pro 1.8 s, Pixel 8a 2.3 s), more on mid-range phones and
-  rising under sustained load; 70 tokens takes about half. For text alone use
-  the 270m.
+  rising under sustained load; 70 tokens takes about half. LiteRT-LM's thread
+  setting reaches the text tower only. A 440m loaded for text alone still
+  loads its vision tower: for text use the 270m.
 - A text query over an image index is sent raw (**TaskType.none**): measured,
   the retrieval-query prefix finds the same photos with a smaller margin.
 - The example app's **Image Search** screen does all of this with photos from
