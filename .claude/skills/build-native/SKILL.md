@@ -465,10 +465,12 @@ nm -gU packages/flutter_edge_ai_litertlm/native/litert_lm/prebuilt/<dir>/libLite
 Run `nm -gU | grep -c '_litert_lm_'` — expect ~50 symbols (matches `bindings.dart` lookupFunction count).
 
 **EmbeddingEngine exports (EmbeddingGemma 2).** `verify_tarball_manifest.sh` runs
-`check_embedding_exports.py` on every tarball: `libLiteRtLm` must export the 30
+`check_embedding_exports.py` on every tarball: `libLiteRtLm` must export the 33
 EmbeddingEngine / ModelInfo / error-reporter functions the `.litertlm` embedding
 pass calls (`liteRtLmEmbeddingSymbols` in `lib/src/embedding/litert_lm_embedding_pass.dart`;
-a VM test keeps the two lists equal). Two of them are ours, not upstream's:
+a VM test keeps the two lists equal); three are the dispatch-directory setters
+the NPU path calls for the main, vision and audio executors. Two are ours, not
+upstream's:
 `litert_lm_embedding_response_get_input_length` / `_get_truncated_length`
 (`patch_c_api.sh` §14, from `native-v0.18.0-e`) — litertlm 1.16.0 refuses every
 EG2 load on a library without them, so a release that drops §14 breaks EG2

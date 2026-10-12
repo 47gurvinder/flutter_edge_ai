@@ -313,7 +313,7 @@ flutter analyze packages/ && dart format . && tool/test_all.sh
 | `lib/src/web/litert_lm_web*.dart` | Web `.litertlm` via `@litert-lm/core` (Engine handshake) |
 | `hook/build.dart` | Native Assets hook — OWNS the litertlm bundle; `stage()` is **Apple-only** (Xcode cycle) |
 | `native/litert_lm/{build_ios.sh,patch_c_api.sh,stream_proxy.c}` | iOS dylib rebuild + C API patcher + preload helper |
-| `native/litert_lm/check_embedding_exports.py` | Release gate run by `verify_tarball_manifest.sh`: each tarball's libLiteRtLm must export the 30 C functions the EG2 pass calls (two of them `patch_c_api.sh` §14's response getters, from `native-v0.18.0-e`) (reads ELF/Mach-O/PE export tables itself; a VM test keeps its list equal to the pass's) |
+| `native/litert_lm/check_embedding_exports.py` | Release gate run by `verify_tarball_manifest.sh`: each tarball's libLiteRtLm must export the 33 C functions the EG2 pass calls (among them `patch_c_api.sh` §14's two response getters, from `native-v0.18.0-e`, and the three dispatch-directory setters the NPU path uses) (reads ELF/Mach-O/PE export tables itself; a VM test keeps its list equal to the pass's) |
 
 **`packages/flutter_edge_ai_embeddings/` (tokenizer implementations — 2.3.0; depends ONLY on core, and NOTHING depends on it: engines get a tokenizer from core's registry, which the app fills from here):**
 
