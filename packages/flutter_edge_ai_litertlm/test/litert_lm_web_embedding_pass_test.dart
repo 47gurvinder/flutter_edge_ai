@@ -474,6 +474,28 @@ void main() {
         reason: 'the create itself was attempted and failed',
       );
       await pass.close();
+
+      // With images too, the CPU is the reason: no vision-encoder or LLM
+      // hint to send the reader the wrong way.
+      final withImages = _FakeRuntime()..createError = StateError('x');
+      await expectLater(
+        LiteRtLmWebEmbeddingPass(
+          _config(
+            withImages,
+            backend: LiteRtLmWebBackend.cpu,
+            media: {EmbeddingModality.image},
+          ),
+        ).load(),
+        throwsA(
+          _loadError(
+            allOf(
+              contains('The CPU (WebAssembly) path'),
+              isNot(contains('vision encoder (')),
+              isNot(contains('close it first')),
+            ),
+          ),
+        ),
+      );
     });
 
     test('audio declared: refused before the page is touched', () async {

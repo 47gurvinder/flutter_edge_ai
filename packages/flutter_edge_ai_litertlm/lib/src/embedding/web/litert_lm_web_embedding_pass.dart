@@ -557,7 +557,8 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
       throw EmbeddingLoadException(
         'LiteRT-LM could not create the embedding engine for $_file '
         '(${_config.backend.name}${images ? ', with its vision encoder' : ''})'
-        ': $e${cpu ? cpuHint : ''}${images ? visionHint : ''}',
+        // On the CPU path the CPU is the reason, with or without images.
+        ': $e${cpu ? cpuHint : (images ? visionHint : '')}',
         engine: liteRtLmEngineTag,
         cause: e,
       );
