@@ -209,7 +209,8 @@ the Web, where the browser decodes (CanvasKit or skwasm) on the page itself.
   corrupt or truncated file of an accepted type throws
   **EmbeddingEngineException** (native code 3; on the Web the message carries
   the runtime's reason) and the embedder keeps working.
-  One image per vector.
+  One image per vector, unless you send several as one combined input
+  (natively, litertlm 1.16.0; [below](#embeddinggemma-2-audio-and-combined-inputs)).
 - **Vision budget:** 140 tokens per image by default, the closest to the
   reference model (min cos 0.985 on our test images).
   **LiteRtEmbeddingBackend(visionTokensPerImage: 70)** — what the model card
@@ -279,9 +280,11 @@ final note = await embedder.embed(
   **EmbeddingInputTooLongException** with **actualTokens** 1504.
 - **Combined inputs:** **EmbeddingInput(text:, images:, audio:)** puts the
   text (with its task prefix), then the images, then the audio into one
-  vector, in that order. Declare every medium you send (**supportImage: true,
+  vector, in that order; several images in one input are a combined input
+  too. Declare every medium you send (**supportImage: true,
   supportAudio: true**); the cap counts all parts (about 140 tokens per
-  image).
+  image). On the Web, one part per vector: an input with more than one throws
+  **UnsupportedEmbeddingCombinationException** before anything is sent.
 - **Cost** (CPU, M4 Pro Mac): a 485 MB bundle and 385 MB of weight caches
   written at every load (text 71 MB, vision 218 MB, audio 95 MB), also for
   text-only use; about 0.2–0.3 s per 3-second clip. For text use the 270m,

@@ -590,9 +590,9 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
       // The encoded file as it is: a media part never gets a prefix.
       part = LiteRtLmWebImage(input.images.single);
     } else {
-      // Core refuses all of these before calling (one modality per vector,
-      // and only the modalities the model was loaded with); reaching here is
-      // a host bug.
+      // Core refuses all of these before calling (one part per vector without
+      // combinedInputs, and only the modalities the model was loaded with);
+      // reaching here is a host bug.
       throw EmbeddingEngineException(
         'flutter_edge_ai_litertlm embeds one text or one declared image per '
         'vector, got $input',

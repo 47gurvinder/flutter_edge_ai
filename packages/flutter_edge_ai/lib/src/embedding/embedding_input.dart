@@ -1,7 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:meta/meta.dart' show visibleForTesting;
-
 import 'embedding_modality.dart';
 
 /// One thing to embed, shaped like `Message`: optional text plus media.
@@ -36,13 +34,12 @@ final class EmbeddingInput {
   ///
   /// The order of the parts within the vector is fixed — text, then the
   /// images in order, then the audio — whatever order the arguments are
-  /// written in. A model whose engine embeds one modality per vector refuses
-  /// an input with several modalities with
+  /// written in. An input with more than one part — several modalities, or
+  /// several images — is a combined input: a model whose engine embeds one
+  /// part per vector refuses it with
   /// `UnsupportedEmbeddingCombinationException`, before anything is sent.
   /// Which engines combine parts is engine-defined (EmbeddingGemma 2 through
-  /// flutter_edge_ai_litertlm does, on native platforms); several images and
-  /// nothing else are one modality, so such an engine decides itself whether
-  /// it takes them.
+  /// flutter_edge_ai_litertlm does, on native platforms).
   factory EmbeddingInput({
     String? text,
     List<Uint8List> images = const [],
@@ -110,16 +107,3 @@ final class EmbeddingInput {
     return 'EmbeddingInput(${parts.join(', ')})';
   }
 }
-
-/// The combined constructor under its pre-2.4.0 test name.
-///
-/// Core 2.3.0 had no public way to build an input with several parts, so its
-/// tests of the combined-input gate (D17) built one through this helper. Kept,
-/// unexported, so tests written against 2.3.0 keep compiling; new code uses
-/// `EmbeddingInput(text:, images:, audio:)`.
-@visibleForTesting
-EmbeddingInput debugCombinedEmbeddingInput({
-  String? text,
-  List<Uint8List> images = const [],
-  Uint8List? audio,
-}) => EmbeddingInput(text: text, images: images, audio: audio);

@@ -391,10 +391,11 @@ final vector = await embedder.embed(
   with `actualTokens` 1504. Split long recordings.
 - `EmbeddingInput(text:, images:, audio:)` puts the text (with its task
   prefix), then the images in order, then the audio into one vector, whatever
-  order the arguments are written in. Declare every medium it carries. An
-  engine that embeds one modality per vector (every other one here, and
-  EmbeddingGemma 2 on Web) refuses an input with several modalities with
-  `UnsupportedEmbeddingCombinationException`.
+  order the arguments are written in. Declare every medium it carries. Any
+  input with more than one part — several modalities, or several images — is
+  a combined input: an engine that embeds one part per vector (every other one
+  here, and EmbeddingGemma 2 on Web) refuses it with
+  `UnsupportedEmbeddingCombinationException` before anything is sent.
 - An audio index keeps the text profile id: audio vectors do not depend on the
   vision budget, and the store's `documents` modality keeps it apart from a
   text store. A text query over it is sent raw (`TaskType.none`).

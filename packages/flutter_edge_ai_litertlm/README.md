@@ -324,7 +324,9 @@ page.
   detected and the accepted formats) before anything is sent. A corrupt or
   truncated file of an accepted type fails with `EmbeddingEngineException`
   (`nativeCode` 3 natively; on the web the message carries the runtime's
-  reason) and the embedder keeps working. One image per vector.
+  reason) and the embedder keeps working. One image per vector, unless you
+  send several as one combined input (natively, from 1.16.0;
+  [below](#embeddinggemma-2-audio-and-combined-inputs)).
 - **Vision budget:** 140 tokens per image by default, the closest to the
   reference model (min cos 0.985 on our test images).
   `LiteRtEmbeddingBackend(visionTokensPerImage: 70)` — what the model card and
@@ -400,9 +402,12 @@ final note = await embedder.embed(
   Split long recordings.
 - **Combined inputs:** `EmbeddingInput(text:, images:, audio:)` puts the text
   (with its task prefix), then the images in order, then the audio into one
-  vector — that order whatever order you write the arguments in. Declare every
-  medium you send (`supportImage: true, supportAudio: true`); the cap counts
-  all parts together (about 140 tokens per image).
+  vector — that order whatever order you write the arguments in. Several
+  images in one input are a combined input too. Declare every medium you send
+  (`supportImage: true, supportAudio: true`); the cap counts all parts
+  together (about 140 tokens per image). On the web, where each vector holds
+  one part, any input with more than one part fails with
+  `UnsupportedEmbeddingCombinationException` before anything is sent.
 - **Cost** (CPU, measured on an M4 Pro Mac): a 485 MB bundle; at every load the
   engine writes 385 MB of weight caches (text 71 MB, vision 218 MB, audio
   95 MB) in the app's cache directory, also when you only embed text; about

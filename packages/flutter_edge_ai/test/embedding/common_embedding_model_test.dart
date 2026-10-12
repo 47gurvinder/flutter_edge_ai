@@ -210,6 +210,55 @@ void main() {
       expect(fake.calls, isEmpty);
     });
 
+    test('several images and nothing else are a combined input too: refused '
+        'on an engine without combinedInputs, alone and in embedAll, before '
+        'anything is sent', () async {
+      final fake = _imageHost();
+      final model = CommonEmbeddingModel.withHost(fake);
+      final twoImages = EmbeddingInput(images: [_jpeg, _jpeg]);
+
+      await expectLater(
+        model.embed(twoImages, taskType: TaskType.none),
+        throwsA(
+          isA<UnsupportedEmbeddingCombinationException>()
+              .having((e) => e.requested, 'requested', {
+                EmbeddingModality.image,
+              })
+              .having((e) => e.message, 'message', contains('2 images')),
+        ),
+      );
+      await expectLater(
+        model.embedAll([
+          EmbeddingInput.image(_jpeg),
+          twoImages,
+        ], taskType: TaskType.none),
+        throwsA(isA<UnsupportedEmbeddingCombinationException>()),
+      );
+      expect(fake.calls, isEmpty);
+
+      // One image is one part: it passes.
+      await model.embed(EmbeddingInput.image(_jpeg), taskType: TaskType.none);
+      expect(fake.calls, hasLength(1));
+    });
+
+    test('several images pass the gate when the engine combines', () async {
+      final fake = _FakeHost(
+        info: EmbeddingPassInfo(
+          dimension: 2,
+          modalities: const {EmbeddingModality.text, EmbeddingModality.image},
+          imageFormats: {EncodedMediaFormat.jpeg},
+          combinedInputs: true,
+        ),
+        modalities: const {EmbeddingModality.text, EmbeddingModality.image},
+      );
+      final model = CommonEmbeddingModel.withHost(fake);
+      await model.embed(
+        EmbeddingInput(images: [_jpeg, _jpeg]),
+        taskType: TaskType.none,
+      );
+      expect(fake.calls, hasLength(1));
+    });
+
     test('a combined input passes the gate when the engine combines', () async {
       final fake = _FakeHost(
         info: EmbeddingPassInfo(

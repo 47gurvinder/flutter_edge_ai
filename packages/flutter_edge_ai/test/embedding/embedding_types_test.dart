@@ -184,20 +184,6 @@ void main() {
       expect(() => input.audio![0] = 7, throwsUnsupportedError);
       expect(() => input.images.add(Uint8List(1)), throwsUnsupportedError);
     });
-
-    test('the 2.3.0 test helper builds the same input', () {
-      final combined = debugCombinedEmbeddingInput(
-        text: 'a cat',
-        images: [
-          Uint8List.fromList([1]),
-        ],
-      );
-      expect(combined.modalities, {
-        EmbeddingModality.text,
-        EmbeddingModality.image,
-      });
-      expect(() => debugCombinedEmbeddingInput(), throwsArgumentError);
-    });
   });
 
   group('EmbeddingException family', () {
