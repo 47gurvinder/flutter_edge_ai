@@ -234,7 +234,9 @@ All script tags go in `web/index.html` `<head>`, before Flutter boots.
 `.litertlm` engine (LLMs through `window.Engine`; EmbeddingGemma 2 embedders,
 flutter_edge_ai_litertlm 1.15.0+, through `window.EmbeddingEngine` — a page
 without that line fails the embedder's load with an `EmbeddingLoadException`
-naming it):
+naming it). Both run on WebGPU; for EmbeddingGemma 2 there is no CPU fallback
+on Web, so a browser without WebGPU fails the embedder's load with an
+`EmbeddingLoadException` that says so:
 
 ```html
 <script type="module">

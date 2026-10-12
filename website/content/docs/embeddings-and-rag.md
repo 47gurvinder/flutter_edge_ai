@@ -90,8 +90,9 @@ final vector = await embedder.embed(
 - **Every platform**: Android, iOS, macOS, Linux and Windows
   (flutter_edge_ai_litertlm 1.13.0 for text, 1.14.0 for images), and the Web
   (1.15.0, text and images), where it runs through `@litert-lm/core`'s
-  EmbeddingEngine and needs **window.EmbeddingEngine = m.EmbeddingEngine;** in
-  `web/index.html` ([Installation](/docs/installation#web)).
+  EmbeddingEngine on WebGPU and needs **window.EmbeddingEngine =
+  m.EmbeddingEngine;** in `web/index.html`
+  ([Installation](/docs/installation#web)).
 - **Text on every bundle, images on the 440m.** On the 270m,
   **getActiveEmbedder(supportImage: true)** throws **EmbeddingLoadException**
   naming the 440m bundle (natively before any engine or cache is made).
@@ -103,8 +104,16 @@ final vector = await embedder.embed(
   +340 MB at 512 and +560 MB at 1024. A longer input throws
   **EmbeddingInputTooLongException**; its **actualTokens** is null natively
   and the exact count on the Web.
-- **CPU**, WebAssembly on the Web. **activeBackend** is
-  **PreferredBackend.cpu**.
+- **CPU natively, WebGPU on the Web.** **activeBackend** is
+  **PreferredBackend.cpu** natively and **PreferredBackend.gpu** on the Web.
+  The Web has no CPU path for these bundles — the CPU (WebAssembly) backend of
+  `@litert-lm/core` 0.18.0 cannot read their external weights — so a browser
+  without WebGPU (no **navigator.gpu**, or no GPU adapter) throws
+  **EmbeddingLoadException** saying so before anything loads. Web vectors come
+  from WebGPU and differ slightly from the native CPU ones (measured min cos
+  about 0.995 for text, 0.998 for images); retrieval across platforms holds —
+  web text queries find natively embedded images and native queries find
+  web-embedded images, top-1 10/10 on the example's ten scenes.
 - **Disk:** the 165 MB bundle plus a 71 MB weight cache the engine writes at
   its first load (the 440m bundle adds 218 MB for vision, the 740m bundle
   writes 385 MB in total, even for text-only use). The cache lives in the app's
@@ -259,8 +268,9 @@ await FlutterEdgeAi.installEmbedder()
     .install();
 ```
 
-On native, current LiteRT and ONNX embedding paths run on CPU. On Web they try
-WebGPU and can fall back to WASM. **preferredBackend** is accepted by
+On native, current LiteRT and ONNX embedding paths run on CPU. On Web the
+`.tflite` and ONNX paths try WebGPU and can fall back to WASM; EmbeddingGemma 2
+runs on WebGPU only, with no fallback. **preferredBackend** is accepted by
 **getActiveEmbedder** for API symmetry but is not applied; inspect
 **EmbeddingModel.activeBackend** when the selected backend matters.
 

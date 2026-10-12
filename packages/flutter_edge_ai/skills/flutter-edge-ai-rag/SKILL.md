@@ -183,11 +183,15 @@ final eg2Index = await rag.open(
 ```
 
 - Android, iOS, macOS, Linux, Windows (`flutter_edge_ai_litertlm` 1.13.0 for
-  text, 1.14.0 for images), and Web from 1.15.0 (text and images, CPU/
-  WebAssembly through `@litert-lm/core`'s EmbeddingEngine). The Web page needs
+  text, 1.14.0 for images), and Web from 1.15.0 (text and images, on WebGPU
+  through `@litert-lm/core`'s EmbeddingEngine). The Web page needs
   `window.EmbeddingEngine = m.EmbeddingEngine;` next to `window.Engine =
   m.Engine;` in its `@litert-lm/core` module script; without it the load fails
-  with an `EmbeddingLoadException` naming that line.
+  with an `EmbeddingLoadException` naming that line. The browser needs WebGPU:
+  the CPU (WebAssembly) path of `@litert-lm/core` 0.18.0 cannot read these
+  bundles' external weights, so there is no CPU fallback, and a browser
+  without WebGPU (no `navigator.gpu`, or no adapter) fails the load with an
+  `EmbeddingLoadException` that says so.
 - The 270m is text only: `getActiveEmbedder(supportImage: true)` throws
   `EmbeddingLoadException` naming the 440m bundle — natively before any engine
   or cache is made (below); on Web only after the bundle was read, when the
@@ -197,12 +201,18 @@ final eg2Index = await rag.open(
   512 tokens or fewer: memory grows with the input length. A longer text throws
   `EmbeddingInputTooLongException`. Natively its `actualTokens` is null —
   LiteRT-LM's C API reports the overflow without a count; on Web it is the
-  exact count, read from a truncated run — so on Web an over-long chunk still
-  costs one full embedding before it is refused: split before embedding.
-- It runs on CPU (`activeBackend` is `PreferredBackend.cpu`). Natively it keeps
-  a weight cache of about 71 MB, on top of the 165 MB bundle, in the app's
-  cache directory: never backed up, and rebuilt at the next load if the OS
-  clears it. Web keeps no weight cache.
+  exact count, read after the engine ran the whole input in 1024-token windows
+  — so on Web an over-long chunk still costs a full embedding before it is
+  refused: split before embedding.
+- It runs on CPU natively (`activeBackend` is `PreferredBackend.cpu`) and on
+  WebGPU on Web (`PreferredBackend.gpu`). Web vectors therefore differ
+  slightly from native ones — measured min cos about 0.995 for text and 0.998
+  for images against the native CPU vectors — and retrieval across platforms
+  holds: web queries find natively embedded images and native queries find
+  web-embedded images, top-1 10/10 on the example's ten scenes. Natively it
+  keeps a weight cache of about 71 MB, on top of the 165 MB bundle, in the
+  app's cache directory: never backed up, and rebuilt at the next load if the
+  OS clears it. Web keeps no weight cache.
 - EmbeddingGemma 1 and 2 both produce 768-d vectors but are different spaces:
   give each its own location and profile ID — the dimension check alone cannot
   tell them apart. `FlutterEdgeAiActiveEmbedder.forActiveModel` already gives
@@ -697,7 +707,10 @@ location.
   `getActiveEmbedder()` with an `EmbeddingLoadException` that names the file.
   EmbeddingGemma 2 (`.litertlm`) needs none of those files, only
   `window.EmbeddingEngine = m.EmbeddingEngine;` in the `@litert-lm/core`
-  module script of `web/index.html`.
+  module script of `web/index.html`, and a browser with WebGPU.
+- `EmbeddingLoadException` starting "EmbeddingGemma 2 on the web needs
+  WebGPU": the browser has no `navigator.gpu` or no GPU adapter. There is no
+  CPU path for these bundles on Web; use a browser with WebGPU enabled.
 - `ArgumentError` naming an undeclared filter field: add it to `filterSchema`.
   SQLite names must match `^[A-Za-z][A-Za-z0-9_]*$` and avoid reserved columns.
 - `StateError: Vector store "…" is bound to …, not …`: the location belongs to
