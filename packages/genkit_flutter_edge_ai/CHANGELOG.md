@@ -5,7 +5,7 @@
 - `outputSchema` works without middleware; new `maxOutputTokens` option; `response.usage`.
 - Embedder `taskType` option: index documents with `retrievalDocument`.
 - Model names share one queue; every request gets the active model, a new one after an install.
-- Require `flutter_edge_ai` ^2.3.0.
+- Require `flutter_edge_ai` ^2.2.1.
 
 ## 0.8.1
 - Unset `temperature` and `topK` no longer force greedy; the model sampler applies (#572).
