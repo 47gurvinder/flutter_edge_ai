@@ -97,10 +97,9 @@ List<String> litertlmModelTypes(Uint8List header) {
       }
     }
     return types;
-  } on ArgumentError {
-    // A RangeError natively; under dart2js an offset past the end reaches the
-    // JS DataView unchecked, and its JS RangeError arrives as an
-    // ArgumentError (which RangeError extends).
+  } on RangeError {
+    // LitertlmFlatBuffer checks every offset itself, so this is a Dart
+    // RangeError on every compiler (dart2js and dart2wasm included).
     throw const FormatException('.litertlm header flatbuffer is truncated');
   }
 }

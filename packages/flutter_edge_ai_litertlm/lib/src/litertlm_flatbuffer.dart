@@ -49,7 +49,11 @@ int litertlmHeaderEnd(Uint8List preamble) {
 
 /// Tables, vectors of tables, strings, union discriminators and scalar
 /// fields, little-endian, over the header bytes. Out-of-range offsets throw
-/// [RangeError].
+/// [RangeError] — checked here, before every read, rather than left to
+/// `ByteData`: on the web the bytes are a JS-backed view, and an out-of-range
+/// read there is the DataView's own JS RangeError, which dart2js delivers as
+/// an `ArgumentError` and dart2wasm as a JS exception no `on` clause matches
+/// (measured in the browser suite on Chrome 155).
 final class LitertlmFlatBuffer {
   LitertlmFlatBuffer(Uint8List bytes)
     : _bytes = bytes,
@@ -60,17 +64,33 @@ final class LitertlmFlatBuffer {
 
   int root() => _ref(0);
 
+  /// Throws [RangeError] unless [size] bytes from [position] are in the
+  /// buffer.
+  void _check(int position, int size) {
+    if (position < 0 || position + size > _bytes.length) {
+      throw RangeError.range(position, 0, _bytes.length - size, 'position');
+    }
+  }
+
+  int _uint32(int position) {
+    _check(position, 4);
+    return _data.getUint32(position, Endian.little);
+  }
+
   /// Position of field [index]'s value in [table], or null when absent.
   int? _field(int table, int index) {
+    _check(table, 4);
     final vtable = table - _data.getInt32(table, Endian.little);
+    _check(vtable, 2);
     final vtableSize = _data.getUint16(vtable, Endian.little);
     final slot = 4 + 2 * index;
     if (slot >= vtableSize) return null;
+    _check(vtable + slot, 2);
     final offset = _data.getUint16(vtable + slot, Endian.little);
     return offset == 0 ? null : table + offset;
   }
 
-  int _ref(int position) => position + _data.getUint32(position, Endian.little);
+  int _ref(int position) => position + _uint32(position);
 
   int? table(int table, int index) {
     final at = _field(table, index);
@@ -79,7 +99,7 @@ final class LitertlmFlatBuffer {
 
   int? vector(int table, int index) => this.table(table, index);
 
-  int length(int vector) => _data.getUint32(vector, Endian.little);
+  int length(int vector) => _uint32(vector);
 
   int element(int vector, int i) {
     if (i >= length(vector)) throw RangeError.index(i, vector);
@@ -88,13 +108,17 @@ final class LitertlmFlatBuffer {
 
   int uint8(int table, int index) {
     final at = _field(table, index);
-    return at == null ? 0 : _data.getUint8(at);
+    if (at == null) return 0;
+    _check(at, 1);
+    return _data.getUint8(at);
   }
 
   /// Native only: dart2js has no `ByteData.getUint64`.
   int uint64(int table, int index) {
     final at = _field(table, index);
-    return at == null ? 0 : _data.getUint64(at, Endian.little);
+    if (at == null) return 0;
+    _check(at, 8);
+    return _data.getUint64(at, Endian.little);
   }
 
   /// The string in field [index] of [table], or null when absent. Decoded as
