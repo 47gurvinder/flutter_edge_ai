@@ -151,6 +151,29 @@ void main() {
     );
   });
 
+  test('an LLM bundle\'s header, extended (sparse) to where its last section '
+      'ends, reads as no NPU target — what the device suite installs as an '
+      'embedder to see the LLM refused', () async {
+    // The header of a Gemma 3 1B bundle; its sections end at 584,413,712.
+    final header = File(
+      'test/ffi/fixtures/gemma3_1b_prefix.litertlm',
+    ).readAsBytesSync();
+    final cut = write('llm_header.litertlm', header);
+    await expectLater(
+      readLiteRtLmNpuTarget(cut),
+      throwsA(isA<FormatException>()),
+      reason: 'the header alone is a truncated container',
+    );
+    final file = File(cut);
+    final raf = file.openSync(mode: FileMode.append);
+    try {
+      raf.truncateSync(584413712);
+    } finally {
+      raf.closeSync();
+    }
+    expect(await readLiteRtLmNpuTarget(cut), isNull);
+  });
+
   group('parseLiteRtStamp', () {
     test('two NUL-padded 125-byte fields', () {
       expect(parseLiteRtStamp(liteRtStamp('Qualcomm', 'SM8850')), sm8850);

@@ -105,6 +105,10 @@ final _imageFormats = {
 
 const _mb = 1024 * 1024;
 
+/// Where the last section of the Gemma 3 1B bundle behind
+/// goldens/litertlm_llm_header.dart ends: its declared length.
+const _llmBundleLength = 584413712;
+
 // ── Guarded set-up (Rule 6b: called first thing in every test body) ────────
 
 bool _initialized = false;
@@ -696,10 +700,22 @@ void main() {
       litertlmLlmHeaderBase64.replaceAll(RegExp(r'\s'), ''),
     );
     expect(sha256.convert(bytes).toString(), litertlmLlmHeaderSha256);
-    // Core refuses a model file under 1 MiB before any engine sees it; the
-    // zeros after the LlmMetadata section are never read by ModelInfo.
-    final padded = Uint8List(_mb + 1)..setAll(0, bytes);
-    await file.writeAsBytes(padded, flush: true);
+    // The header, then the file extended (sparse: the zeros take no disk) to
+    // where its last section ends, 584,413,712 bytes in the real bundle.
+    // describe() reads every TFLiteModel section's metadata for an NPU stamp,
+    // so a header alone is a truncated container ("not a readable .litertlm
+    // bundle"); zeros read as a section with no metadata. ModelInfo then
+    // copies the main section into the heap as it would the real one (about
+    // 560 MB of zeros for a moment, measured in the VM) and names the LLM.
+    // Core also refuses a model file under 1 MiB before any engine sees it.
+    final raf = await file.open(mode: FileMode.write);
+    try {
+      await raf.writeFrom(bytes);
+      await raf.truncate(_llmBundleLength);
+      await raf.flush();
+    } finally {
+      await raf.close();
+    }
     try {
       await FlutterEdgeAi.installEmbedder()
           .modelFromFile(file.path, filename: name)
