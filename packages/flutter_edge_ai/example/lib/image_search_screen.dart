@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
@@ -35,7 +37,8 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
   @override
   void initState() {
     super.initState();
-    if (!kIsWeb) _controller.open();
+    // open() keeps every failure in the controller's state, for the screen.
+    if (!kIsWeb) unawaited(_controller.open());
   }
 
   @override
