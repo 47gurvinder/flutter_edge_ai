@@ -1057,6 +1057,139 @@ void main() {
       expect(await adapter.resolveProfile(), _profileNamed('eg-v1', 2));
     });
 
+    group('the pin compares the installed model, not credentials', () {
+      const base = 'https://huggingface.co/acme/embedder/resolve/abc123';
+      EmbeddingModelSpec network({String? token, String model = 'm'}) =>
+          EmbeddingModelSpec(
+            name: model,
+            modelSource: ModelSource.network(
+              '$base/$model.tflite',
+              authToken: token,
+            ),
+            tokenizerSource: ModelSource.network(
+              '$base/tokenizer.json',
+              authToken: token,
+            ),
+            modelFilename: '${model}__rev-abc123.tflite',
+            tokenizerFilename: '${model}__rev-abc123.json',
+          );
+
+      Future<int> embedsAfterSwitch(
+        EmbeddingModelSpec pinned,
+        EmbeddingModelSpec active,
+      ) async {
+        var current = pinned;
+        final model = _FakeEmbeddingModel(dimension: 2);
+        final adapter = FlutterEdgeAiActiveEmbedder(
+          profileId: 'eg-v1',
+          specResolver: () => current,
+          modelResolver: () async => model,
+        );
+        current = active;
+        await adapter.embedDocument(EmbeddingInput.text('d'));
+        return model.taskTypes.length;
+      }
+
+      test('a restart restores the spec without the token; a re-install '
+          'with the token is the same model', () async {
+        // ModelSource.encode() drops credentials, so the restored spec has
+        // no authToken while the app's next install() passes one.
+        expect(
+          await embedsAfterSwitch(network(), network(token: 'hf_secret')),
+          1,
+        );
+        expect(
+          await embedsAfterSwitch(
+            network(token: 'hf_a'),
+            network(token: 'hf_b'),
+          ),
+          1,
+        );
+      });
+
+      test('a native restore points at the installed files', () async {
+        // The native shell restores the spec as the persisted record's
+        // toSpec(runtimeModelSource: FileSource(...), ...) does: FileSources
+        // at the managed paths, the explicit file names kept.
+        final restored = EmbeddingModelSpec(
+          name: 'm',
+          modelSource: ModelSource.file(
+            '/data/app/flutter_gemma/m__rev-abc123.tflite',
+          ),
+          tokenizerSource: ModelSource.file(
+            '/data/app/flutter_gemma/m__rev-abc123.json',
+          ),
+          modelFilename: 'm__rev-abc123.tflite',
+          tokenizerFilename: 'm__rev-abc123.json',
+        );
+        expect(
+          await embedsAfterSwitch(restored, network(token: 'hf_secret')),
+          1,
+        );
+      });
+
+      test('a native restore of source-derived file names', () async {
+        // No explicit file names: the installed names derive from the URLs,
+        // and the restored FileSources at those names derive the same ones.
+        final installed = EmbeddingModelSpec(
+          name: 'm',
+          modelSource: ModelSource.network(
+            '$base/m.tflite',
+            authToken: 'hf_secret',
+          ),
+          tokenizerSource: ModelSource.network(
+            '$base/tokenizer.json',
+            authToken: 'hf_secret',
+          ),
+        );
+        final names = [for (final file in installed.files) file.filename];
+        final restored = EmbeddingModelSpec(
+          name: 'm',
+          modelSource: ModelSource.file('/data/app/flutter_gemma/${names[0]}'),
+          tokenizerSource: ModelSource.file(
+            '/data/app/flutter_gemma/${names[1]}',
+          ),
+        );
+        expect([for (final file in restored.files) file.filename], names);
+        expect(await embedsAfterSwitch(restored, installed), 1);
+      });
+
+      test('a different model is still refused', () async {
+        await expectLater(
+          embedsAfterSwitch(network(), network(token: 't', model: 'other')),
+          throwsStateError,
+          reason: 'other file names',
+        );
+        final otherUrl = EmbeddingModelSpec(
+          name: 'm',
+          modelSource: ModelSource.network('$base/m-v2.tflite'),
+          tokenizerSource: ModelSource.network('$base/tokenizer.json'),
+          modelFilename: 'm__rev-abc123.tflite',
+          tokenizerFilename: 'm__rev-abc123.json',
+        );
+        await expectLater(
+          embedsAfterSwitch(network(), otherUrl),
+          throwsStateError,
+          reason: 'same file names, a different URL',
+        );
+        final restoredFiles = EmbeddingModelSpec(
+          name: 'm',
+          modelSource: ModelSource.file('/app/m__rev-abc123.tflite'),
+          tokenizerSource: ModelSource.file('/app/m__rev-abc123.json'),
+          modelFilename: 'm__rev-abc123.tflite',
+          tokenizerFilename: 'm__rev-abc123.json',
+        );
+        await expectLater(
+          embedsAfterSwitch(
+            restoredFiles,
+            network(token: 'hf_secret', model: 'other'),
+          ),
+          throwsStateError,
+          reason: 'a restored model, then a different one installed',
+        );
+      });
+    });
+
     test('a switch while the model resolves is refused', () async {
       var active = _embeddingSpec('a');
       final adapter = FlutterEdgeAiActiveEmbedder(
