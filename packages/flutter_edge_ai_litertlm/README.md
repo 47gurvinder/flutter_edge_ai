@@ -272,11 +272,14 @@ final query = await embedder.embed(
   with `EmbeddingLoadException`. Text vectors do not depend on it. Image
   vectors do, so give an image store an id that names the budget: the text
   profile id plus `-vis140` (or `-vis70`).
-- **Cost** (measured on an M4 Pro Mac, CPU): a 388 MB bundle; at every load the
-  engine writes a 218 MB vision weight cache next to the 71 MB text cache in the
-  app's cache directory, also when you only embed text; about 385 MB more RAM
-  from the first image on; 0.36–0.56 s per image at 140 tokens, about 0.17–0.25
-  s at 70. For text alone use the 270m.
+- **Cost** (CPU, measured): a 388 MB bundle; at every load the engine writes a
+  218 MB vision weight cache next to the 71 MB text cache in the app's cache
+  directory, also when you only embed text. The first image adds about 385 MB
+  of RAM on an M4 Pro Mac and about 500 MB on a Pixel 8. Per image at 140
+  tokens: about 0.35 s on an Apple-silicon Mac, about 2 s on an Android flagship
+  (Pixel 8 Pro 1.8 s, Pixel 8a 2.3 s), more on mid-range phones and rising
+  under sustained load; 70 tokens takes about half. For text alone use the
+  270m.
 - The example app's **Image Search** screen indexes photos (or ten bundled
   sample pictures) in a RAG image index and searches them by text and by
   photo; choose "EmbeddingGemma 2 Text + Vision (440M)" under Embedding Models

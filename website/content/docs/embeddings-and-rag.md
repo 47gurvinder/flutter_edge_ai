@@ -160,11 +160,14 @@ final hits = await photos.search(query: EmbeddingInput.text('a red bicycle'));
   about twice as fast with slightly different image vectors; any other value
   throws **EmbeddingLoadException**. Text vectors do not depend on it; image
   stores do, so their profile id names it (`-vis140`, `-vis70`).
-- **Cost** (measured on an M4 Pro Mac, CPU): a 388 MB bundle; a 218 MB vision
-  weight cache written at every load, next to the 71 MB text cache in the app's
-  cache directory, also when you embed only text; about 385 MB more RAM from
-  the first image on; 0.36–0.56 s per image at 140 tokens, about 0.17–0.25 s at
-  70. For text alone use the 270m.
+- **Cost** (CPU, measured): a 388 MB bundle; a 218 MB vision weight cache
+  written at every load, next to the 71 MB text cache in the app's cache
+  directory, also when you embed only text. The first image adds about 385 MB
+  of RAM on an M4 Pro Mac and about 500 MB on a Pixel 8. Per image at 140
+  tokens: about 0.35 s on an Apple-silicon Mac, about 2 s on an Android
+  flagship (Pixel 8 Pro 1.8 s, Pixel 8a 2.3 s), more on mid-range phones and
+  rising under sustained load; 70 tokens takes about half. For text alone use
+  the 270m.
 - A text query over an image index is sent raw (**TaskType.none**): measured,
   the retrieval-query prefix finds the same photos with a smaller margin.
 - The example app's **Image Search** screen does all of this with photos from

@@ -266,11 +266,14 @@ final hits = await photos.search(query: EmbeddingInput.text('a red bicycle'));
   (`…-vis70`). Any other value throws `EmbeddingLoadException`. Text vectors
   do not depend on it. `forActiveModel` ids follow file names only, so an app
   that changes the budget puts it in the namespace (`'photos-vis70'`).
-- Cost, measured on macOS (M4 Pro, CPU): 388 MB on disk plus a 218 MB vision
-  weight cache written every time the model loads — also when it only embeds
-  text — and about 385 MB more RAM from the first image on; 0.36-0.56 s per
-  image at 140 tokens, about 0.17-0.25 s at 70. Apps that embed only text use
-  the 270m. Close the embedder after a large photo ingest on low-RAM devices.
+- Cost (CPU, measured): 388 MB on disk plus a 218 MB vision weight cache
+  written every time the model loads — also when it only embeds text. The
+  first image adds RAM: about 385 MB on an M4 Pro Mac, about 500 MB on a
+  Pixel 8. Per image at 140 tokens: about 0.35 s on an Apple-silicon Mac,
+  about 2 s on an Android flagship (Pixel 8 Pro 1.8 s, Pixel 8a 2.3 s), more
+  on mid-range phones and rising under sustained load as the phone heats up;
+  70 tokens takes about half. Apps that embed only text use the 270m. Close
+  the embedder after a large photo ingest on low-RAM devices.
 - A text query over an image index is sent raw (`TaskType.none`): measured,
   the retrieval-query prefix found the same photos with a smaller margin. Do
   not set `queryTask` for it: that applies to text documents only.

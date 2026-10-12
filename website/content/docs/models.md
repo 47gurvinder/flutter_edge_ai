@@ -483,8 +483,9 @@ the maximum is never truncated: it throws `EmbeddingInputTooLongException`.
 EmbeddingGemma 2 is one `.litertlm` file with its own tokenizer (no
 `tokenizerFrom…()`) and runs on CPU on Android, iOS, macOS, Linux and Windows.
 Both bundles embed text (`flutter_edge_ai_litertlm` 1.13.0, identical text
-vectors); the 440m also embeds JPEG, PNG, GIF and BMP images (1.14.0, about
-0.36–0.56 s per image and 385 MB more RAM from the first image). Keep chunks at
+vectors); the 440m also embeds JPEG, PNG, GIF and BMP images (1.14.0; per
+image about 0.35 s on an Apple-silicon Mac and about 2 s on an Android flagship,
+and about 400–500 MB more RAM from the first image). Keep chunks at
 512 tokens or fewer, and use the 270m when you embed only text; see
 [Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2).
 Every other row is a `.tflite` model plus a tokenizer file.
