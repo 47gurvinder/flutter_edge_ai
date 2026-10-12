@@ -221,7 +221,9 @@ final vector = await embedder.embed(
   at 512 and +560 MB at 1024). A longer input fails with
   `EmbeddingInputTooLongException`. Natively its `actualTokens` is null —
   LiteRT-LM's C API reports the overflow without a count; on the web it is the
-  exact count.
+  exact count, which the engine reports from a truncated run — so there an
+  over-long input costs one full embedding before it is refused. Split before
+  embedding.
 - **CPU**, on the web too (WebAssembly). `activeBackend` is
   `PreferredBackend.cpu`; `preferredBackend` is not applied.
 - **Disk:** the 165 MB bundle plus a 71 MB weight cache the engine writes at

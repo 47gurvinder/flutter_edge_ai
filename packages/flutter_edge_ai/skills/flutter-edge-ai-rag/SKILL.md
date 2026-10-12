@@ -189,18 +189,20 @@ final eg2Index = await rag.open(
   m.Engine;` in its `@litert-lm/core` module script; without it the load fails
   with an `EmbeddingLoadException` naming that line.
 - The 270m is text only: `getActiveEmbedder(supportImage: true)` throws
-  `EmbeddingLoadException` naming the 440m bundle, before any engine or cache
-  is made (below). `supportAudio: true` is refused on every bundle (audio
+  `EmbeddingLoadException` naming the 440m bundle — natively before any engine
+  or cache is made (below); on Web only after the bundle was read, when the
+  runtime refuses to create the engine. `supportAudio: true` is refused on every bundle (audio
   arrives in 1.16.0).
 - `maxInputTokens` is 1024 — task prefix, BOS and EOS included. Keep chunks at
   512 tokens or fewer: memory grows with the input length. A longer text throws
   `EmbeddingInputTooLongException`. Natively its `actualTokens` is null —
   LiteRT-LM's C API reports the overflow without a count; on Web it is the
-  exact count.
-- It runs on CPU (`activeBackend` is `PreferredBackend.cpu`) and keeps a weight
-  cache of about 71 MB, on top of the 165 MB bundle, in the app's cache
-  directory: never backed up, and rebuilt at the next load if the OS clears
-  it.
+  exact count, read from a truncated run — so on Web an over-long chunk still
+  costs one full embedding before it is refused: split before embedding.
+- It runs on CPU (`activeBackend` is `PreferredBackend.cpu`). Natively it keeps
+  a weight cache of about 71 MB, on top of the 165 MB bundle, in the app's
+  cache directory: never backed up, and rebuilt at the next load if the OS
+  clears it. Web keeps no weight cache.
 - EmbeddingGemma 1 and 2 both produce 768-d vectors but are different spaces:
   give each its own location and profile ID — the dimension check alone cannot
   tell them apart. `FlutterEdgeAiActiveEmbedder.forActiveModel` already gives
