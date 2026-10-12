@@ -258,7 +258,7 @@ await FlutterEdgeAi.installEmbedder()
     .install();
 final embedder = await FlutterEdgeAi.getActiveEmbedder(supportImage: true);
 final photo = await embedder.embed(
-  EmbeddingInput.image(jpegBytes), // the encoded file
+  EmbeddingInput.image(await uprightAndSmall(photoBytes)), // below
   taskType: TaskType.retrievalDocument, // prefixes reach text only
 );
 final query = await embedder.embed(
@@ -267,23 +267,65 @@ final query = await embedder.embed(
 );
 ```
 
-- **Formats:** JPEG, PNG, GIF and BMP. HEIC, WebP, TIFF and AVIF fail with
-  `EmbeddingFormatNotSupportedException` (which names the detected and the
-  accepted formats) before anything is sent; convert them first. A corrupt or
+**Pass upright, downscaled images.** LiteRT-LM decodes the file itself and
+ignores EXIF orientation, so a portrait photo from a phone camera — stored
+sideways with an orientation tag — is embedded lying on its side (measured: cos
+0.89 against the same picture upright). It also decodes at full size, which a
+12 MP photo pays for in time and memory the model does not need: it scales
+every image down to its vision budget anyway. Flutter's codec fixes both:
+
+```dart
+import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
+/// [photo] upright (Flutter applies the EXIF orientation) and at most
+/// 1024 px on its long side, as PNG.
+Future<Uint8List> uprightAndSmall(Uint8List photo) async {
+  final codec = await ui.instantiateImageCodecWithSize(
+    await ui.ImmutableBuffer.fromUint8List(photo),
+    getTargetSize: (w, h) => math.max(w, h) <= 1024
+        ? const ui.TargetImageSize()
+        : w >= h
+        ? const ui.TargetImageSize(width: 1024)
+        : const ui.TargetImageSize(height: 1024),
+  );
+  final image = (await codec.getNextFrame()).image;
+  final png = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  codec.dispose();
+  return png!.buffer.asUint8List();
+}
+```
+
+It also converts what Flutter decodes and the engine does not (WebP; HEIC on
+Android). The example app writes BMP instead of PNG — cheaper to write and to
+read back — and gets the camera photo's vector within cos 0.998 of the upright
+one.
+
+- **Formats the engine decodes:** JPEG, PNG, GIF and BMP. HEIC, WebP, TIFF and
+  AVIF fail with `EmbeddingFormatNotSupportedException` (which names the
+  detected and the accepted formats) before anything is sent. A corrupt or
   truncated file of an accepted type fails with `EmbeddingEngineException`
   (`nativeCode` 3 natively; on the web the message carries the runtime's
   reason) and the embedder keeps working. One image per vector.
 - **Vision budget:** 140 tokens per image by default, the closest to the
-  reference model. `LiteRtEmbeddingBackend(visionTokensPerImage: 70)` is about
-  twice as fast with slightly different image vectors; any other value fails
-  with `EmbeddingLoadException`. Text vectors do not depend on it. Image
-  vectors do, so give an image store an id that names the budget: the text
-  profile id plus `-vis140` (or `-vis70`).
-- **Cost** (measured on an M4 Pro Mac, CPU): a 388 MB bundle; at every load the
-  engine writes a 218 MB vision weight cache next to the 71 MB text cache in the
-  app's cache directory, also when you only embed text; about 385 MB more RAM
-  from the first image on; 0.36–0.56 s per image at 140 tokens, about 0.17–0.25
-  s at 70. For text alone use the 270m.
+  reference model (min cos 0.985 on our test images).
+  `LiteRtEmbeddingBackend(visionTokensPerImage: 70)` — what the model card and
+  Google AI Edge Gallery use — is about twice as fast with slightly lower
+  fidelity (min cos 0.970). Any other value fails with
+  `EmbeddingLoadException`. Text vectors do not depend on it. Image vectors
+  do, so give an image store an id that names the budget: the text profile id
+  plus `-vis140` (or `-vis70`).
+- **Cost** (CPU, measured): a 388 MB bundle; at every load the engine writes a
+  218 MB vision weight cache next to the 71 MB text cache in the app's cache
+  directory, also when you only embed text. The first image adds about 385 MB
+  of RAM on an M4 Pro Mac and about 500 MB on a Pixel 8. Per image at 140
+  tokens: about 0.35 s on an Apple-silicon Mac, about 2 s on an Android flagship
+  (Pixel 8 Pro 1.8 s, Pixel 8a 2.3 s), more on mid-range phones and rising
+  under sustained load; 70 tokens takes about half. LiteRT-LM's thread setting
+  reaches the text tower only; images run with its default threads. A 440m
+  loaded for text alone still loads its vision tower: for text use the 270m.
 - The example app's **Image Search** screen indexes photos (or ten bundled
   sample pictures) in a RAG image index and searches them by text and by
   photo; choose "EmbeddingGemma 2 Text + Vision (440M)" under Embedding Models

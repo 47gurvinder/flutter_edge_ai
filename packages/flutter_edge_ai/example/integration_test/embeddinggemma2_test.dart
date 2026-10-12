@@ -39,7 +39,11 @@
 // - a RAG image index: add, text search, and reopening it as text refused;
 // - a text index and an image index on one bundle, alternating: one rebuild,
 //   no EmbedderClosedException;
-// - the Image Search screen: samples, text → image, image → image.
+// - the Image Search screen: samples, text → image, image → image;
+// - a camera JPEG stored sideways with EXIF Orientation 6: raw bytes (the
+//   engine ignores EXIF) vs the example's flow (Flutter decodes it upright,
+//   at most 1024 px) against its upright twin; a 12 MP JPEG raw vs prepared;
+//   the ten scenes at 70 vision tokens per image.
 // It prints load and per-embed timings, and the cosines.
 //
 // No setUp/setUpAll (Rule 6b): each test body calls the guarded
@@ -69,6 +73,7 @@ import 'package:flutter_edge_ai_diagnostics/flutter_edge_ai_diagnostics.dart';
 import 'package:flutter_edge_ai_example/image_search/eg2_vision_samples.dart';
 import 'package:flutter_edge_ai_example/image_search/image_search_app_dependencies.dart';
 import 'package:flutter_edge_ai_example/image_search/image_search_controller.dart';
+import 'package:flutter_edge_ai_example/image_search/photo_preparation.dart';
 import 'package:flutter_edge_ai_example/image_search_screen.dart';
 import 'package:flutter_edge_ai_example/models/embedding_model.dart' as catalog;
 import 'package:flutter_edge_ai_litertlm/flutter_edge_ai_litertlm.dart';
@@ -1174,6 +1179,124 @@ void main() {
       } finally {
         await notes.dispose();
         await photos.dispose();
+      }
+    }, timeout: const Timeout(Duration(minutes: 20)));
+
+    testWidgets('EXIF: a camera JPEG stored sideways is embedded sideways '
+        'from its raw bytes, and upright through the example\'s flow', (
+      tester,
+    ) async {
+      await _ensureEg2Vision();
+      final model = await FlutterEdgeAi.getActiveEmbedder(supportImage: true);
+      Future<List<double>> embed(Uint8List bytes) =>
+          model.embed(EmbeddingInput.image(bytes), taskType: TaskType.none);
+      final rotated = await _asset('assets/eg2_vision/portrait_exif6.jpg');
+      final upright = await _asset('assets/eg2_vision/portrait_upright.jpg');
+
+      final before = _cos(await embed(rotated), await embed(upright));
+      final preparedRotated = await preparePhotoForEmbedding(rotated);
+      final preparedUpright = await preparePhotoForEmbedding(upright);
+      final after = _cos(
+        await embed(preparedRotated.bytes),
+        await embed(preparedUpright.bytes),
+      );
+      _log(
+        'EXIF 6 vs its upright twin: raw bytes cos ${before.toStringAsFixed(4)}'
+        ', prepared cos ${after.toStringAsFixed(4)}; this platform decodes the '
+        'camera JPEG as ${preparedRotated.width}x${preparedRotated.height}',
+      );
+      // Flutter applies the EXIF orientation on this platform.
+      expect((preparedRotated.width, preparedRotated.height), (480, 640));
+      expect(after, greaterThan(0.99), reason: 'the same picture, upright');
+      expect(after, greaterThan(before), reason: 'the raw bytes lie sideways');
+    }, timeout: const Timeout(Duration(minutes: 20)));
+
+    testWidgets('a 12 MP photo: raw bytes vs prepared to 1024 px', (
+      tester,
+    ) async {
+      await _ensureEg2Vision();
+      final model = await FlutterEdgeAi.getActiveEmbedder(supportImage: true);
+      final large = await _asset('assets/eg2_vision/large_12mp.jpg');
+      // Warm the vision tower first, so neither side pays for it.
+      await model.embed(
+        EmbeddingInput.image(await _asset(eg2VisionSampleAsset('circle'))),
+        taskType: TaskType.none,
+      );
+      final rawMs = <int>[], prepareMs = <int>[], preparedMs = <int>[];
+      late List<double> raw, prepared;
+      for (var i = 0; i < 3; i++) {
+        var watch = Stopwatch()..start();
+        raw = await model.embed(
+          EmbeddingInput.image(large),
+          taskType: TaskType.none,
+        );
+        rawMs.add(watch.elapsedMilliseconds);
+        watch = Stopwatch()..start();
+        final photo = await preparePhotoForEmbedding(large);
+        prepareMs.add(watch.elapsedMilliseconds);
+        expect((photo.width, photo.height), (1024, 768));
+        watch = Stopwatch()..start();
+        prepared = await model.embed(
+          EmbeddingInput.image(photo.bytes),
+          taskType: TaskType.none,
+        );
+        preparedMs.add(watch.elapsedMilliseconds);
+      }
+      _log(
+        '12 MP (4032x3024, ${large.length ~/ 1024} KiB JPEG): raw embed '
+        '$rawMs ms; prepare (decode to 1024 + BMP) $prepareMs ms + embed '
+        '$preparedMs ms; cos(raw, prepared) ${_cos(raw, prepared).toStringAsFixed(4)}',
+      );
+      expect(_cos(raw, prepared), greaterThan(0.95), reason: 'same scene');
+    }, timeout: const Timeout(Duration(minutes: 20)));
+
+    testWidgets('the ten scenes at 70 vision tokens per image: per-image time '
+        'and text → image top-1', (tester) async {
+      await _ensureEg2Vision();
+      // One engine at a time: the cached 140-token embedder goes first.
+      await _closeActive();
+      final spec = FlutterEdgeAi.activeEmbedderSpec!;
+      final descriptor =
+          await const LiteRtEmbeddingBackend(visionTokensPerImage: 70).describe(
+            spec,
+            RuntimeConfig(
+              maxTokens: 0,
+              modelPath: await FlutterEdgeAi.getModelPath(_eg2Vision.filename),
+              supportImage: true,
+            ),
+          );
+      // The pass itself, on this isolate (no worker): its calls block it,
+      // which a test can afford.
+      final pass = descriptor.build();
+      await pass.load();
+      try {
+        final images = <List<double>>[];
+        final micros = <int>[];
+        for (final scene in _scenes) {
+          final bytes = await _asset(eg2VisionSampleAsset(scene));
+          final watch = Stopwatch()..start();
+          images.add(
+            await pass.embed(
+              EmbeddingInput.image(bytes),
+              TaskType.retrievalDocument,
+            ),
+          );
+          micros.add(watch.elapsedMicroseconds);
+        }
+        final captions = [
+          for (final caption in eg2VisionSampleCaptions.values)
+            await pass.embed(EmbeddingInput.text(caption), TaskType.none),
+        ];
+        final rank = _rank(captions, images, _scenes);
+        _log(
+          '70 tokens/image: per image median ${_median(micros) / 1000} ms, max '
+          '${micros.reduce(math.max) / 1000} ms; text→image top-1 '
+          '${rank.top1}/10, mean margin ${rank.margin.toStringAsFixed(4)} '
+          '${rank.misses}',
+        );
+        expect(rank.top1, 10, reason: '${rank.misses}');
+      } finally {
+        await pass.close();
       }
     }, timeout: const Timeout(Duration(minutes: 20)));
 

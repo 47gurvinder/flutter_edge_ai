@@ -6,6 +6,7 @@ import 'package:flutter_edge_ai_rag/flutter_edge_ai_rag.dart';
 
 import '../models/embedding_model.dart' show imageIndexProfileId;
 import 'eg2_vision_samples.dart';
+import 'photo_preparation.dart';
 import 'photo_store.dart';
 
 /// One encoded image the user picked (or a bundled sample).
@@ -29,6 +30,7 @@ final class ImageSearchDependencies {
     required this.pickPhotos,
     required this.pickQueryPhoto,
     required this.loadSample,
+    this.prepare = preparePhotoForEmbedding,
     this.closeEmbedderOnDispose = true,
   });
 
@@ -58,6 +60,11 @@ final class ImageSearchDependencies {
 
   /// The bytes of a bundled asset.
   final Future<Uint8List> Function(String assetKey) loadSample;
+
+  /// Turns an encoded photo into what the model gets: upright (EXIF applied)
+  /// and at most 1024 px on its long side. Throws [PhotoDecodeException] for
+  /// bytes this platform cannot decode.
+  final Future<PreparedPhoto> Function(Uint8List encoded) prepare;
 
   /// Close the embedder when the screen goes: the vision tower holds about
   /// 385 MB once it has embedded an image.
@@ -234,11 +241,12 @@ final class ImageSearchController extends ChangeNotifier {
     ]);
   });
 
-  /// Adds [photos] one at a time: read the original, copy it (unless it is an
-  /// asset), embed and store it, then let its bytes go before the next is
-  /// read — a batch of full-size photos never sits in memory at once.
+  /// Adds [photos] one at a time: read the original, prepare it (upright, at
+  /// most 1024 px), copy the original (unless it is an asset), embed and store
+  /// it, then let its bytes go before the next is read — a batch of full-size
+  /// photos never sits in memory at once.
   ///
-  /// A photo the model refuses (HEIC, WebP, a broken file) is listed in
+  /// A photo this platform cannot decode, or the model refuses, is listed in
   /// [addFailures] and the rest are still added. Any other failure stops the
   /// batch and is shown by [_run]. Either way the copy the failed photo got
   /// is deleted; the copies of photos already added stay, because the index
@@ -256,12 +264,18 @@ final class ImageSearchController extends ChangeNotifier {
       if (_disposed) return;
       String? copy;
       try {
+        // Upright and at most 1024 px: the engine ignores EXIF orientation
+        // and would decode a camera original at full size.
+        final prepared = await _deps.prepare(bytes);
+        if (_disposed) return;
+        // The original is what is kept and shown; the model gets the
+        // prepared pixels.
         final reference =
             photo.asset ??
             (copy = await _deps.photos.keep(bytes, name: photo.name));
         await index.add(
           id: photo.id,
-          document: EmbeddingInput.image(bytes),
+          document: EmbeddingInput.image(prepared.bytes),
           content: reference,
         );
         copy = null; // indexed: the copy belongs to the index now
@@ -270,6 +284,11 @@ final class ImageSearchController extends ChangeNotifier {
           label: photo.name,
           embed: embedder.last ?? Duration.zero,
         ));
+      } on PhotoDecodeException catch (e) {
+        debugPrint('[ImageSearch] ${photo.name} not added: $e');
+        addFailures.add(
+          '${photo.name}: could not decode it on this platform (${e.message})',
+        );
       } on EmbeddingException catch (e) {
         debugPrint('[ImageSearch] ${photo.name} not added: $e');
         addFailures.add('${photo.name}: ${e.message}');
@@ -317,8 +336,9 @@ final class ImageSearchController extends ChangeNotifier {
       _run('Searching', () => _searchByImage(photo));
 
   Future<void> _searchByImage(PickedPhoto photo) async {
+    final prepared = await _deps.prepare(photo.bytes);
     final hits = await _requireIndex().search(
-      query: EmbeddingInput.image(photo.bytes),
+      query: EmbeddingInput.image(prepared.bytes),
       topK: 10,
     );
     _show(hits, photo.name);
@@ -375,6 +395,8 @@ final class ImageSearchController extends ChangeNotifier {
 
   static String _describe(Object error) => switch (error) {
     _Refusal(:final message) => message,
+    PhotoDecodeException(:final message) =>
+      'Could not decode that photo on this platform ($message).',
     EmbeddingException(:final message) => message,
     StateError(:final message) => message,
     ArgumentError(:final message) => '$message',
