@@ -231,7 +231,10 @@ window.litertLmReady = (async () => {
 
 `window.EmbeddingEngine` (1.15.0) is what EmbeddingGemma 2 embedders run on in
 the browser — text and images, on the CPU (WebAssembly). A page without it
-fails the embedder's load with an `EmbeddingLoadException` naming the line.
+fails the embedder's load with an `EmbeddingLoadException` naming the line. An
+LLM and an embedder on the same page share one WebAssembly module and take
+turns: an embedding waits while a reply is being generated, and a reply waits
+for an embedding in progress.
 
 Native platforms need no web setup.
 
