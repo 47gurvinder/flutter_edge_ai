@@ -8,8 +8,11 @@
 // - the 270m loads on the NPU: `activeBackend` npu, 768 dimensions, 1024 input
 //   tokens, text only; vectors finite, not all zero, unit norm;
 // - the 12 golden strings: cosine against the CPU golden (`vector`, macOS
-//   arm64, native-v0.18.0-d) printed min/mean, at least 0.90 each, and every
-//   query ranks its own document first;
+//   arm64, native-v0.18.0-d) printed min/mean, at least 0.70 each — a floor
+//   that catches garbage (a wrong graph, a broken dispatch), not drift: the
+//   NPU's vectors sit measurably apart from the CPU's (mean 0.83, min 0.787 on
+//   SM8650 and QCS8275), which is why an NPU index has its own profile id —
+//   and every query ranks its own document first;
 // - refusals, each an EmbeddingLoadException that leaves the loaded NPU
 //   embedder serving: the NPU bundle without npu (null and cpu); the generic
 //   bundle with npu; then the generic bundle on CPU on this device, and the

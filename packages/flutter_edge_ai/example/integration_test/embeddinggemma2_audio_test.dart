@@ -526,12 +526,20 @@ void main() {
       );
       expect(_cos(again, wav), greaterThan(0.9999));
       expect(minNative, greaterThanOrEqualTo(_minNative));
-      // Our build: FLAC is the same samples; mixing down and resampling a
-      // 44.1 kHz stereo file and decoding a 48 kbit/s MP3 cost more (0.96 and
-      // 0.95 on macOS; 0.99 and 0.97 in the wheel).
+      // FLAC is the same samples. Mixing down and resampling a 44.1 kHz stereo
+      // file and decoding a 48 kbit/s MP3 cost more, by an amount that depends
+      // on the CPU (the int8 audio activations, plus decoder and resampler
+      // rounding). Measured, cos to the 16 kHz WAV:
+      //   device                         MP3     44.1 kHz stereo
+      //   macOS (M4 Pro)                 0.9458  0.9617
+      //   iPhone 17 Pro                  0.9458  0.9617
+      //   QCS8275 (Kryo, Linux arm64)    0.9234  0.9542
+      // (the wheel on macOS: 0.97, 0.99). So 0.90 is a floor that catches a
+      // decode gone wrong, not CPU drift; retrieval (the text → audio test)
+      // is the real check.
       expect(toWav['kitchen_lights.flac'], greaterThan(0.999));
-      expect(toWav['kitchen_lights_44k_stereo.wav'], greaterThan(0.94));
-      expect(toWav['kitchen_lights.mp3'], greaterThan(0.93));
+      expect(toWav['kitchen_lights_44k_stereo.wav'], greaterThan(0.90));
+      expect(toWav['kitchen_lights.mp3'], greaterThan(0.90));
     }, timeout: const Timeout(Duration(minutes: 20)));
 
     testWidgets('a 60-second clip is EmbeddingInputTooLongException(1024, '
