@@ -414,6 +414,11 @@ embedders run on, text and images, on the CPU (WebAssembly); WebGPU is not used
 for them yet. A page without that line fails the embedder's load with an
 `EmbeddingLoadException` that names it. The LLM engine does not need it.
 
+An LLM and an EmbeddingGemma 2 embedder on the same page share one WebAssembly
+module, so they take turns: an embedding, or an embedder's load, waits while a
+reply is being generated (until its stream ends, even if you stopped listening),
+and a reply waits for an embedding in progress.
+
 Native platforms need no web setup.
 
 ## Platforms

@@ -14,11 +14,13 @@
 //   `window.EmbeddingEngine = m.EmbeddingEngine;`. Without that line there is
 //   no engine to create; the load fails with an EmbeddingLoadException that
 //   names the missing line instead of a JS `undefined` deep in the runtime.
-// - One `EmbeddingEngine` per pass, created at load and deleted at close. The
-//   runtime's WebAssembly module is page-global, but the runtime loads it once
-//   itself (`getOrLoadGlobalLiteRtLm`) and keeps no other page state, so — unlike
-//   the LiteRT.js pass — no page lane is needed: core never has two embedders
-//   resident at once.
+// - One `EmbeddingEngine` per pass, created at load and deleted at close; core
+//   never has two embedders resident at once. The runtime's WebAssembly module
+//   is page-global and shared with the `.litertlm` LLM engine, whose calls the
+//   runtime does not order against these: the create + probe and every
+//   `computeEmbedding` take `liteRtLmPageLock`, as the LLM's create,
+//   conversation and generation do (see that file for why). `delete()` never
+//   suspends and does not wait for it.
 // - `maxInputLength: 1024` (D21, the runtime's own default), CPU/WASM for the
 //   text and the vision tower. WebGPU is not the default until the drive
 //   suite's NaN/zero and cosine-against-native-CPU check has passed on it (the
@@ -47,6 +49,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_edge_ai/engine.dart';
 
+import '../../web/litert_lm_page_lock.dart';
 import '../litert_lm_embedding_common.dart';
 import '../vision_budget.dart' show liteRtLmDefaultVisionTokensPerImage;
 
@@ -273,23 +276,27 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
     }
     await _requireRuntime();
     final images = media.contains(EmbeddingModality.image);
-    final settings = await _createEngine(images);
-
-    final engine = _engine!;
-    final LiteRtLmWebEmbedding probe;
-    try {
-      probe = await engine.computeEmbedding(
-        LiteRtLmWebText(_probeText),
-        _options,
-      );
-    } catch (e) {
-      throw EmbeddingLoadException(
-        'LiteRT-LM created the embedding engine for $_file but could not '
-        'embed with it (${_config.backend.name}): $e',
-        engine: liteRtLmEngineTag,
-        cause: e,
-      );
-    }
+    // Both suspend inside the page's WebAssembly module (the create reads the
+    // model stream), so they take the page lock the LLM engine takes too.
+    final (settings, probe) = await liteRtLmPageLock.run(() async {
+      final settings = await _createEngine(images);
+      try {
+        return (
+          settings,
+          await _engine!.computeEmbedding(
+            LiteRtLmWebText(_probeText),
+            _options,
+          ),
+        );
+      } catch (e) {
+        throw EmbeddingLoadException(
+          'LiteRT-LM created the embedding engine for $_file but could not '
+          'embed with it (${_config.backend.name}): $e',
+          engine: liteRtLmEngineTag,
+          cause: e,
+        );
+      }
+    });
     final dimension = probe.embedding.length;
     if (dimension == 0) {
       throw EmbeddingLoadException(
@@ -438,7 +445,9 @@ final class LiteRtLmWebEmbeddingPass extends EmbeddingPass {
 
     final LiteRtLmWebEmbedding response;
     try {
-      response = await engine.computeEmbedding(part, _options);
+      response = await liteRtLmPageLock.run(
+        () => engine.computeEmbedding(part, _options),
+      );
     } catch (e) {
       throw EmbeddingEngineException(
         'LiteRT-LM could not embed the ${image ? 'image' : 'text'} for '
