@@ -279,8 +279,10 @@ String _the(int count) => List.filled(count, 'the').join(' ');
 
 final _probeText = _the(_probeWords);
 
-/// Every request: L2-normalised, BOS and EOS added (D26), and an over-long
-/// input truncated so the response carries the engine's exact counts.
+/// Every request: L2-normalised, BOS and EOS added (D26), and TRUNCATE for an
+/// over-long input, so the response carries the engine's exact counts (on
+/// WebGPU the engine ignores the strategy and splits the input instead; the
+/// counts are there either way).
 const _options = LiteRtLmWebEmbeddingOptions(
   normalize: true,
   insertSpecialTokens: true,

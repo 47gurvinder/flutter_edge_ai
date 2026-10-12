@@ -35,6 +35,14 @@
 ///   EmbeddingGemma 2 bundles (ungated on Hugging Face otherwise).
 /// The page needs WebGPU, for the LLM and for EmbeddingGemma 2 alike.
 ///
+/// Storage is `WebStorageMode.streaming` (OPFS), as the docs ask for a 2 GB
+/// model. Under `cacheApi` the LLM goes through the page's memory as a 2 GB
+/// array and Blob: on the GCE VM the kernel killed the renderer (8 GB
+/// resident) while it cached the LLM next to a loaded EmbeddingGemma 2, before
+/// the two-phase install the LLM-only suites use could take over. Under
+/// streaming the LLM is read from OPFS as a stream, and EmbeddingGemma 2
+/// through a URL of its OPFS file.
+///
 /// The driver writes this suite's data to `build/web_eg2_llm_response.json`
 /// even when a test fails. Rule 6b: no setUp/setUpAll; every fallible step is
 /// a guarded helper inside a test body, and the last test checks that every
@@ -102,6 +110,14 @@ Future<void> _ensureInitialized() async {
   await FlutterEdgeAi.initialize(
     inferenceEngines: const [LiteRtLmEngine()],
     embeddingBackends: const [LiteRtEmbeddingBackend()],
+    webStorageMode: WebStorageMode.streaming,
+  );
+  expect(
+    await FlutterEdgeAi.isStreamingSupported(),
+    isTrue,
+    reason:
+        'OPFS is unavailable in this browser: the 2 GB LLM has nowhere '
+        'to stream from',
   );
   _initialized = true;
 }
