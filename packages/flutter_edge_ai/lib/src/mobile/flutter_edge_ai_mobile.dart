@@ -21,6 +21,8 @@ import '../model_management/constants/preferences_keys.dart';
 import '../model_management/active_embedding_identity.dart';
 import '../model_management/active_identity_store.dart';
 import '../model_management/model_activation.dart';
+import '../model_management/install_rule.dart';
+import '../model_management/utils/local_file.dart';
 import '../model_management/utils/download_temp_reclaim.dart';
 import '../utils/file_name_utils.dart';
 import '../registry/engine_registry.dart';
