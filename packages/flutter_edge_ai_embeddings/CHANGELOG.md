@@ -1,6 +1,6 @@
 ## 2.3.0
 - **Breaking:** require `flutter_edge_ai` ^2.3.0; core re-exports removed; long SigLIP inputs throw.
-- Gemma tokenization keeps user-defined pieces (HTML tags) whole, as reference SentencePiece does.
+- Gemma tokenization now matches reference SentencePiece (HTML-tag pieces, BOM-led pieces).
 
 ## 2.2.2
 - Require `flutter_edge_ai` 2.x.

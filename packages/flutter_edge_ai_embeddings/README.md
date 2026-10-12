@@ -164,12 +164,14 @@ is a check on the tokenizer's config, not a guarantee about `encode()`'s output.
 
 ### Gemma SentencePiece
 
-Since 2.3.0 the Gemma adapter tokenizes as reference SentencePiece does, also
-for the user-defined pieces in Gemma's vocabulary — HTML tags such as `</div>`
-stay one token, where 2.2 split them into several. The `.model` and
-`tokenizer.json` loaders agree with Python SentencePiece on every string of the
-package's differential test set, which is also the tokenizer the LiteRT.js
-bundle uses on web.
+Since 2.3.0 the Gemma adapter tokenizes as reference SentencePiece does: the
+user-defined pieces in Gemma's vocabulary — HTML tags such as `</div>` — stay
+one token, where 2.2 split them into several, and pieces that begin with a
+byte-order mark keep it (2.2's `.model` reader dropped it, so text such as
+`<?` or `//` got another piece's id). The `.model` and `tokenizer.json`
+loaders agree with Python SentencePiece on every string of the package's
+differential test set, so native EmbeddingGemma 1 gets the same token ids as
+the LiteRT.js bundle on web.
 
 ### The task-type prefix
 
