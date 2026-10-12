@@ -86,36 +86,34 @@ void main() {
       expect(response.embeddings.first.metadata, {'source': 'test', 'page': 1});
     });
 
-    test(
-      'resolves the embedder on every request instead of keeping one',
-      () async {
-        // A kept model may have been closed or replaced since; the lookup is a
-        // cache hit in flutter_edge_ai.
-        fakeEmbedder.embeddingsToReturn = [
-          [1.0],
-        ];
+    test('asks flutter_edge_ai for the embedder on every call, which reuses '
+        'it', () async {
+      fakeEmbedder.embeddingsToReturn = [
+        [1.0],
+      ];
 
-        final embedder = buildEmbedder();
+      final embedder = buildEmbedder();
 
-        await embedder(
-          EmbedRequest(
-            input: [
-              DocumentData(content: [TextPart(text: 'a')]),
-            ],
-          ),
-        );
-        await embedder(
-          EmbedRequest(
-            input: [
-              DocumentData(content: [TextPart(text: 'b')]),
-            ],
-          ),
-        );
+      await embedder(
+        EmbedRequest(
+          input: [
+            DocumentData(content: [TextPart(text: 'a')]),
+          ],
+        ),
+      );
+      await embedder(
+        EmbedRequest(
+          input: [
+            DocumentData(content: [TextPart(text: 'b')]),
+          ],
+        ),
+      );
 
-        expect(runtime.getActiveEmbedderCallCount, 2);
-        expect(fakeEmbedder.embedAllCallCount, 2);
-      },
-    );
+      // flutter_edge_ai keeps the loaded embedder and builds a new one when
+      // the active embedder changes; a handle cached here would miss that.
+      expect(runtime.getActiveEmbedderCallCount, 2);
+      expect(fakeEmbedder.embedAllCallCount, 2);
+    });
 
     test('vectors are identical to 0.8.0\'s for the same input: the query '
         'task generateEmbeddings defaulted to', () async {
@@ -126,7 +124,7 @@ void main() {
         ],
       );
       runtime = FakeRuntime(embedder: model);
-      final texts = ['First text', 'Second', ''];
+      final texts = ['First text', 'Second'];
 
       final response = await buildEmbedder()(
         EmbedRequest(

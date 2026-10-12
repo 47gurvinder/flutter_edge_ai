@@ -77,6 +77,7 @@ MultimodalImageHandler class
 MultimodalImageResult class
 NetworkError class final
 NetworkSource class final
+NoActiveModelError class
 NotFoundError class final
 OrphanedFileInfo class
 ParallelFunctionCallResponse class

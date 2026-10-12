@@ -18,7 +18,8 @@
 //   model keeps working;
 // - the calling isolate stays live during a 50-text batch (#299);
 // - closing during a batch returns, fails the queued requests with
-//   EmbedderClosedException, and (Android, iOS) gives the memory back (M12);
+//   EmbedderClosedException, and gives the memory back (M12; measured on
+//   Android only: iOS reports no file-backed pages);
 // - an LLM .litertlm installed as an embedder is refused at load;
 // - supportImage is refused in 1.13.0, and the text embedder survives it;
 // - close and recreate.
@@ -207,11 +208,17 @@ void main() {
       '${(await getApplicationCacheDirectory()).path}'
       '${sep}flutter_edge_ai${sep}emb',
     );
+    // The engine names its cache after the file it opened. With
+    // EG2_MODEL_FILE that is the local copy, read in place under its own
+    // name, not `_eg2.filename`.
+    final modelFile = (await FlutterEdgeAi.getModelPath(
+      _eg2.filename,
+    )).split(RegExp(r'[/\\]')).last;
     final caches = [
       for (final dir in base.listSync().whereType<Directory>())
         for (final file in dir.listSync().whereType<File>())
           if (file.path.endsWith('.xnnpack_cache') &&
-              file.path.contains(_eg2.filename))
+              file.path.contains(modelFile))
             file,
     ];
     final longest = caches.isEmpty
@@ -227,7 +234,7 @@ void main() {
     expect(
       caches.where((f) => f.lengthSync() > _mb),
       isNotEmpty,
-      reason: 'no .xnnpack_cache for ${_eg2.filename} under ${base.path}',
+      reason: 'no .xnnpack_cache for $modelFile under ${base.path}',
     );
     if (Platform.isWindows) {
       // 232 for the example app with a 20-character user name.
@@ -400,7 +407,13 @@ void main() {
     Future<int?> resident() async {
       if (!measure) return null;
       final snapshot = await FlutterEdgeAiDiagnostics.memorySnapshot();
-      return (snapshot.anonymousBytes ?? 0) + (snapshot.fileBackedBytes ?? 0);
+      // iOS reports no file-backed pages (only phys_footprint, which leaves
+      // out clean file mappings): the 270m's weights and its 67 MiB XNNPack
+      // cache are invisible there, and loading EG2 added +1 MiB (iPhone 17
+      // Pro, 2026-10-12). Null skips the memory checks below.
+      final fileBacked = snapshot.fileBackedBytes;
+      if (fileBacked == null) return null;
+      return (snapshot.anonymousBytes ?? 0) + fileBacked;
     }
 
     await Future<void>.delayed(const Duration(seconds: 1));
@@ -477,6 +490,11 @@ void main() {
         reason:
             'after close ${(closed - baseline) ~/ _mb} MiB of the '
             '${added ~/ _mb} MiB the load added are still resident',
+      );
+    } else if (measure) {
+      _log(
+        'M12 memory: not measured here — phys_footprint leaves out the '
+        'file-mapped weights (fileBackedBytes is null)',
       );
     }
   });

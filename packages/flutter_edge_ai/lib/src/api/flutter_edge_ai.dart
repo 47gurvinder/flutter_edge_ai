@@ -32,6 +32,7 @@ import 'package:flutter_edge_ai/src/utils/edge_ai_log.dart';
 import 'package:flutter_edge_ai/src/interface.dart';
 import 'package:flutter_edge_ai/src/model_management/model_specs.dart';
 import 'package:flutter_edge_ai/src/domain/platform_types.dart';
+import 'package:flutter_edge_ai/src/domain/no_active_model_error.dart';
 
 /// Modern API facade for Flutter Edge AI
 ///
@@ -381,6 +382,10 @@ class FlutterEdgeAi {
   ///
   /// Throws:
   /// - [StateError] if no active inference model is set
+  /// - `TimeoutException` if the previous model is still closing after 60 s;
+  ///   its close keeps running, and a later call succeeds once it ends. A
+  ///   model closing when this is called (`isClosed` is true) is waited for,
+  ///   never returned.
   ///
   /// Example:
   /// ```dart
@@ -422,7 +427,7 @@ class FlutterEdgeAi {
     final activeSpec = manager.activeInferenceModel;
 
     if (activeSpec == null) {
-      throw StateError(
+      throw NoActiveModelError(
         'No active inference model set. Use FlutterEdgeAi.installModel() first.',
       );
     }

@@ -3,6 +3,7 @@
 // model (`flutter_edge_ai_litertlm`). Engine packages reach it through
 // `package:flutter_edge_ai/engine_web.dart`.
 import 'dart:js_interop';
+import 'package:flutter_edge_ai/src/domain/no_active_model_error.dart';
 import 'package:flutter_edge_ai/src/utils/edge_ai_log.dart';
 
 import 'package:flutter/foundation.dart';
@@ -74,8 +75,9 @@ class WebModelSourceResolver {
   /// restored.
   ///
   /// For engines that resolve an identity rather than a file (ONNX's
-  /// Transformers.js arm). Throws [StateError] when no inference model is
-  /// active, or when the active model is not an [InferenceModelSpec].
+  /// Transformers.js arm). Throws [NoActiveModelError] when no inference
+  /// model is active, and [StateError] when the active model is not an
+  /// [InferenceModelSpec].
   Future<InferenceModelSpec> activeInferenceSpec() async {
     // A resolver built via `forActiveModel()` holds a FRESH WebModelManager
     // whose active identity is rehydrated from prefs asynchronously; await
@@ -83,7 +85,7 @@ class WebModelSourceResolver {
     await _modelManager.ensureInitialized();
     final active = _modelManager.activeInferenceModel;
     if (active == null) {
-      throw StateError(
+      throw NoActiveModelError(
         'No active inference model set. Use FlutterEdgeAi.installModel() first.',
       );
     }
@@ -108,7 +110,7 @@ class WebModelSourceResolver {
     await _modelManager.ensureInitialized();
     final active = _modelManager.activeInferenceModel;
     if (active == null) {
-      throw StateError(
+      throw NoActiveModelError(
         'No active inference model set. Use FlutterEdgeAi.installModel() first.',
       );
     }
