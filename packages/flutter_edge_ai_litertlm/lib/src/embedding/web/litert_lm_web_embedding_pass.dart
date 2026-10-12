@@ -313,8 +313,8 @@ final class LiteRtLmWebEmbeddingConfig {
   final LiteRtLmWebBackend backend;
 
   /// The backend of the audio tower when audio is declared:
-  /// [liteRtLmWebAudioBackend]. Left selectable for the drive suite's
-  /// measurement of the other one; nothing in the package changes it.
+  /// [liteRtLmWebAudioBackend]. Left selectable so the CPU (WebAssembly)
+  /// tower can be measured again; nothing in the package changes it.
   final LiteRtLmWebBackend audioBackend;
 
   /// `minInputLength`; null leaves the runtime's default (= the max input
