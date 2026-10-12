@@ -107,7 +107,7 @@ final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
 }
 
 /// A `.litertlm` embedding bundle (EmbeddingGemma 2) on the web. Declared
-/// audio is refused here, before anything loads (it arrives in 1.16.0);
+/// audio is refused here, before anything loads (native-only since 1.16.0);
 /// whether the bundle has a vision encoder for declared images is answered by
 /// the runtime when the pass creates the engine.
 EmbeddingPassDescriptor<LiteRtLmWebEmbeddingConfig> _describeBundle(

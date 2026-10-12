@@ -36,6 +36,11 @@ RuntimeConfig _config(
   supportAudio: supportAudio,
 );
 
+/// Container headers of the real bundles (test/ffi/fixtures/README.md).
+const _header270m = 'test/ffi/fixtures/embeddinggemma2_270m_header.litertlm';
+const _header440m = 'test/ffi/fixtures/embeddinggemma2_440m_header.litertlm';
+const _header740m = 'test/ffi/fixtures/embeddinggemma2_740m_header.litertlm';
+
 Matcher _loadRefusal(String engine, Object message) => throwsA(
   isA<EmbeddingLoadException>()
       .having((e) => e.engine, 'engine', engine)
@@ -240,17 +245,12 @@ void main() {
   });
 
   group('describe() routes on the file core opens', () {
-    test('a .litertlm bundle with declared audio hands the pass the audio '
-        '(whether the bundle has an audio encoder is the pass\'s question, '
-        'answered from the bundle at load), with or without images', () async {
+    test('declared audio on a bundle with an audio encoder (the 740m '
+        'container) reaches the pass, with or without images', () async {
       for (final image in [false, true]) {
         final descriptor = await backend.describe(
           _bundle(),
-          _config(
-            '/data/eg2.litertlm',
-            supportImage: image,
-            supportAudio: true,
-          ),
+          _config(_header740m, supportImage: image, supportAudio: true),
         );
         final config = descriptor.config as LiteRtLmEmbeddingConfig;
         expect(config.declaredMedia, {
@@ -260,6 +260,40 @@ void main() {
         expect(descriptor.activeBackend, PreferredBackend.cpu);
       }
       expect(tokenizers.asked, 0);
+    });
+
+    test('declared audio on a bundle without an audio encoder (the 270m and '
+        'the 440m, whose ModelInfo claims audio) is refused in describe(), '
+        'naming the 740m — before core closes the embedder it holds', () async {
+      for (final (header, name) in [
+        (_header270m, 'embeddinggemma2_270m_header.litertlm'),
+        (_header440m, 'embeddinggemma2_440m_header.litertlm'),
+      ]) {
+        await expectLater(
+          backend.describe(_bundle(), _config(header, supportAudio: true)),
+          _loadRefusal(
+            'LiteRT-LM',
+            '$name has no audio encoder; install embeddinggemma-2-740m',
+          ),
+        );
+        // Text (and images) from the same bundle are not read from the
+        // container at all.
+        await backend.describe(_bundle(), _config(header));
+      }
+    });
+
+    test('declared audio on a container it cannot read is a load failure, '
+        'never "no audio"', () async {
+      await expectLater(
+        backend.describe(
+          _bundle(),
+          _config('/data/missing.litertlm', supportAudio: true),
+        ),
+        _loadRefusal(
+          'LiteRT-LM',
+          startsWith('could not read the container of missing.litertlm'),
+        ),
+      );
     });
 
     test('a .tflite model with declared audio is still a text-only '

@@ -675,14 +675,11 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 20)));
 
     testWidgets('supportAudio on the 270m and on the 440m is refused from the '
-        'bundle, naming the 740m, before any engine or cache exists', (
-      tester,
-    ) async {
+        'bundle, naming the 740m, before any engine or cache exists — and the '
+        'embedder the app holds keeps working', (tester) async {
       for (final ensure in [_ensureEg2, _ensureEg2Vision]) {
         await ensure();
-        // A text model of this bundle may be cached: close it, so the refusal
-        // below is the only thing that touches the cache tree.
-        await _closeActive();
+        final held = await FlutterEdgeAi.getActiveEmbedder();
         final before = await _cacheTree();
         await expectLater(
           FlutterEdgeAi.getActiveEmbedder(supportAudio: true),
@@ -702,14 +699,19 @@ void main() {
           before,
           reason: 'refused from the bundle: no engine, so no cache written',
         );
-        // The same bundle still embeds text.
-        final model = await FlutterEdgeAi.getActiveEmbedder();
+        // Refused in describe(), before core closes the cached embedder: the
+        // one the app holds is still open, and still embeds.
+        expect(held.isClosed, isFalse);
         expect(
-          await model.embed(
+          await held.embed(
             EmbeddingInput.text('still a text model'),
             taskType: TaskType.retrievalQuery,
           ),
           hasLength(768),
+        );
+        expect(
+          identical(await FlutterEdgeAi.getActiveEmbedder(), held),
+          isTrue,
         );
       }
     }, timeout: const Timeout(Duration(minutes: 30)));

@@ -37,10 +37,12 @@ final class EmbeddingInput {
   /// The order of the parts within the vector is fixed — text, then the
   /// images in order, then the audio — whatever order the arguments are
   /// written in. A model whose engine embeds one modality per vector refuses
-  /// an input with several with `UnsupportedEmbeddingCombinationException`,
-  /// before anything is sent; which engines combine them is engine-defined
-  /// (EmbeddingGemma 2 through flutter_edge_ai_litertlm does, on native
-  /// platforms).
+  /// an input with several modalities with
+  /// `UnsupportedEmbeddingCombinationException`, before anything is sent.
+  /// Which engines combine parts is engine-defined (EmbeddingGemma 2 through
+  /// flutter_edge_ai_litertlm does, on native platforms); several images and
+  /// nothing else are one modality, so such an engine decides itself whether
+  /// it takes them.
   factory EmbeddingInput({
     String? text,
     List<Uint8List> images = const [],

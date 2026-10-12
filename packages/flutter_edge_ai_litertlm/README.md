@@ -339,8 +339,9 @@ page.
 The 740m bundle carries the 440m's text and vision towers (the same text and
 image vectors) plus an audio encoder, so a text can find a spoken sentence or a
 sound, and one vector can hold several parts — a photo with its caption, a clip
-with a note. Native platforms only; on the web this bundle embeds text and
-images. Declare what you send when you get the embedder:
+with a note. Audio and combined inputs are native-only: on the web
+`supportAudio: true` is refused. Declare what you send when you get the
+embedder:
 
 ```dart
 const audioRevision = '24d962e906c7d332c6428e71c9676855024569e2';

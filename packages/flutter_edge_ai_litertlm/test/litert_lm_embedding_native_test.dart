@@ -704,6 +704,42 @@ void main() {
           ),
         );
         overflowWatch.stop();
+        // Media count toward the cap too: a 954-token text plus one image
+        // (134 tokens with its markers) is 1086 — measured through the same
+        // dylib with ctypes.
+        final png = _image('circle.png');
+        await expectLater(
+          p.embed(
+            EmbeddingInput(
+              text: 'lorem ipsum dolor sit amet ' * 190,
+              images: [png],
+            ),
+            TaskType.none,
+          ),
+          throwsA(
+            isA<EmbeddingInputTooLongException>()
+                .having((e) => e.maxInputTokens, 'maxInputTokens', 1024)
+                .having((e) => e.actualTokens, 'actualTokens', 1086),
+          ),
+        );
+        // Two images in one vector embed; seven more than fill the cap.
+        expect(
+          await p.embed(
+            EmbeddingInput(images: [png, _image('square.png')]),
+            TaskType.none,
+          ),
+          hasLength(768),
+        );
+        await expectLater(
+          p.embed(EmbeddingInput(images: List.filled(8, png)), TaskType.none),
+          throwsA(
+            isA<EmbeddingInputTooLongException>().having(
+              (e) => e.actualTokens,
+              'actualTokens',
+              1058,
+            ),
+          ),
+        );
         // 40 s (1004 tokens) fits.
         expect(
           await p.embed(EmbeddingInput.audio(_toneWav(40)), TaskType.none),

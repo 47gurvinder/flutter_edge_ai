@@ -79,14 +79,17 @@ const _liteRt = 'LiteRT';
 const _liteRtLm = liteRtLmEngineTag;
 
 /// A `.litertlm` embedding bundle (EmbeddingGemma 2) never asks the tokenizer
-/// registry: the bundle carries its own. Whether the bundle has a vision tower
-/// for declared images, or an audio tower for declared audio, is the pass's
-/// question, answered from the bundle itself at load (the 270m has neither,
-/// the 440m no audio).
+/// registry: the bundle carries its own. Declared audio on a bundle without an
+/// audio encoder (the 270m, the 440m) is refused here, from the container
+/// header (a couple of KB): core calls describe() before it closes the
+/// embedder it holds, so that embedder keeps working. Whether the bundle has a
+/// vision tower for declared images is the pass's question, answered from
+/// ModelInfo at load (the 270m has none).
 Future<EmbeddingPassDescriptor<LiteRtLmEmbeddingConfig>> _describeBundle(
   RuntimeConfig config,
   int visionTokensPerImage,
 ) async {
+  if (config.supportAudio) requireLiteRtLmAudioEncoder(config.modelPath);
   // The platform CACHE directory, not application support: iOS backs that up
   // to iCloud and Android Auto Backup includes it under a 25 MB per-app quota,
   // which a 71-385 MB weight cache would break. If the OS purges the cache,

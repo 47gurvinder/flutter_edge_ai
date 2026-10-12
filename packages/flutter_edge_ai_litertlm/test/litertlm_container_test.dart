@@ -122,6 +122,25 @@ void main() {
         );
       });
 
+      test('a header end before the preamble or past 1 MB', () {
+        for (final end in [16, (1 << 20) + 33]) {
+          final path = _tempCopy(_header740m, (b) {
+            ByteData.sublistView(b).setUint64(24, end, Endian.little);
+          });
+          expect(
+            () => readLitertlmModelTypes(path),
+            throwsA(
+              isA<FormatException>().having(
+                (e) => e.message,
+                'message',
+                contains('out of range'),
+              ),
+            ),
+            reason: 'header end $end',
+          );
+        }
+      });
+
       test('a header cut short', () {
         final dir = Directory.systemTemp.createTempSync('litertlm_container');
         addTearDown(() => dir.deleteSync(recursive: true));

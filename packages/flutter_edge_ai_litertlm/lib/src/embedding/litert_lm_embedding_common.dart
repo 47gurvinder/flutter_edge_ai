@@ -41,10 +41,12 @@ final liteRtLmImageFormats = Set<EncodedMediaFormat>.unmodifiable({
 
 /// The audio containers LiteRT-LM decodes, natively: miniaudio reads WAV, MP3
 /// and FLAC, mixes down to mono and resamples to 16 kHz (upstream
-/// `audio_preprocessor_miniaudio.cc`; measured on the 740m: a 44.1 kHz stereo
-/// WAV is cos 0.993 to the same speech at 16 kHz mono, FLAC 0.9998, MP3 at
-/// 48 kbit/s 0.973). Ogg and M4A fail to open in miniaudio (status 2), so they
-/// are left out and core refuses them on the caller's isolate.
+/// `audio_preprocessor_miniaudio.cc`; measured on the 740m through our
+/// macOS build: FLAC gives the WAV's vector, a 44.1 kHz stereo WAV of the same
+/// speech cos 0.96 to the 16 kHz mono one and a 48 kbit/s MP3 0.95 — the audio
+/// encoder's int8 activations amplify any small change). Ogg and M4A fail to
+/// open in miniaudio (status 2), so they are left out and core refuses them on
+/// the caller's isolate.
 final liteRtLmAudioFormats = Set<EncodedMediaFormat>.unmodifiable({
   EncodedMediaFormat.wav,
   EncodedMediaFormat.mp3,

@@ -760,8 +760,9 @@ void main() {
     test('no inputs, no requests', () async {
       final fake = _FakeHost();
       expect(
-        await CommonEmbeddingModel.withHost(fake)
-            .embedAll(const [], taskType: TaskType.none),
+        await CommonEmbeddingModel.withHost(
+          fake,
+        ).embedAll(const [], taskType: TaskType.none),
         isEmpty,
       );
       expect(fake.calls, isEmpty);

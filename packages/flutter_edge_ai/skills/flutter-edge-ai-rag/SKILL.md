@@ -325,8 +325,8 @@ page itself: there are no isolates there.
 The 740m bundle (`litert-community/embeddinggemma-2-740m-litert-lm`, revision
 `24d962e906c7d332c6428e71c9676855024569e2`, ungated, 485 MB) has the 440m's
 text and vision towers — the same text and image vectors, so the same profile
-ids — plus an audio encoder. Native platforms only; on Web it embeds text and
-images.
+ids — plus an audio encoder. Audio and combined inputs are native-only: on
+Web `supportAudio: true` is refused.
 
 ```dart
 import 'package:flutter_edge_ai_rag/flutter_edge_ai_rag.dart';
@@ -377,8 +377,9 @@ final vector = await embedder.embed(
 - `EmbeddingInput(text:, images:, audio:)` puts the text (with its task
   prefix), then the images in order, then the audio into one vector, whatever
   order the arguments are written in. Declare every medium it carries. An
-  engine that embeds one modality per vector (every other one here) refuses it
-  with `UnsupportedEmbeddingCombinationException`.
+  engine that embeds one modality per vector (every other one here, and
+  EmbeddingGemma 2 on Web) refuses an input with several modalities with
+  `UnsupportedEmbeddingCombinationException`.
 - An audio index keeps the text profile id: audio vectors do not depend on the
   vision budget, and the store's `documents` modality keeps it apart from a
   text store. A text query over it is sent raw (`TaskType.none`).

@@ -916,6 +916,28 @@ void main() {
       expect(allocator.live, 0);
     });
 
+    test('a count past the limit with nothing reported truncated is still an '
+        'overflow, against the limit read at load — never a vector', () async {
+      native
+        ..responseInputLength = 1500
+        ..responseTruncatedLength = 0;
+      await expectLater(
+        p.embed(EmbeddingInput.text('x'), TaskType.retrievalQuery),
+        throwsA(
+          isA<EmbeddingInputTooLongException>()
+              .having((e) => e.maxInputTokens, 'maxInputTokens', 1024)
+              .having((e) => e.actualTokens, 'actualTokens', 1500),
+        ),
+      );
+      native.responseInputLength = 1024; // exactly the limit: embedded
+      expect(
+        await p.embed(EmbeddingInput.text('x'), TaskType.retrievalQuery),
+        native.lastVector,
+      );
+      expect(native.live.keys, unorderedEquals(['engine', 'options']));
+      expect(allocator.live, 0);
+    });
+
     test('a response without token counts (-1) is an engine failure, never '
         'a vector', () async {
       native.responseInputLength = -1;
@@ -1210,6 +1232,7 @@ void main() {
               ),
         ),
       );
+      expect(native.live.keys, unorderedEquals(['engine', 'options']));
       expect(allocator.live, 0);
       native.failCompute = null;
       expect(
@@ -1236,6 +1259,8 @@ void main() {
               ),
         ),
       );
+      expect(native.created('input_data'), 3);
+      expect(native.live.keys, unorderedEquals(['engine', 'options']));
       expect(allocator.live, 0);
     });
 

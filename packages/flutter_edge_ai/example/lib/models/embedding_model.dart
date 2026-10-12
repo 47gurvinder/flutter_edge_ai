@@ -158,12 +158,11 @@ enum EmbeddingModel implements EmbeddingModelInterface {
   // an audio encoder, so it also embeds audio (WAV, MP3, FLAC; about 25
   // tokens per second, so a clip of up to about 40 s fits the 1024-token cap)
   // and combinations — a photo with its caption, a clip with a note — in one
-  // vector. Native platforms only for audio (the web embeds its text and
-  // images). Ungated. On top of the 440M (macOS figures): 485 MB on disk, a
-  // further 95 MB audio weight cache written at every load (385 MB of caches
-  // in all, even for text-only use), and more RAM on the first clip. Audio
-  // vectors do not depend on the vision budget, so an audio index keeps the
-  // text id.
+  // vector; both native-only (the web refuses supportAudio). Ungated. On top
+  // of the 440M (macOS figures): 485 MB on disk, a further 95 MB audio weight
+  // cache written at every load (385 MB of caches in all, even for text-only
+  // use), and more RAM on the first clip. Audio vectors do not depend on the
+  // vision budget, so an audio index keeps the text id.
   embeddingGemma2TextVisionAudio740m(
     url:
         'https://huggingface.co/litert-community/embeddinggemma-2-740m-litert-lm/resolve/24d962e906c7d332c6428e71c9676855024569e2/embeddinggemma-2-740m.litertlm',

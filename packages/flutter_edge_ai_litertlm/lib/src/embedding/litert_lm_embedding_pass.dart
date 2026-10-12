@@ -85,6 +85,40 @@ const _statusInvalidArgument = 3;
 /// The bundle to install for audio, named in the refusal.
 const _audioBundle = 'embeddinggemma-2-740m';
 
+/// Throws [EmbeddingLoadException] unless the `.litertlm` bundle at
+/// [modelPath] has an audio encoder, read from its container header (D23:
+/// ModelInfo claims audio on the 270m and the 440m). A header this reader
+/// cannot parse is a load failure, never "no audio".
+///
+/// `LiteRtEmbeddingBackend.describe()` calls it for declared audio, and the
+/// pass's `load()` again as a backstop. In describe() is where it matters:
+/// core calls describe() before it closes the embedder it holds, so a refusal
+/// there leaves that embedder working, while one from `load()` comes after
+/// the close.
+void requireLiteRtLmAudioEncoder(String modelPath) {
+  final file = _fileName(modelPath);
+  Never cannotRead(Object e, String reason) => throw EmbeddingLoadException(
+    'could not read the container of $file to find its audio encoder: '
+    '$reason',
+    engine: liteRtLmEngineTag,
+    cause: e,
+  );
+  final List<String> types;
+  try {
+    types = readLitertlmModelTypes(modelPath);
+  } on FileSystemException catch (e) {
+    cannotRead(e, e.osError?.message ?? e.message);
+  } on FormatException catch (e) {
+    cannotRead(e, e.message);
+  }
+  if (!litertlmHasAudioEncoder(types)) {
+    throw EmbeddingLoadException(
+      '$file has no audio encoder; install $_audioBundle',
+      engine: liteRtLmEngineTag,
+    );
+  }
+}
+
 /// What `LiteRtEmbeddingBackend.describe` hands core for a `.litertlm`
 /// embedder. Crosses to core's worker isolate: strings, a set of enums and an
 /// int, all sendable.
@@ -222,6 +256,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
   Pointer<LiteRtLmEmbeddingEngine> _engine = nullptr;
   Pointer<LiteRtLmEmbeddingOptions> _options = nullptr;
   int _dimension = 0;
+  int _maxInputTokens = 0;
   bool _images = false;
   bool _audio = false;
   String? _cacheDir;
@@ -281,6 +316,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
     _deleteStaleSiblings(cacheDir);
 
     _dimension = info.dimension;
+    _maxInputTokens = maxInputTokens;
     _images = images;
     _audio = audio;
     _cacheDir = cacheDir;
@@ -449,15 +485,19 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
         engine: liteRtLmEngineTag,
       );
     }
-    if (truncatedLength > 0) {
+    // A count past the limit with nothing reported truncated would be a
+    // runtime that fills the getters differently (a later pin): refused too,
+    // against the limit read at load, never returned as a vector.
+    if (truncatedLength > 0 || inputLength > _maxInputTokens) {
       // §4.8, the P3 gate: the engine kept the first truncatedLength tokens.
       // A vector of part of the input is not what was asked for.
+      final limit = truncatedLength > 0 ? truncatedLength : _maxInputTokens;
       throw EmbeddingInputTooLongException(
         'The input is $inputLength tokens long; $_file accepts at most '
-        '$truncatedLength (task prefix, BOS and EOS included, and media '
-        'too: about 140 tokens per image and 25 per second of audio). '
-        'Nothing was embedded; split the input and embed the pieces.',
-        maxInputTokens: truncatedLength,
+        '$limit (task prefix, BOS and EOS included, and media too: about 140 '
+        'tokens per image and 25 per second of audio). Nothing was embedded; '
+        'split the input and embed the pieces.',
+        maxInputTokens: limit,
         actualTokens: inputLength,
       );
     }
@@ -581,8 +621,10 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
       _refuse('$_file declares no text signature to embed with.');
     }
     final media = _config.declaredMedia;
-    if (media.contains(EmbeddingModality.audio) && !_hasAudioEncoder()) {
-      _refuse('$_file has no audio encoder; install $_audioBundle');
+    if (media.contains(EmbeddingModality.audio)) {
+      // describe() already refused a bundle without one; this is the backstop
+      // for a pass built by any other route.
+      requireLiteRtLmAudioEncoder(_config.modelPath);
     }
     if (media.contains(EmbeddingModality.image)) {
       // D23: from the vision signatures, never supports_input_modality.
@@ -610,29 +652,6 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
   /// list (`[70, 140]` on the 440m and 740m, -1 on the 270m).
   static bool _hasVision(_ModelInfo info) =>
       info.visionSignatures?.any((length) => length > 0) ?? false;
-
-  /// Whether the bundle has an audio encoder, from its container header (D23:
-  /// ModelInfo claims audio on the 270m and the 440m). A header this reader
-  /// cannot parse is a load failure, not "no audio".
-  bool _hasAudioEncoder() {
-    try {
-      return litertlmHasAudioEncoder(readLitertlmModelTypes(_config.modelPath));
-    } on FileSystemException catch (e) {
-      throw EmbeddingLoadException(
-        'could not read the container of $_file to find its audio encoder: '
-        '${e.osError?.message ?? e.message}',
-        engine: liteRtLmEngineTag,
-        cause: e,
-      );
-    } on FormatException catch (e) {
-      throw EmbeddingLoadException(
-        'could not read the container of $_file to find its audio encoder: '
-        '${e.message}',
-        engine: liteRtLmEngineTag,
-        cause: e,
-      );
-    }
-  }
 
   Never _refuse(String message) =>
       throw EmbeddingLoadException(message, engine: liteRtLmEngineTag);

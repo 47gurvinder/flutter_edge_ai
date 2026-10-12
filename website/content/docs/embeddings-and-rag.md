@@ -228,7 +228,7 @@ The 740m bundle has the 440m's text and vision towers (the same text and image
 vectors) plus an audio encoder: a text finds a spoken sentence or a sound, and
 one vector can hold several parts — a photo with its caption, a clip with a
 note. Native platforms, **flutter_edge_ai_litertlm** 1.16.0; combined inputs
-need **flutter_edge_ai** 2.4.0. On the Web this bundle embeds text and images.
+need **flutter_edge_ai** 2.4.0. On the Web **supportAudio: true** is refused.
 
 ```dart
 const audioRevision = '24d962e906c7d332c6428e71c9676855024569e2';
@@ -247,7 +247,7 @@ final clip = await embedder.embed(
   taskType: TaskType.retrievalDocument, // prefixes reach text only
 );
 
-// Text, images and audio in one vector:
+// Several parts in one vector:
 final note = await embedder.embed(
   EmbeddingInput(text: 'kitchen', audio: wavBytes),
   taskType: TaskType.retrievalDocument,
