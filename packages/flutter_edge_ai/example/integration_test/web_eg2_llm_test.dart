@@ -1,6 +1,9 @@
 /// A `.litertlm` LLM and EmbeddingGemma 2 on ONE page (P2w, the coordinator's
 /// item 4): both run in the page's single `@litert-lm/core` WebAssembly module,
-/// whose own locks are per engine. flutter_edge_ai_litertlm serialises them with
+/// whose own locks are per engine, and both on WebGPU — on the module's one
+/// GPU device, so the LLM's and the embedder's GPU memory are held together
+/// (EmbeddingGemma 2 has no CPU path on the web). flutter_edge_ai_litertlm
+/// serialises them with
 /// one page lock (lib/src/web/litert_lm_page_lock.dart): a generation holds it
 /// from its first call until its stream ends; an embedding engine's create +
 /// load probe and each `computeEmbedding` take it too. This suite is the proof
@@ -30,7 +33,7 @@
 /// - `HUGGINGFACE_TOKEN` (optional): sent with the LLM download when set.
 /// - `EG2_MODEL_URL`, `EG2_440M_MODEL_URL` (optional): mirrors of the pinned
 ///   EmbeddingGemma 2 bundles (ungated on Hugging Face otherwise).
-/// The page needs WebGPU for the LLM (`@litert-lm/core` runs LLMs there).
+/// The page needs WebGPU, for the LLM and for EmbeddingGemma 2 alike.
 ///
 /// The driver writes this suite's data to `build/web_eg2_llm_response.json`
 /// even when a test fails. Rule 6b: no setUp/setUpAll; every fallible step is
@@ -250,6 +253,7 @@ void main() {
     _start('LLM + EG2 text');
     await _ensureEmbedder(_eg2, _eg2Url);
     final embedder = await FlutterEdgeAi.getActiveEmbedder();
+    expect(embedder.activeBackend, PreferredBackend.gpu);
     final inputs = [for (final t in _texts) EmbeddingInput.text(t)];
     final watch = Stopwatch()..start();
     final (alone, _) = await _embedEach(
@@ -372,6 +376,7 @@ void main() {
     _start('LLM + EG2 image');
     await _ensureEmbedder(_eg2Vision, _eg2VisionUrl);
     final embedder = await FlutterEdgeAi.getActiveEmbedder(supportImage: true);
+    expect(embedder.activeBackend, PreferredBackend.gpu);
     final inputs = [
       EmbeddingInput.image(await _asset(eg2VisionSampleAsset('stop_sign'))),
       EmbeddingInput.text('a red stop sign'),
