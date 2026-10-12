@@ -495,9 +495,9 @@ let activity = ProcessInfo.processInfo.beginActivity(
 ProcessInfo.processInfo.endActivity(activity)
 ```
 
-Setting `NSAppSleepDisabled` in `macos/Runner/Info.plist` turns App Nap off
-for the whole app; the example app does that because its integration tests run
-in the background.
+An `NSAppSleepDisabled` key in `Info.plist` did not turn App Nap off in our
+measurements; the activity does. The example app holds one for its whole
+lifetime, because its integration tests run in the background.
 
 ### Model file not found
 
