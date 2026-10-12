@@ -90,7 +90,9 @@ void noticeWebEmbedderBackendIgnored(PreferredBackend? requested) {
   edgeAiLog(
     'ℹ️  preferredBackend ${requested.name} is not applied to embeddings on '
     'web: the runtime picks the accelerator (WebGPU first, WASM as the '
-    'fallback). EmbeddingModel.activeBackend is null on web; with LiteRT, '
+    'fallback; EmbeddingGemma 2 .litertlm runs on WebGPU only). Read '
+    'EmbeddingModel.activeBackend: gpu for EmbeddingGemma 2, null when the '
+    'runtime does not report one; with LiteRT.js, '
     'window.getLiteRtEmbeddingAccelerator() names it after the first '
     'embedding.',
   );

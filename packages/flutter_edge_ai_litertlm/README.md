@@ -42,8 +42,8 @@ await FlutterEdgeAi.initialize(
 other engines (e.g. `MediaPipeEngine` from `flutter_edge_ai_mediapipe`) if your app
 uses both formats.
 
-Depend on both packages (`flutter_edge_ai: ^2.4.0`,
-`flutter_edge_ai_litertlm: ^1.16.0`) and install `.litertlm` files with
+Depend on both packages (`flutter_edge_ai: ^2.3.1`,
+`flutter_edge_ai_litertlm: ^1.13.1`) and install `.litertlm` files with
 `fileType: ModelFileType.litertlm`: `installModel` defaults to
 `ModelFileType.task`, which routes the file to MediaPipe.
 
@@ -208,12 +208,12 @@ final vector = await embedder.embed(
 );
 ```
 
-- **Android, iOS, macOS, Linux and Windows, and the web (1.15.0).** On the web
+- **Android, iOS, macOS, Linux and Windows, and the web (1.13.1).** On the web
   the bundle runs through `@litert-lm/core`'s `EmbeddingEngine` on WebGPU,
   which needs one more line in `web/index.html` — see
   [Web setup](#web-setup-early-preview) — and a browser with WebGPU.
-- **Text on every bundle; images on the 440m and the 740m (1.14.0 native,
-  1.15.0 web); audio on the 740m, natively (1.16.0).** On the 270m,
+- **Text on every bundle; images on the 440m and the 740m (native and
+  web); audio on the 740m, natively (all 1.13.1).** On the 270m,
   `getActiveEmbedder(supportImage: true)` fails with `EmbeddingLoadException`
   naming the 440m bundle, and on the 270m and the 440m `supportAudio: true`
   fails naming the 740m — natively before any engine or cache is made. On the
@@ -223,7 +223,7 @@ final vector = await embedder.embed(
   with the input length (on an M4 Pro Mac about +170 MB at 128 tokens, +340 MB
   at 512 and +560 MB at 1024). A longer input fails with
   `EmbeddingInputTooLongException` whose `actualTokens` is the exact count.
-  Natively (from 1.16.0) the engine reports it from a truncated run; on the web
+  Natively (from 1.13.1) the engine reports it from a truncated run; on the web
   it reports it after running the whole input in 1024-token windows (WebGPU
   averages them instead of truncating; the averaged vector is never returned).
   Either way an over-long input costs a full embedding before it is refused.
@@ -327,7 +327,7 @@ page.
   truncated file of an accepted type fails with `EmbeddingEngineException`
   (`nativeCode` 3 natively; on the web the message carries the runtime's
   reason) and the embedder keeps working. One image per vector, unless you
-  send several as one combined input (natively, from 1.16.0;
+  send several as one combined input (natively, from 1.13.1;
   [below](#embeddinggemma-2-audio-and-combined-inputs)).
 - **Vision budget:** 140 tokens per image by default, the closest to the
   reference model (min cos 0.985 on our test images).
@@ -385,7 +385,7 @@ final query = await embedder.embed(
   taskType: TaskType.none, // a text query over media, as rag sends it
 );
 
-// Several parts, one vector (flutter_edge_ai 2.4.0):
+// Several parts, one vector (flutter_edge_ai 2.3.1):
 final note = await embedder.embed(
   EmbeddingInput(text: 'kitchen', audio: wavBytes),
   taskType: TaskType.retrievalDocument,
@@ -609,7 +609,7 @@ window.litertLmReady = (async () => {
 </script>
 ```
 
-`window.EmbeddingEngine` (1.15.0) is what EmbeddingGemma 2 `.litertlm`
+`window.EmbeddingEngine` (1.13.1) is what EmbeddingGemma 2 `.litertlm`
 embedders run on, text and images, on WebGPU. A page without that line fails
 the embedder's load with an `EmbeddingLoadException` that names it; so does a
 browser without WebGPU, which has no fallback here (the CPU path of

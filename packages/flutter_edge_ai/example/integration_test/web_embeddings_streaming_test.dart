@@ -4,7 +4,7 @@
 /// a `blob:` URL (`resolveWebModelUrl`), loads from it, and revokes it. Every
 /// web pass is covered — LiteRT.js (EmbeddingGemma 1), ONNX Runtime Web
 /// (all-MiniLM-L6-v2) and `@litert-lm/core`'s EmbeddingEngine (EmbeddingGemma
-/// 2, flutter_edge_ai_litertlm 1.15.0): LiteRT.js once never resolved
+/// 2, flutter_edge_ai_litertlm 1.13.1): LiteRT.js once never resolved
 /// `opfs://` at all, and nothing noticed because only ONNX had a streaming
 /// path under test. Each case embeds AFTER its pass revoked the URLs, which
 /// proves nothing reads them lazily, and checks each URL was made from the

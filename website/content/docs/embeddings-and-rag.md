@@ -22,8 +22,8 @@ inference model and is not initialized through **FlutterEdgeAi.initialize()**.
 
 ```
 dependencies:
-  flutter_edge_ai: ^2.4.0
-  flutter_edge_ai_litertlm: ^1.16.0
+  flutter_edge_ai: ^2.3.1
+  flutter_edge_ai_litertlm: ^1.13.1
   flutter_edge_ai_embeddings: ^2.3.0 # tokenizers for .tflite / .onnx models
   flutter_edge_ai_rag: ^1.1.0
   flutter_edge_ai_sqlite: ^2.1.0 # all six platforms, including Web
@@ -90,13 +90,13 @@ final vector = await embedder.embed(
 ```
 
 - **Every platform**: Android, iOS, macOS, Linux and Windows
-  (flutter_edge_ai_litertlm 1.13.0 for text, 1.14.0 for images), and the Web
-  (1.15.0, text and images), where it runs through `@litert-lm/core`'s
+  (flutter_edge_ai_litertlm 1.13.0 for text, 1.13.1 for images), and the Web
+  (1.13.1, text and images), where it runs through `@litert-lm/core`'s
   EmbeddingEngine on WebGPU and needs **window.EmbeddingEngine =
   m.EmbeddingEngine;** in `web/index.html`
   ([Installation](/docs/installation#web)).
 - **Text on every bundle, images on the 440m and the 740m, audio on the 740m
-  (native, litertlm 1.16.0).** On the 270m,
+  (native, litertlm 1.13.1).** On the 270m,
   **getActiveEmbedder(supportImage: true)** throws **EmbeddingLoadException**
   naming the 440m bundle, and on the 270m and the 440m
   **supportAudio: true** throws naming the 740m — natively before any engine
@@ -106,7 +106,7 @@ final vector = await embedder.embed(
   grows with the input length — on an M4 Pro Mac about +170 MB at 128 tokens,
   +340 MB at 512 and +560 MB at 1024. A longer input throws
   **EmbeddingInputTooLongException** with the exact **actualTokens** (natively
-  from litertlm 1.16.0). The engine counts it by running the whole input, so
+  from litertlm 1.13.1). The engine counts it by running the whole input, so
   an over-long input costs one full embedding before it is refused.
 - **CPU natively, WebGPU on the Web.** **activeBackend** is
   **PreferredBackend.cpu** natively and **PreferredBackend.gpu** on the Web.
@@ -134,7 +134,7 @@ final vector = await embedder.embed(
 
 The 440m bundle has the 270m's text tower (the same text vectors) plus a vision
 encoder, so one model embeds text and photos, and a text finds photos. It needs
-flutter_edge_ai_litertlm 1.14.0 (1.15.0 on the Web). Declare images when you get
+flutter_edge_ai_litertlm 1.13.1 (1.13.1 on the Web). Declare images when you get
 the embedder, and keep the photos in an image index:
 
 ```dart
@@ -213,7 +213,7 @@ the Web, where the browser decodes (CanvasKit or skwasm) on the page itself.
   **EmbeddingEngineException** (native code 3; on the Web the message carries
   the runtime's reason) and the embedder keeps working.
   One image per vector, unless you send several as one combined input
-  (natively, litertlm 1.16.0; [below](#embeddinggemma-2-audio-and-combined-inputs)).
+  (natively, litertlm 1.13.1; [below](#embeddinggemma-2-audio-and-combined-inputs)).
 - **Vision budget:** 140 tokens per image by default, the closest to the
   reference model (min cos 0.985 on our test images).
   **LiteRtEmbeddingBackend(visionTokensPerImage: 70)** — what the model card
@@ -246,8 +246,8 @@ the Web, where the browser decodes (CanvasKit or skwasm) on the page itself.
 The 740m bundle has the 440m's text and vision towers (the same text and image
 vectors) plus an audio encoder: a text finds a spoken sentence or a sound, and
 one vector can hold several parts — a photo with its caption, a clip with a
-note. Native platforms, **flutter_edge_ai_litertlm** 1.16.0; combined inputs
-need **flutter_edge_ai** 2.4.0. On the Web **supportAudio: true** is refused.
+note. Native platforms, **flutter_edge_ai_litertlm** 1.13.1; combined inputs
+need **flutter_edge_ai** 2.3.1. On the Web **supportAudio: true** is refused.
 
 ```dart
 const audioRevision = '24d962e906c7d332c6428e71c9676855024569e2';
@@ -306,7 +306,7 @@ final note = await embedder.embed(
 Google publishes each EmbeddingGemma 2 bundle again, compiled for one SoC's
 NPU, in the same repositories: `embeddinggemma-2-text-270m_Qualcomm_SM8850.litertlm`,
 `embeddinggemma-2-text-vision-440m_Qualcomm_QCS8275.litertlm` and so on.
-flutter_edge_ai_litertlm 1.16.0 runs them on **Qualcomm Android (arm64) and
+flutter_edge_ai_litertlm 1.13.1 runs them on **Qualcomm Android (arm64) and
 Qualcomm Linux arm64**:
 
 ```dart
@@ -606,7 +606,7 @@ An image or audio index needs an embedder whose **modalities** include it; its
 documents carry a **content** reference (a URI, file path or asset id), never
 the media bytes. A text query over an image index is text-to-image search.
 With the active embedder, an image index needs the EmbeddingGemma 2 440m
-bundle ([above](#embeddinggemma-2-images); on the Web from litertlm 1.15.0);
+bundle ([above](#embeddinggemma-2-images); on the Web from litertlm 1.13.1);
 with any other model, and for audio, the index fails to open with
 **EmbeddingLoadException**.
 A custom **RagEmbedder** can embed media with any model. Cross-modal scores are not on one scale:

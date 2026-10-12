@@ -555,6 +555,20 @@ class LiteRtLmWebSession extends InferenceModelSession
   bool _isClosed = false;
   bool _isCancelled = false;
 
+  /// Completes when the generation that started last has read its JS stream
+  /// to the end and released its page lease; null before the first one.
+  /// [close] waits for it, so the owning model deletes its engine only after
+  /// nothing is suspended inside the page's WebAssembly module any more.
+  Future<void>? _generationEnded;
+
+  /// Releases that generation's page lease. [close] calls it when the stream
+  /// does not end within [closeDrainTimeout], so a stuck runtime cannot hold
+  /// the page lock (and with it every EmbeddingGemma 2 call) for good.
+  void Function()? _releaseGenerationPage;
+
+  /// How long [close] waits for a cancelled generation to end.
+  static const Duration closeDrainTimeout = Duration(seconds: 30);
+
   /// Whether LiteRT-LM runs this model's tool calling natively (Gemma 4, and
   /// FunctionGemma); see [FunctionCallParser.usesSdkPassthrough].
   late final bool _nativeTools = FunctionCallParser.usesSdkPassthrough(
@@ -695,7 +709,11 @@ class LiteRtLmWebSession extends InferenceModelSession
     // engine must not enter the module meanwhile. A consumer that cancels
     // early therefore leaves the pump draining the stream to its end.
     LiteRtLmPageLease? pageLease;
-    void releasePage() => pageLease?.release();
+    final ended = Completer<void>();
+    void releasePage() {
+      pageLease?.release();
+      if (!ended.isCompleted) ended.complete();
+    }
 
     // The request payload: tool results go back as one role-`tool` message,
     // the only shape after which the template continues the model's own turn;
@@ -836,6 +854,10 @@ class LiteRtLmWebSession extends InferenceModelSession
           if (!controller.isClosed) await controller.close();
           return;
         }
+        // From here the stream holds the page until it ends; close() waits
+        // for that (a generation still queued above has nothing to wait for).
+        _generationEnded = ended.future;
+        _releaseGenerationPage = releasePage;
         startPump();
       } catch (e, st) {
         // Nothing reached the stream's end if startPump threw: no drain.
@@ -900,6 +922,22 @@ class LiteRtLmWebSession extends InferenceModelSession
       if (kDebugMode) {
         edgeAiLog('[LiteRtLmWebSession] cancel during close threw: $e');
       }
+    }
+    // cancel() only asks the stream to stop: the pump keeps reading it to its
+    // end and holds the page lock until then. Wait for that, so the model
+    // deletes its engine after the last call into the module has returned.
+    final ended = _generationEnded;
+    if (ended != null) {
+      await ended.timeout(
+        closeDrainTimeout,
+        onTimeout: () {
+          edgeAiLog(
+            '[LiteRtLmWebSession] the cancelled generation did not end within '
+            '${closeDrainTimeout.inSeconds} s; releasing the page lock anyway.',
+          );
+          _releaseGenerationPage?.call();
+        },
+      );
     }
     _queryBuffer.clear();
     onClose();

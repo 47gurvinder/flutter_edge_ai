@@ -49,9 +49,9 @@ dependencies:
 | Run `.task` / `.bin` models (Gemma3n, Gemma 3, DeepSeek, Qwen 2.5, Phi-4) | `flutter_edge_ai_mediapipe` |
 | Run the OS system model with no download (Gemini Nano / Apple FM / Windows AI Foundry) | `flutter_edge_ai_builtin_ai` |
 | Run ONNX models — ORT-GenAI (native) or Transformers.js (Web) | `flutter_edge_ai_onnx` |
-| Generate text embeddings with EmbeddingGemma 2 (`.litertlm`) | `flutter_edge_ai_litertlm` (`LiteRtEmbeddingBackend`) alone; 1.15.0 on Web |
-| Embed images with EmbeddingGemma 2 (the 440m `.litertlm`) | `flutter_edge_ai_litertlm` 1.14.0 (`LiteRtEmbeddingBackend`) alone; 1.15.0 on Web |
-| Embed audio, or several parts in one vector, with EmbeddingGemma 2 (the 740m `.litertlm`) | `flutter_edge_ai_litertlm` 1.16.0 (`LiteRtEmbeddingBackend`) with `flutter_edge_ai` 2.4.0; native platforms |
+| Generate text embeddings with EmbeddingGemma 2 (`.litertlm`) | `flutter_edge_ai_litertlm` (`LiteRtEmbeddingBackend`) alone; 1.13.1 on Web |
+| Embed images with EmbeddingGemma 2 (the 440m `.litertlm`) | `flutter_edge_ai_litertlm` 1.13.1 (`LiteRtEmbeddingBackend`) alone; 1.13.1 on Web |
+| Embed audio, or several parts in one vector, with EmbeddingGemma 2 (the 740m `.litertlm`) | `flutter_edge_ai_litertlm` 1.13.1 (`LiteRtEmbeddingBackend`) with `flutter_edge_ai` 2.3.1; native platforms |
 | Generate text embeddings with EmbeddingGemma 1 / Gecko (`.tflite`) | `flutter_edge_ai_embeddings` + `flutter_edge_ai_litertlm` (`LiteRtEmbeddingBackend`) |
 | Generate text embeddings from ONNX/ORT models | `flutter_edge_ai_embeddings` + `flutter_edge_ai_onnx` (`OnnxEmbeddingBackend`) |
 | On-device RAG on native, fastest (Android/iOS/desktop) | `flutter_edge_ai_rag` + `flutter_edge_ai_qdrant` |
@@ -434,7 +434,7 @@ window.litertLmReady = (async () => {
 ```
 
 `window.Engine` runs `.litertlm` LLMs. `window.EmbeddingEngine` (litertlm
-1.15.0+) runs EmbeddingGemma 2 `.litertlm` embedders, text and images, on
+1.13.1+) runs EmbeddingGemma 2 `.litertlm` embedders, text and images, on
 WebGPU; without that line such an embedder fails to load with an
 `EmbeddingLoadException` that names it. Both need a browser with WebGPU: the
 CPU (WebAssembly) path of `@litert-lm/core` 0.18.0 cannot read the EmbeddingGemma
@@ -483,7 +483,7 @@ Copy the four files again after every `flutter_edge_ai_litertlm` upgrade: 1.13.0
 changed the bundle's API, and a copy from an earlier version fails
 `getActiveEmbedder()` with an `EmbeddingLoadException` that names
 `litert_embeddings.js`. These four files serve `.tflite` embedding models;
-EmbeddingGemma 2 `.litertlm` embedders (flutter_edge_ai_litertlm 1.15.0+) need
+EmbeddingGemma 2 `.litertlm` embedders (flutter_edge_ai_litertlm 1.13.1+) need
 none of them, only the `window.EmbeddingEngine` line in the `@litert-lm/core`
 script above.
 

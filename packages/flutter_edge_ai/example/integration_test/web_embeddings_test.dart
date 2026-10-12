@@ -4,7 +4,7 @@
 /// `WebStorageMode.cacheApi` (the default). The `WebStorageMode.streaming`
 /// cases are web_embeddings_streaming_test.dart: the storage mode is fixed for
 /// the life of the page. EmbeddingGemma 2 (`.litertlm`, accepted on the web
-/// since flutter_edge_ai_litertlm 1.15.0) is web_eg2_test.dart.
+/// since flutter_edge_ai_litertlm 1.13.1) is web_eg2_test.dart.
 ///
 /// GCE VM only (never a local browser). Run from packages/flutter_edge_ai/example:
 ///   chromedriver --port=4444 &

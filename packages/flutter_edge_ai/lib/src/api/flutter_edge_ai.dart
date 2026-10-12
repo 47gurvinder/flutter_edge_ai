@@ -693,7 +693,8 @@ class FlutterEdgeAi {
   /// );
   ///
   /// // Where the backend matters, ask — do not assume the argument took.
-  /// // Native answers PreferredBackend.cpu (npu for an NPU bundle); web null.
+  /// // Native answers PreferredBackend.cpu (npu for an NPU bundle); on web
+  /// // EmbeddingGemma 2 answers gpu and other embedders null.
   /// debugPrint('embedding on ${embedder.activeBackend}');
   /// ```
   static Future<EmbeddingModel> getActiveEmbedder({

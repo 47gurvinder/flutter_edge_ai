@@ -56,7 +56,7 @@ REQUIRED = [
     "litert_lm_embedding_response_get_size",
     "litert_lm_embedding_response_get_values",
     # Exported from native-v0.18.0-e on (patch_c_api.sh section 14); the pass
-    # reads both for every request since flutter_edge_ai_litertlm 1.16.0.
+    # reads both for every request since flutter_edge_ai_litertlm 1.13.1.
     "litert_lm_embedding_response_get_input_length",
     "litert_lm_embedding_response_get_truncated_length",
     "litert_lm_embedding_response_delete",

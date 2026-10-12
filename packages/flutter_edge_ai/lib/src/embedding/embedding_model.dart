@@ -52,9 +52,11 @@ abstract base class EmbeddingModel {
   /// can read here that it did not happen, instead of learning it from a
   /// debug-only log line.
   ///
-  /// Null on web, where the runtime picks for itself and does not report
-  /// back. Null also means "this engine did not say". Treat null as unknown,
-  /// never as CPU.
+  /// On web, EmbeddingGemma 2 `.litertlm` reports [PreferredBackend.gpu]: it
+  /// runs on WebGPU or refuses to load. Other web embedders report null,
+  /// because their runtime picks the accelerator and does not report back.
+  /// Null also means "this engine did not say". Treat null as unknown, never
+  /// as CPU.
   PreferredBackend? get activeBackend => null;
 
   /// Whether [close] has been called, or the model can no longer be used

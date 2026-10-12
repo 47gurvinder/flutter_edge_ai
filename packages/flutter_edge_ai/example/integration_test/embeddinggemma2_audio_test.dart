@@ -1,7 +1,7 @@
 // EmbeddingGemma 2 audio and combined inputs on a device (R5 §10.4): the
 // pinned litert-community/embeddinggemma-2-740m-litert-lm bundle through
 // `installEmbedder()` → `getActiveEmbedder(supportAudio: true)` → core's
-// worker isolate → flutter_edge_ai_litertlm's `.litertlm` pass (1.16.0) →
+// worker isolate → flutter_edge_ai_litertlm's `.litertlm` pass (1.13.1) →
 // LiteRT-LM's EmbeddingEngine. Needs native-v0.18.0-e (the response getters).
 //
 // What it holds the device to, over the clips in assets/eg2_audio

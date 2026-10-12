@@ -243,7 +243,7 @@ final class LiteRtLmWebEmbeddingConfig {
   final void Function(String url) revokeUrl;
 
   /// The media the caller declared: images create the vision tower; audio is
-  /// refused (1.16.0).
+  /// refused (1.13.1).
   final Set<EmbeddingModality> declaredMedia;
 
   /// Vision tokens per image (D25): 140 or 70, checked by `describe()`.
