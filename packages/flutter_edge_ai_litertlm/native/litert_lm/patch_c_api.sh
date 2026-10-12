@@ -60,6 +60,9 @@ LDSEOF
 
   # Windows .def: whitelist of symbols to export from LiteRtLm.dll.
   # Derived from lib/core/ffi/litert_lm_bindings.dart lookupFunction calls.
+  # The EmbeddingEngine C API leaves the DLL through LITERT_LM_C_API_EXPORT;
+  # the two response getters section 14 adds are also named here, so a tree
+  # that lost section 14 fails the Windows link instead of shipping without.
   cat > "$DIR/c/windows_exports.def" << 'DEFEOF'
 LIBRARY "LiteRtLm"
 EXPORTS
@@ -86,6 +89,8 @@ EXPORTS
   litert_lm_conversation_get_benchmark_info
   litert_lm_conversation_send_message
   litert_lm_conversation_send_message_stream
+  litert_lm_embedding_response_get_input_length
+  litert_lm_embedding_response_get_truncated_length
   litert_lm_engine_create
   litert_lm_engine_create_session
   litert_lm_engine_delete
@@ -540,5 +545,35 @@ if grep -q 'GetWeightInMemoryMap' "$DIR/runtime/components/model_resources_liter
   pathw_fail "ModelResourcesLitertLm now provides an in-memory weight map"
 fi
 echo "  OK: section 13 anchors hold"
+
+# ── 14. EmbeddingEngine response lengths (EmbeddingGemma 2) ──
+# EmbeddingEngineImpl fills EmbeddingResponse.input_length and
+# .truncated_length (runtime/core/embedding_engine_impl.cc), but the C API
+# returns only the vector, so a caller cannot tell a truncated input from a
+# whole one without tokenizing it again. Two getters, exported on every
+# platform (LITERT_LM_C_API_EXPORT, and section 1's Windows .def):
+#   litert_lm_embedding_response_get_input_length     -1 for NULL
+#   litert_lm_embedding_response_get_truncated_length 0 when not truncated,
+#                                                     -1 for NULL
+# A real diff, applied like section 11, plus an anchor on the two fields it
+# reads still being filled.
+EMB_LEN_PATCH="$(cd "$(dirname "$0")" && pwd)/patches/embedding_response_lengths.patch"
+if git -C "$DIR" apply --check "$EMB_LEN_PATCH" 2>/dev/null; then
+  git -C "$DIR" apply "$EMB_LEN_PATCH"
+  echo "  OK: embedding responses report input and truncated lengths"
+elif git -C "$DIR" apply --reverse --check "$EMB_LEN_PATCH" 2>/dev/null; then
+  echo "  SKIP: embedding response lengths already applied"
+else
+  echo "  ERROR: $EMB_LEN_PATCH does not apply to this LiteRT-LM revision —" >&2
+  echo "         c/embedding_engine.{h,cc} moved; re-create the patch against it." >&2
+  exit 1
+fi
+EMB_IMPL="$DIR/runtime/core/embedding_engine_impl.cc"
+for field in input_length truncated_length; do
+  grep -qF "response.$field = embedding_output.$field;" "$EMB_IMPL" || {
+    echo "  ERROR: section 14: EmbeddingEngineImpl no longer fills response.$field" >&2
+    exit 1
+  }
+done
 
 echo "Patch complete."
