@@ -14,10 +14,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../gemma_bootstrap.dart' show exampleRag;
 import '../image_search/photo_store.dart';
 import '../models/embedding_model.dart' as catalog;
-import '../models/stt_model.dart';
 import '../rag_demo/rag_storage_location.dart';
 import '../utils/installed_model_lookup.dart';
-import 'knowledge_audio.dart';
 import 'knowledge_dependencies.dart';
 import 'knowledge_item.dart';
 import 'knowledge_platform.dart';
@@ -25,8 +23,12 @@ import 'knowledge_platform.dart';
 /// The SharedPreferences key the library is saved under.
 const kKnowledgeLibraryKey = 'knowledge_library_v1';
 
-/// How much of the answer the language model may write.
-const kAnswerMaxTokens = 220;
+/// For a language model outside the catalog — the SM8850 build of Gemma 4
+/// for the Hexagon NPU, say — what it runs on (`npu`, `gpu` or `cpu`) and its
+/// context window (an NPU bundle has one compiled size, and it is not
+/// raised: pass that size). Applied to a catalog model too, when set.
+const _llmBackendDefine = String.fromEnvironment('KNOWLEDGE_LLM_BACKEND');
+const _llmMaxTokensDefine = int.fromEnvironment('KNOWLEDGE_LLM_MAX_TOKENS');
 
 /// The app's wiring of the Knowledge screen: the models the three model
 /// lists left active, SQLite indexes (one location per kind and embedding
@@ -34,18 +36,19 @@ const kAnswerMaxTokens = 220;
 /// the web), `just_audio` playback and `record` capture.
 KnowledgeDependencies knowledgeAppDependencies() {
   final photos = createPhotoStore(directoryName: 'knowledge_photos');
-  final speech = _Speech();
   final picker = ImagePicker();
+  RagEmbedder embedder(String profileId, KnowledgeEmbedderInfo info) =>
+      FlutterEdgeAiActiveEmbedder(
+        profileId: profileId,
+        preferredBackend: info.backend,
+        // Every index declares every medium the screen uses, so core loads
+        // the embedder once with all of them instead of once per index.
+        supportImage: info.kinds.contains(KnowledgeKind.photo),
+        supportAudio: info.embedsAudio,
+      );
   return KnowledgeDependencies(
     readSetup: readKnowledgeSetup,
-    embedderFor: (kind, info) => FlutterEdgeAiActiveEmbedder(
-      profileId: knowledgeProfileId(kind, info),
-      preferredBackend: info.backend,
-      // Every index declares every medium the screen uses, so core loads the
-      // embedder once with all of them instead of once per index.
-      supportImage: info.kinds.contains(KnowledgeKind.photo),
-      supportAudio: info.kinds.contains(KnowledgeKind.memo),
-    ),
+    embedderFor: (kind, info) => embedder(knowledgeProfileId(kind, info), info),
     openIndex: (kind, embedder, info) async {
       final location = await resolveRagStorageLocation(
         'knowledge_${kind.modality.name}_${knowledgeProfileId(kind, info)}.db',
@@ -59,12 +62,24 @@ KnowledgeDependencies knowledgeAppDependencies() {
         embedder: embedder,
       );
     },
+    // Live's windows: audio documents in the text id's space, like memos,
+    // at a location of their own.
+    openMeetingIndex: (info) async => exampleRag.open(
+      spec: VectorStoreSpec(
+        providerId: SqliteVectorStoreProvider.providerId,
+        location: await resolveRagStorageLocation(
+          'knowledge_meeting_${info.textProfileId}.db',
+        ),
+        documents: EmbeddingModality.audio,
+      ),
+      embedder: embedder(info.textProfileId, info),
+    ),
     library: const _PreferencesLibraryStore(),
     media: _AppMedia(photos),
-    transcribe: speech.transcribe,
     answerer: _LlmAnswerer(),
     player: _JustAudioPlayer(),
     recorder: _Recorder(),
+    microphone: _microphone,
     pickPhoto: () async {
       final file = await picker.pickImage(source: ImageSource.gallery);
       if (file == null) return null;
@@ -72,7 +87,6 @@ KnowledgeDependencies knowledgeAppDependencies() {
     },
     beforeEmbedding: kIsWeb ? _releaseLanguageModel : () async => false,
     beforeAnswer: kIsWeb ? _releaseVisionEncoder : () async {},
-    release: speech.close,
   );
 }
 
@@ -93,7 +107,6 @@ Future<KnowledgeSetup> readKnowledgeSetup() async {
   return KnowledgeSetup(
     embedder: embedder,
     embedderProblem: problem,
-    stt: kIsWeb ? null : _stt(),
     llm: _llm()?.info,
     audioSupported: audioSupported,
     preloadLlm: !kIsWeb,
@@ -139,30 +152,15 @@ Future<(KnowledgeEmbedderInfo?, String?)> _embedder({
   );
 }
 
-KnowledgeSttInfo? _stt() {
-  final spec = FlutterEdgeAi.activeSttSpec;
-  if (spec == null) return null;
-  final file = spec.files.first.filename;
-  final model = SttModel.values
-      .where((m) => Uri.parse(m.modelUrl).pathSegments.last == file)
-      .firstOrNull;
-  return KnowledgeSttInfo(
-    name: model?.displayName ?? file,
-    window: switch (spec.sttModelType) {
-      SttModelType.whisper => const Duration(seconds: 30),
-      SttModelType.moonshine ||
-      SttModelType.parakeet => const Duration(seconds: 5),
-    },
-  );
-}
-
 /// The active language model and how the screen loads it: the catalog's
-/// context window and backend for a catalog model.
+/// context window and backend for a catalog model, or the
+/// KNOWLEDGE_LLM_BACKEND / KNOWLEDGE_LLM_MAX_TOKENS defines.
 ({
   KnowledgeLlmInfo info,
   int maxTokens,
   PreferredBackend? backend,
   bool supportImage,
+  bool supportAudio,
 })?
 _llm() {
   final spec = FlutterEdgeAi.activeModelSpec;
@@ -172,17 +170,68 @@ _llm() {
     InferenceMatch(:final model) => model,
     _ => null,
   };
-  final supportImage =
-      model?.supportImage ?? (spec.modelType == ModelType.gemma4 && !kIsWeb);
+  final gemma4 = spec.modelType == ModelType.gemma4 && !kIsWeb;
+  final supportImage = model?.supportImage ?? gemma4;
+  final supportAudio = model?.supportAudio ?? gemma4;
   return (
     info: KnowledgeLlmInfo(
       name: model?.displayName ?? id ?? spec.name,
       seesImages: supportImage,
+      hearsAudio: supportAudio,
     ),
-    maxTokens: model?.maxTokens ?? 4096,
-    backend: model?.preferredBackend,
+    maxTokens: _llmMaxTokensDefine > 0
+        ? _llmMaxTokensDefine
+        : model?.maxTokens ?? 4096,
+    backend: switch (_llmBackendDefine) {
+      'npu' => PreferredBackend.npu,
+      'gpu' => PreferredBackend.gpu,
+      'cpu' => PreferredBackend.cpu,
+      _ => model?.preferredBackend,
+    },
     supportImage: supportImage,
+    supportAudio: supportAudio,
   );
+}
+
+/// The microphone as 16 kHz mono PCM16 chunks, while listened to.
+Stream<Uint8List> _microphone() {
+  final recorder = AudioRecorder();
+  StreamSubscription<Uint8List>? audio;
+  late final StreamController<Uint8List> controller;
+  controller = StreamController<Uint8List>(
+    onListen: () async {
+      try {
+        if (!await recorder.hasPermission()) {
+          throw const KnowledgeRecorderException(
+            'Live needs the microphone: allow it in Settings.',
+          );
+        }
+        final stream = await recorder.startStream(
+          const RecordConfig(
+            encoder: AudioEncoder.pcm16bits,
+            sampleRate: 16000,
+            numChannels: 1,
+            echoCancel: true,
+            noiseSuppress: true,
+          ),
+        );
+        audio = stream.listen(
+          controller.add,
+          onError: controller.addError,
+          onDone: controller.close,
+        );
+      } catch (e, st) {
+        controller.addError(e, st);
+        await controller.close();
+      }
+    },
+    onCancel: () async {
+      await audio?.cancel();
+      await recorder.stop();
+      await recorder.dispose();
+    },
+  );
+  return controller.stream;
 }
 
 /// The web: the embedder's vision encoder (about 3.3 GB) and a `.litertlm`
@@ -254,31 +303,6 @@ final class _AppMedia implements KnowledgeMedia {
   }
 }
 
-/// The active speech-to-text model, loaded on first use and closed with the
-/// screen.
-final class _Speech {
-  SpeechRecognizer? _recognizer;
-
-  Future<String> transcribe(Uint8List pcm, KnowledgeSttInfo stt) async {
-    final recognizer = _recognizer ??= await FlutterEdgeAi.getActiveStt();
-    final pieces = splitForSpeechWindow(pcm, window: stt.window);
-    final text = StringBuffer();
-    for (final piece in pieces) {
-      final words = (await recognizer.transcribe(piece)).trim();
-      if (words.isEmpty) continue;
-      if (text.isNotEmpty) text.write(' ');
-      text.write(words);
-    }
-    return text.toString();
-  }
-
-  Future<void> close() async {
-    final recognizer = _recognizer;
-    _recognizer = null;
-    await recognizer?.close();
-  }
-}
-
 /// The active language model. It stays loaded (it is the app's singleton);
 /// each answer runs in a fresh session that is closed when it ends.
 final class _LlmAnswerer implements KnowledgeAnswerer {
@@ -296,6 +320,7 @@ final class _LlmAnswerer implements KnowledgeAnswerer {
       maxTokens: llm.maxTokens,
       preferredBackend: await _backend(),
       supportImage: llm.supportImage,
+      supportAudio: llm.supportAudio,
       maxNumImages: llm.supportImage ? 1 : null,
     );
   }
@@ -315,20 +340,29 @@ final class _LlmAnswerer implements KnowledgeAnswerer {
   Stream<String> answer({
     required String systemInstruction,
     required String prompt,
-    Uint8List? image,
+    List<Uint8List> images = const [],
+    Uint8List? audio,
+    int maxOutputTokens = 220,
   }) async* {
     final model = await _model();
     final session = await model.createSession(
       systemInstruction: systemInstruction,
-      enableVisionModality: image != null,
-      maxOutputTokens: kAnswerMaxTokens,
+      enableVisionModality: images.isNotEmpty,
+      enableAudioModality: audio != null,
+      maxOutputTokens: maxOutputTokens,
       // Low: answers read figures and dates off the sources.
       temperature: 0.2,
     );
     _session = session;
     try {
       await session.addQueryChunk(
-        Message(text: prompt, isUser: true, imageBytes: image),
+        Message(
+          text: prompt,
+          isUser: true,
+          imageBytes: images.firstOrNull,
+          images: images.length > 1 ? images : const [],
+          audioBytes: audio,
+        ),
       );
       yield* session.getResponseAsync();
     } finally {

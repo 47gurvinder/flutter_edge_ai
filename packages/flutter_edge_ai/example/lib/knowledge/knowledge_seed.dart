@@ -16,18 +16,15 @@ final class SeedNote {
   final String body;
 }
 
-/// A seeded photo: one of the `assets/eg2_vision/` scenes, under a
+/// A seeded photo: an EmbeddingGemma 2 sample scene (`assets/eg2_vision/`)
+/// or one of this screen's own (`assets/knowledge/photos/`), under a
 /// camera-style name.
 final class SeedPhoto {
-  const SeedPhoto({required this.id, required this.title, required this.scene});
+  const SeedPhoto({required this.id, required this.title, required this.asset});
 
   final String id;
   final String title;
-
-  /// The `assets/eg2_vision/<scene>.png` scene.
-  final String scene;
-
-  String get asset => 'assets/eg2_vision/$scene.png';
+  final String asset;
 }
 
 /// A seeded voice memo: a 16 kHz mono WAV under `assets/knowledge/memos/`.
@@ -54,7 +51,7 @@ const kSeedNotes = <SeedNote>[
     body:
         'The flight leaves Friday at 10:40 from Terminal 5. Hotel near '
         'Shoreditch, check-in from 3 pm. Keep every taxi receipt: finance '
-        'pays airport rides back up to 40 dollars.',
+        'pays airport rides back up to 40 pounds.',
   ),
   SeedNote(
     id: 'note-kitchen',
@@ -110,13 +107,43 @@ const kSeedNotes = <SeedNote>[
 ];
 
 const kSeedPhotos = <SeedPhoto>[
-  SeedPhoto(id: 'photo-0412', title: 'IMG_0412', scene: 'taxi_receipt'),
-  SeedPhoto(id: 'photo-0388', title: 'IMG_0388', scene: 'grocery_receipt'),
-  SeedPhoto(id: 'photo-0291', title: 'IMG_0291', scene: 'pie_chart'),
-  SeedPhoto(id: 'photo-0290', title: 'IMG_0290', scene: 'bar_chart'),
-  SeedPhoto(id: 'photo-0307', title: 'IMG_0307', scene: 'line_chart'),
-  SeedPhoto(id: 'photo-0455', title: 'IMG_0455', scene: 'stop_sign'),
-  SeedPhoto(id: 'photo-0476', title: 'IMG_0476', scene: 'house_scene'),
+  // Drawn for this screen (integration_test/tools/
+  // generate_knowledge_photos.py): its TOTAL is the one place the amount is.
+  SeedPhoto(
+    id: 'photo-0412',
+    title: 'IMG_0412',
+    asset: 'assets/knowledge/photos/taxi_receipt.png',
+  ),
+  SeedPhoto(
+    id: 'photo-0388',
+    title: 'IMG_0388',
+    asset: 'assets/eg2_vision/grocery_receipt.png',
+  ),
+  SeedPhoto(
+    id: 'photo-0291',
+    title: 'IMG_0291',
+    asset: 'assets/eg2_vision/pie_chart.png',
+  ),
+  SeedPhoto(
+    id: 'photo-0290',
+    title: 'IMG_0290',
+    asset: 'assets/eg2_vision/bar_chart.png',
+  ),
+  SeedPhoto(
+    id: 'photo-0307',
+    title: 'IMG_0307',
+    asset: 'assets/eg2_vision/line_chart.png',
+  ),
+  SeedPhoto(
+    id: 'photo-0455',
+    title: 'IMG_0455',
+    asset: 'assets/eg2_vision/stop_sign.png',
+  ),
+  SeedPhoto(
+    id: 'photo-0476',
+    title: 'IMG_0476',
+    asset: 'assets/eg2_vision/house_scene.png',
+  ),
 ];
 
 const kSeedMemos = <SeedMemo>[

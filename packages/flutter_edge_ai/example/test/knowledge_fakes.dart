@@ -1,8 +1,10 @@
 // Fakes for the Knowledge screen's tests: a topic embedder, in-memory vector
 // stores behind the REAL flutter_edge_ai_rag (RagIndex, bindings, and
-// FlutterEdgeAiActiveEmbedder's role policy), and scripted speech, language
-// model, player, recorder and media. The real models run in
-// integration_test/knowledge_demo_test.dart.
+// FlutterEdgeAiActiveEmbedder's role policy), and a scripted language model,
+// player, recorder, microphone and media. Audio carries its topic in its
+// samples (see [topicPcm]), so a memo, a spoken question and a meeting window
+// are found by what they are "about" — nothing is transcribed. The real
+// models run in integration_test/knowledge_demo_test.dart.
 
 import 'dart:async';
 import 'dart:convert';
@@ -11,10 +13,11 @@ import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
-import 'package:flutter_edge_ai_example/image_search/photo_preparation.dart';
 import 'package:flutter_edge_ai_example/knowledge/knowledge_dependencies.dart';
 import 'package:flutter_edge_ai_example/knowledge/knowledge_item.dart';
+import 'package:flutter_edge_ai_example/knowledge/knowledge_prompt.dart';
 import 'package:flutter_edge_ai_example/knowledge/knowledge_seed.dart';
+import 'package:flutter_edge_ai_example/knowledge/knowledge_view_model.dart';
 import 'package:flutter_edge_ai_example/utils/audio_converter.dart';
 import 'package:flutter_edge_ai_rag/flutter_edge_ai_rag.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -44,6 +47,7 @@ const kItemTopics = {
   'note-car': 'tires',
   'photo-0412': 'taxi',
   'photo-0291': 'chart',
+  'photo-0290': 'chart',
   'memo-kitchen': 'kitchen',
   'memo-flight': 'flight',
   'memo-groceries': 'basil',
@@ -52,26 +56,54 @@ const kItemTopics = {
   'memo-dentist': 'dentist',
 };
 
-/// What the fake speech-to-text hears in each sample memo.
-const kTranscripts = {
-  'memo-kitchen': 'The kitchen lights keep flickering.',
-  'memo-flight': 'My flight to London is delayed by three hours.',
-  'memo-groceries': 'Pick up milk, fresh basil and lemons.',
-  'memo-offsite': 'Idea for the team retreat: a cooking class.',
-  'memo-mom': 'Call Mom on Sunday.',
-  'memo-dentist': 'The dentist moved my check-up.',
-};
-
-/// A memo as a WAV whose length says which one it is (16 kHz mono PCM16,
-/// 0.1 s per position in [kSeedMemos], plus one).
-Uint8List memoWav(int index, {int extraSamples = 0}) =>
-    AudioConverter.pcmToWav(Uint8List((index + 1) * 3200 + extraSamples * 2));
-
-/// The memo id a 16 kHz mono PCM16 buffer from [memoWav] belongs to.
-String? memoIdOfPcm(int bytes) {
-  final i = bytes ~/ 3200 - 1;
-  return i >= 0 && i < kSeedMemos.length ? kSeedMemos[i].id : null;
+/// 16 kHz mono PCM16 whose every sample says its [topic] (null: none of
+/// them): loud enough to be speech to Live's windower.
+Uint8List topicPcm(String? topic, Duration length) {
+  final value = topic == null ? 900 : 1000 + 100 * kTopics.indexOf(topic);
+  final samples = length.inMicroseconds * 16 ~/ 1000;
+  final bytes = ByteData(samples * 2);
+  for (var i = 0; i < samples; i++) {
+    bytes.setInt16(i * 2, value, Endian.little);
+  }
+  return bytes.buffer.asUint8List();
 }
+
+/// [ms] of silence.
+Uint8List silencePcm(int ms) => Uint8List(ms * 32);
+
+Uint8List topicWav(String? topic, Duration length) =>
+    AudioConverter.pcmToWav(topicPcm(topic, length));
+
+/// The topic [pcm] carries: its first sound.
+String? topicOfPcm(Uint8List pcm) {
+  final view = ByteData.sublistView(pcm);
+  for (var i = 0; i + 1 < pcm.length; i += 2) {
+    final value = view.getInt16(i, Endian.little);
+    if (value == 0) continue;
+    final axis = (value - 1000) ~/ 100;
+    return value >= 1000 && axis < kTopics.length ? kTopics[axis] : null;
+  }
+  return null;
+}
+
+/// Sample memo [index] as a WAV that carries its topic.
+Uint8List memoWav(int index) => topicWav(
+  kItemTopics[kSeedMemos[index].id],
+  Duration(milliseconds: 600 + 100 * index),
+);
+
+/// The bundled spoken question: about the taxi.
+final kQuestionWav = topicWav('taxi', const Duration(milliseconds: 1500));
+
+/// The bundled meeting: small talk, then the dentist, then the taxi.
+final kMeetingPcm = Uint8List.fromList([
+  ...topicPcm(null, const Duration(seconds: 2)),
+  ...silencePcm(400),
+  ...topicPcm('dentist', const Duration(seconds: 2)),
+  ...silencePcm(400),
+  ...topicPcm('taxi', const Duration(seconds: 2)),
+  ...silencePcm(400),
+]);
 
 /// Embeds by topic: a vector with 1 on the topic's axis and 0.1 elsewhere.
 /// Text finds its topic by the words in it; images and audio carry their
@@ -121,9 +153,8 @@ final class TopicEmbedder extends EmbeddingModel {
       topic = kItemTopics[id];
       embedded.add(id);
     } else if (input.audio case final audio?) {
-      final id = memoIdOfPcm(AudioConverter.parseWav(audio).pcmData.length);
-      topic = kItemTopics[id];
-      embedded.add(id ?? 'audio');
+      topic = topicOfPcm(AudioConverter.parseWav(audio).pcmData);
+      embedded.add('audio:$topic');
     }
     final axis = topic == null ? kTopics.length : kTopics.indexOf(topic);
     final vector = [for (var i = 0; i < dimension; i++) i == axis ? 1.0 : 0.1];
@@ -234,7 +265,8 @@ final class MemoryStore extends VectorStoreRepository {
   Future<void> close() async => isInitialized = false;
 }
 
-/// Media: a photo's bytes are its item id; a memo is a [memoWav].
+/// Media: a photo's bytes are its item id; a memo is a [memoWav]; the
+/// sample meeting and spoken question are [kMeetingPcm] and [kQuestionWav].
 final class FakeMedia implements KnowledgeMedia {
   final kept = <String, Uint8List>{};
   final forgotten = <String>[];
@@ -246,6 +278,10 @@ final class FakeMedia implements KnowledgeMedia {
   @override
   Future<Uint8List> read(String reference) async {
     if (kept[reference] case final bytes?) return bytes;
+    if (reference == kSampleMeeting) {
+      return AudioConverter.pcmToWav(kMeetingPcm);
+    }
+    if (reference == kSampleQuestion) return kQuestionWav;
     for (final photo in kSeedPhotos) {
       if (reference.endsWith(photo.asset)) {
         return Uint8List.fromList(utf8.encode(photo.id));
@@ -306,18 +342,28 @@ final class MemoryLibraryStore implements KnowledgeLibraryStore {
   }
 }
 
-/// A language model that streams [reply] in words.
+/// A language model that streams [reply] in words, and in Live answers the
+/// listening prompt with [hear].
 final class FakeAnswerer implements KnowledgeAnswerer {
   String reply =
       'The total was 26.50 [1]. Finance pays airport rides back up to 40 '
-      'dollars [2].';
+      'pounds [2].';
+
+  /// Live's reply for a window: a question when it is about the taxi.
+  String Function(Uint8List audio) hear = (audio) =>
+      topicOfPcm(AudioConverter.parseWav(audio).pcmData) == 'taxi'
+      ? 'QUESTION: How much was the airport taxi?'
+      : 'NONE';
+
   final prompts = <String>[];
   final systems = <String>[];
-  final images = <Uint8List?>[];
+  final images = <List<Uint8List>>[];
+  final audios = <Uint8List?>[];
+  int heard = 0;
   int warmUps = 0;
   bool stopped = false;
 
-  /// When set, the answer waits for it before streaming.
+  /// When set, an answer waits for it before streaming.
   Completer<void>? gate;
 
   @override
@@ -330,11 +376,20 @@ final class FakeAnswerer implements KnowledgeAnswerer {
   Stream<String> answer({
     required String systemInstruction,
     required String prompt,
-    Uint8List? image,
+    List<Uint8List> images = const [],
+    Uint8List? audio,
+    int maxOutputTokens = 220,
   }) async* {
+    if (systemInstruction == kLiveListenInstruction) {
+      heard++;
+      yield hear(audio!);
+      return;
+    }
     systems.add(systemInstruction);
     prompts.add(prompt);
-    images.add(image);
+    this.images.add(images);
+    audios.add(audio);
+    stopped = false;
     await gate?.future;
     for (final word in reply.split(' ')) {
       if (stopped) return;
@@ -375,9 +430,8 @@ final class FakeRecorder implements KnowledgeRecorder {
   bool started = false;
   bool cancelled = false;
 
-  /// What [stop] returns: by default the third memo's length plus a bit, so
-  /// it transcribes as that memo.
-  Uint8List recording = memoWav(2);
+  /// What [stop] returns: by default a memo about basil.
+  Uint8List recording = topicWav('basil', const Duration(seconds: 1));
 
   @override
   Future<void> start() async {
@@ -402,13 +456,11 @@ final class FakeRecorder implements KnowledgeRecorder {
 final class KnowledgeRig {
   KnowledgeRig({
     TopicEmbedder? embedder,
-    this.withStt = true,
     this.withLlm = true,
     this.withEmbedder = true,
   }) : embedder = embedder ?? TopicEmbedder();
 
   final TopicEmbedder embedder;
-  bool withStt;
   bool withLlm;
   bool withEmbedder;
   final provider = MemoryProvider();
@@ -417,11 +469,17 @@ final class KnowledgeRig {
   final answerer = FakeAnswerer();
   final player = FakePlayer();
   final recorder = FakeRecorder();
-  final transcribed = <String>[];
+
+  /// The microphone Live listens to: the test adds PCM chunks.
+  StreamController<Uint8List>? microphone;
+  int microphoneStarts = 0;
   int beforeEmbedding = 0;
   int beforeAnswer = 0;
   bool releaseLlmOnEmbedding = false;
   ({String name, Uint8List bytes})? pickedPhoto;
+
+  /// The clock the sample meeting is fed by; tests pass the fake one.
+  DateTime Function() now = DateTime.now;
   Object? prepareError;
 
   late final _spec = EmbeddingModelSpec(
@@ -447,14 +505,12 @@ final class KnowledgeRig {
       embedderProblem: withEmbedder
           ? null
           : 'No embedding model is active. Install EmbeddingGemma 2.',
-      stt: withStt
-          ? const KnowledgeSttInfo(
-              name: 'Moonshine Tiny',
-              window: Duration(seconds: 5),
-            )
-          : null,
       llm: withLlm
-          ? const KnowledgeLlmInfo(name: 'Gemma 4 E2B IT', seesImages: true)
+          ? const KnowledgeLlmInfo(
+              name: 'Gemma 4 E2B IT',
+              seesImages: true,
+              hearsAudio: true,
+            )
           : null,
       audioSupported: true,
     ),
@@ -476,16 +532,29 @@ final class KnowledgeRig {
           ),
           embedder: embedder,
         ),
+    openMeetingIndex: (info) => FlutterEdgeAiRag(providers: [provider]).open(
+      spec: VectorStoreSpec(
+        providerId: 'memory',
+        location: 'meeting',
+        documents: EmbeddingModality.audio,
+      ),
+      embedder: FlutterEdgeAiActiveEmbedder(
+        profileId: info.textProfileId,
+        supportImage: info.kinds.contains(KnowledgeKind.photo),
+        supportAudio: true,
+        specResolver: () => _spec,
+        modelResolver: () async => embedder,
+      ),
+    ),
     library: library,
     media: media,
-    transcribe: (pcm, stt) async {
-      final id = memoIdOfPcm(pcm.length);
-      transcribed.add(id ?? '?');
-      return kTranscripts[id] ?? 'something';
-    },
     answerer: answerer,
     player: player,
     recorder: recorder,
+    microphone: () {
+      microphoneStarts++;
+      return (microphone = StreamController<Uint8List>()).stream;
+    },
     pickPhoto: () async => pickedPhoto,
     preparePhoto: (bytes) async {
       if (prepareError case final error?) throw error;
@@ -502,6 +571,7 @@ final class KnowledgeRig {
       return releaseLlmOnEmbedding;
     },
     beforeAnswer: () async => beforeAnswer++,
+    now: () => now(),
   );
 
   /// Documents in [kind]'s store.

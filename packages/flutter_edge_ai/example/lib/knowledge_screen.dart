@@ -9,15 +9,19 @@ import 'knowledge/knowledge_theme.dart';
 import 'knowledge/knowledge_view_model.dart';
 import 'knowledge/knowledge_widgets.dart';
 import 'model_selection_screen.dart';
-import 'stt_models_screen.dart';
+
+/// The Knowledge screen's tabs.
+enum KnowledgeTab { library, search, live, ask }
 
 /// Knowledge: a personal knowledge base — notes, photos and voice memos —
-/// searched by text across all three and asked questions, all on the device.
+/// searched by text, by photo and by what is said in a meeting, and asked
+/// questions, all on the device.
 ///
 /// EmbeddingGemma 2 (the ACTIVE embedder; the 740M embeds text, images and
 /// audio into one space) indexes each kind into its own RAG index on SQLite;
-/// the active speech-to-text model writes memo transcripts; the active
-/// language model (Gemma 4) answers from what the search retrieves, citing it.
+/// nothing is transcribed or captioned. The active language model (Gemma 4)
+/// answers from what the search retrieves, with the retrieved photo and
+/// recording sent along, and in Live hears the meeting window by window.
 /// Each model is chosen on its model list; the screen links there when one is
 /// missing.
 class KnowledgeScreen extends StatefulWidget {
@@ -40,7 +44,7 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
   );
   final _query = TextEditingController();
   final _question = TextEditingController();
-  int _tab = 0;
+  KnowledgeTab _tab = KnowledgeTab.library;
   bool _tabChosen = false;
 
   @override
@@ -65,7 +69,6 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
     } else {
       final screen = switch (list) {
         KnowledgeModelList.embedder => const EmbeddingModelsScreen(),
-        KnowledgeModelList.stt => const SttModelsScreen(),
         KnowledgeModelList.llm => const ModelSelectionScreen(),
       };
       await Navigator.push<void>(
@@ -99,12 +102,21 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
       child: ListenableBuilder(
         listenable: _vm,
         builder: (context, _) {
+          final tabs = [
+            KnowledgeTab.library,
+            KnowledgeTab.search,
+            if (_vm.setup?.liveSupported ?? false) KnowledgeTab.live,
+            KnowledgeTab.ask,
+          ];
           // The first time it is ready, an index with items still to add
           // opens on Library (to index them), a full one on Search.
           if (!_tabChosen && _vm.status == KnowledgeStatus.ready) {
-            _tab = _vm.pending.isEmpty ? 1 : 0;
+            _tab = _vm.pending.isEmpty
+                ? KnowledgeTab.search
+                : KnowledgeTab.library;
             _tabChosen = true;
           }
+          if (!tabs.contains(_tab)) _tab = KnowledgeTab.library;
           return Scaffold(
             appBar: AppBar(
               title: const KnowledgeTitle(),
@@ -126,16 +138,27 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
                   onOpenList: _openList,
                 ),
                 KnowledgeStatus.ready => IndexedStack(
-                  index: _tab,
+                  index: tabs.indexOf(_tab),
                   children: [
-                    LibraryTab(vm: _vm, onOpenList: _openList),
-                    SearchTab(vm: _vm, controller: _query, onSearch: _search),
-                    AskTab(
-                      vm: _vm,
-                      controller: _question,
-                      onAsk: _ask,
-                      onOpenList: _openList,
-                    ),
+                    for (final tab in tabs)
+                      switch (tab) {
+                        KnowledgeTab.library => LibraryTab(
+                          vm: _vm,
+                          onOpenList: _openList,
+                        ),
+                        KnowledgeTab.search => SearchTab(
+                          vm: _vm,
+                          controller: _query,
+                          onSearch: _search,
+                        ),
+                        KnowledgeTab.live => LiveTab(vm: _vm),
+                        KnowledgeTab.ask => AskTab(
+                          vm: _vm,
+                          controller: _question,
+                          onAsk: _ask,
+                          onOpenList: _openList,
+                        ),
+                      },
                   ],
                 ),
               },
@@ -143,37 +166,46 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
             bottomNavigationBar: _vm.status != KnowledgeStatus.ready
                 ? null
                 : NavigationBar(
-                    selectedIndex: _tab,
+                    selectedIndex: tabs.indexOf(_tab),
                     onDestinationSelected: (i) => setState(() {
-                      _tab = i;
+                      _tab = tabs[i];
                       _tabChosen = true;
                     }),
                     destinations: [
-                      NavigationDestination(
-                        key: const Key('knowledge-tab-library'),
-                        icon: _PendingBadge(
-                          pending: _vm.pending.length,
-                          child: const Icon(
-                            Icons.collections_bookmark_outlined,
+                      for (final tab in tabs)
+                        switch (tab) {
+                          KnowledgeTab.library => NavigationDestination(
+                            key: const Key('knowledge-tab-library'),
+                            icon: _PendingBadge(
+                              pending: _vm.pending.length,
+                              child: const Icon(
+                                Icons.collections_bookmark_outlined,
+                              ),
+                            ),
+                            selectedIcon: _PendingBadge(
+                              pending: _vm.pending.length,
+                              child: const Icon(Icons.collections_bookmark),
+                            ),
+                            label: 'Library',
                           ),
-                        ),
-                        selectedIcon: _PendingBadge(
-                          pending: _vm.pending.length,
-                          child: const Icon(Icons.collections_bookmark),
-                        ),
-                        label: 'Library',
-                      ),
-                      const NavigationDestination(
-                        key: Key('knowledge-tab-search'),
-                        icon: Icon(Icons.search),
-                        label: 'Search',
-                      ),
-                      const NavigationDestination(
-                        key: Key('knowledge-tab-ask'),
-                        icon: Icon(Icons.auto_awesome_outlined),
-                        selectedIcon: Icon(Icons.auto_awesome),
-                        label: 'Ask',
-                      ),
+                          KnowledgeTab.search => const NavigationDestination(
+                            key: Key('knowledge-tab-search'),
+                            icon: Icon(Icons.search),
+                            label: 'Search',
+                          ),
+                          KnowledgeTab.live => const NavigationDestination(
+                            key: Key('knowledge-tab-live'),
+                            icon: Icon(Icons.hearing_outlined),
+                            selectedIcon: Icon(Icons.hearing),
+                            label: 'Live',
+                          ),
+                          KnowledgeTab.ask => const NavigationDestination(
+                            key: Key('knowledge-tab-ask'),
+                            icon: Icon(Icons.auto_awesome_outlined),
+                            selectedIcon: Icon(Icons.auto_awesome),
+                            label: 'Ask',
+                          ),
+                        },
                     ],
                   ),
           );

@@ -100,22 +100,90 @@ final class KnowledgeIndex {
 
   /// Searches every kind for [query] — a text query, so text → text,
   /// text → image and text → audio — and ranks the hits together by lift
-  /// ([rankAcrossKinds]). Each kind is searched over all its documents: the
-  /// lift needs the kind's median.
-  Future<List<RankedHit>> search(String query, {int limit = 8}) async {
+  /// ([rankAcrossKinds]).
+  Future<List<RankedHit>> search(String query, {int limit = 8}) =>
+      searchBy(EmbeddingInput.text(query), limit: limit);
+
+  /// Searches [kinds] (every kind by default) with [query] — text, a photo
+  /// or a recording — leaving out the documents in [exclude], and ranks the
+  /// hits together by lift ([rankAcrossKinds]). Each kind is searched over
+  /// all its documents: the lift needs the kind's median.
+  Future<List<RankedHit>> searchBy(
+    EmbeddingInput query, {
+    Set<KnowledgeKind>? kinds,
+    Set<String> exclude = const {},
+    int limit = 8,
+    double minLift = kMinLift,
+  }) async {
     final scores = <KnowledgeKind, List<ScoredDocument>>{};
+    var embedding = Duration.zero;
     for (final MapEntry(key: kind, value: index) in _indexes.entries) {
+      if (kinds != null && !kinds.contains(kind)) continue;
       final count = _counts[kind] ?? 0;
       if (count == 0) continue;
-      final hits = await index.search(
-        query: EmbeddingInput.text(query),
-        topK: count,
-      );
+      final hits = await index.search(query: query, topK: count);
+      embedding += _embedders[kind]!.last ?? Duration.zero;
       scores[kind] = [
-        for (final hit in hits) (id: hit.id, similarity: hit.similarity),
+        for (final hit in hits)
+          if (!exclude.contains(hit.id))
+            (id: hit.id, similarity: hit.similarity),
       ];
     }
-    return rankAcrossKinds(scores, limit: limit);
+    lastQueryEmbedding = embedding;
+    return rankAcrossKinds(scores, limit: limit, minLift: minLift);
+  }
+
+  /// Embeds [query] — a recording or a photo, NOT text — once, for
+  /// [searchVector] and for storing elsewhere (Live's meeting index). A media
+  /// query has one role whatever it is compared with (the RAG adapter sends
+  /// it raw), so one vector serves every kind; text is embedded per kind,
+  /// in its role, by [search].
+  Future<List<double>> embedQuery(EmbeddingInput query) async {
+    if (query.text != null) {
+      throw ArgumentError.value(query, 'query', 'must not carry text');
+    }
+    final embedder = _embedders.values.first;
+    final vector = await embedder.embedQuery(
+      query,
+      documentModality: EmbeddingModality.audio,
+    );
+    lastQueryEmbedding = embedder.last ?? Duration.zero;
+    return vector;
+  }
+
+  /// [searchBy] with a vector from [embedQuery].
+  Future<List<RankedHit>> searchVector(
+    List<double> vector, {
+    Set<KnowledgeKind>? kinds,
+    Set<String> exclude = const {},
+    int limit = 8,
+    double minLift = kMinLift,
+  }) async {
+    final scores = <KnowledgeKind, List<ScoredDocument>>{};
+    for (final MapEntry(key: kind, value: index) in _indexes.entries) {
+      if (kinds != null && !kinds.contains(kind)) continue;
+      final count = _counts[kind] ?? 0;
+      if (count == 0) continue;
+      final hits = await index.searchVector(embedding: vector, topK: count);
+      scores[kind] = [
+        for (final hit in hits)
+          if (!exclude.contains(hit.id))
+            (id: hit.id, similarity: hit.similarity),
+      ];
+    }
+    return rankAcrossKinds(scores, limit: limit, minLift: minLift);
+  }
+
+  /// How long embedding the last query took, summed over the kinds searched
+  /// (each index embeds it in its own role).
+  Duration lastQueryEmbedding = Duration.zero;
+
+  /// Empties [kind]'s index.
+  Future<void> clearKind(KnowledgeKind kind) async {
+    final index = _require(kind);
+    await index.clear();
+    await index.flush();
+    _counts[kind] = (await index.stats()).documentCount;
   }
 
   /// Empties every kind's index.

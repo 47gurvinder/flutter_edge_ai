@@ -1,24 +1,32 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'knowledge_dependencies.dart' show KnowledgeSetup;
+import 'knowledge_audio.dart';
 import 'knowledge_item.dart';
+import 'knowledge_live.dart';
 import 'knowledge_prompt.dart';
 import 'knowledge_ranking.dart';
 import 'knowledge_theme.dart';
 import 'knowledge_view_model.dart';
 
+part 'knowledge_ask_tab.dart';
+part 'knowledge_library_tab.dart';
+part 'knowledge_live_tab.dart';
+part 'knowledge_search_tab.dart';
+
 /// The model lists the screen sends the user to.
-enum KnowledgeModelList { embedder, stt, llm }
+enum KnowledgeModelList { embedder, llm }
 
 typedef OpenModelList = Future<void> Function(KnowledgeModelList list);
 
 /// Text queries the Search tab suggests. On the sample set each finds its
-/// item first: a voice memo, a photo, a memo, a chart, a memo, a note (with
-/// its chart second) and a memo.
+/// item first (knowledge_retrieval_test.dart): a voice memo, a photo, a memo,
+/// a chart, a memo, a note (its chart second), a memo — and a Russian query
+/// that finds the English receipt.
 const kKnowledgeSuggestions = [
   'my flight is delayed',
   'the airport taxi receipt',
@@ -27,12 +35,12 @@ const kKnowledgeSuggestions = [
   'fresh basil',
   'revenue by quarter',
   'a cooking class',
+  'чек за такси',
 ];
 
 /// Questions the Ask tab suggests.
 const kKnowledgeQuestions = [
-  'What was the total on my airport taxi receipt, and will finance pay it '
-      'back?',
+  'How much was the airport taxi?',
   'What is going on with the kitchen?',
   'Who do I have to call on Sunday?',
 ];
@@ -209,424 +217,18 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-// ── Library ─────────────────────────────────────────────────────────────────
-
-class LibraryTab extends StatelessWidget {
-  const LibraryTab({super.key, required this.vm, required this.onOpenList});
-
-  final KnowledgeViewModel vm;
-  final OpenModelList onOpenList;
-
-  @override
-  Widget build(BuildContext context) {
-    final setup = vm.setup!;
-    final recording = vm.recording || vm.transcribingMemo;
-    // The recording banner floats over the list: Record is far down it.
-    return Stack(
-      children: [
-        _libraryList(setup, bottomPadding: recording ? 96 : 24),
-        if (recording)
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 16,
-            child: _RecordingBanner(vm: vm),
-          ),
-      ],
-    );
-  }
-
-  Widget _libraryList(KnowledgeSetup setup, {required double bottomPadding}) {
-    return ListView(
-      key: const Key('knowledge-library'),
-      padding: EdgeInsets.fromLTRB(16, 8, 16, bottomPadding),
-      children: [
-        _ErrorBanner(vm: vm),
-        _ModelsCard(vm: vm, onOpenList: onOpenList),
-        const SizedBox(height: 12),
-        _IndexCard(vm: vm),
-        for (final kind in KnowledgeKind.values)
-          if (kind != KnowledgeKind.memo || setup.audioSupported) ...[
-            _SectionHeader(
-              '${kind.plural.toUpperCase()} · ${vm.itemsOf(kind).length}',
-              trailing: _AddButton(vm: vm, kind: kind),
-            ),
-            if (!vm.indexes(kind))
-              _Notice(
-                icon: Icons.info_outline,
-                text: switch (kind) {
-                  KnowledgeKind.photo =>
-                    'Photos need EmbeddingGemma 2 with a vision encoder (440M '
-                        'or 740M).',
-                  _ =>
-                    'Voice memos need EmbeddingGemma 2 Text + Vision + Audio '
-                        '(740M).',
-                },
-                action: 'Choose',
-                onAction: () => onOpenList(KnowledgeModelList.embedder),
-              ),
-            if (kind == KnowledgeKind.memo && setup.stt == null)
-              _Notice(
-                icon: Icons.mic_none,
-                text:
-                    'Install a speech-to-text model (Moonshine Tiny) for memo '
-                    'transcripts.',
-                action: 'Install',
-                onAction: () => onOpenList(KnowledgeModelList.stt),
-              ),
-            switch (kind) {
-              KnowledgeKind.note => Column(
-                children: [
-                  for (final note in vm.itemsOf(kind).cast<NoteItem>())
-                    _NoteTile(vm: vm, note: note),
-                ],
-              ),
-              KnowledgeKind.photo => _PhotoGrid(
-                vm: vm,
-                photos: vm.itemsOf(kind).cast<PhotoItem>(),
-              ),
-              KnowledgeKind.memo => Column(
-                children: [
-                  for (final memo in vm.itemsOf(kind).cast<MemoItem>())
-                    _MemoTile(vm: vm, memo: memo),
-                ],
-              ),
-            },
-          ],
-      ],
-    );
-  }
-}
-
-/// The three models, what they run on, and the way to each model list.
-class _ModelsCard extends StatelessWidget {
-  const _ModelsCard({required this.vm, required this.onOpenList});
-
-  final KnowledgeViewModel vm;
-  final OpenModelList onOpenList;
-
-  @override
-  Widget build(BuildContext context) {
-    final setup = vm.setup!;
-    final embedder = setup.embedder!;
-    final llm = setup.llm;
-    final stt = setup.stt;
-    return Card(
-      key: const Key('knowledge-models'),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Column(
-          children: [
-            _ModelRow(
-              icon: Icons.hub_outlined,
-              role: 'Embeddings',
-              name: embedder.name,
-              detail: [
-                embedder.backend?.name ?? (kIsWeb ? 'webgpu' : 'cpu'),
-                if (vm.openTook case final took?)
-                  'opened in ${shortDuration(took)}',
-              ].join(' · '),
-              onTap: () => onOpenList(KnowledgeModelList.embedder),
-            ),
-            if (setup.audioSupported)
-              _ModelRow(
-                icon: Icons.mic_none,
-                role: 'Speech to text',
-                name: stt?.name,
-                missing: 'Install Moonshine Tiny',
-                onTap: () => onOpenList(KnowledgeModelList.stt),
-              ),
-            _ModelRow(
-              icon: Icons.auto_awesome_outlined,
-              role: 'Answers',
-              name: llm?.name,
-              missing: 'Install Gemma 4 E2B',
-              detail: switch (vm.llmState) {
-                LlmState.loading => 'loading…',
-                LlmState.ready =>
-                  '${vm.llmBackend} · loaded in ${shortDuration(vm.llmLoadTook!)}',
-                LlmState.failed => 'failed to load',
-                LlmState.idle => 'loads when needed',
-                LlmState.missing => null,
-              },
-              busy: vm.llmState == LlmState.loading,
-              onTap: () => onOpenList(KnowledgeModelList.llm),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ModelRow extends StatelessWidget {
-  const _ModelRow({
-    required this.icon,
-    required this.role,
-    required this.name,
-    required this.onTap,
-    this.detail,
-    this.missing,
-    this.busy = false,
-  });
-
-  final IconData icon;
-  final String role;
-  final String? name;
-  final String? detail;
-  final String? missing;
-  final bool busy;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final present = name != null;
-    return ListTile(
-      dense: true,
-      visualDensity: VisualDensity.compact,
-      onTap: onTap,
-      leading: Icon(icon, color: present ? scheme.primary : scheme.error),
-      title: Text(
-        present ? name! : missing!,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: present ? null : scheme.error,
-        ),
-      ),
-      subtitle: Text(
-        [role, ?detail].join(' · '),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: busy
-          ? const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : Icon(
-              present ? Icons.check_circle : Icons.chevron_right,
-              size: 18,
-              color: present ? scheme.primary : scheme.error,
-            ),
-    );
-  }
-}
-
-/// How much is indexed, the run in progress, and the two index commands.
-class _IndexCard extends StatelessWidget {
-  const _IndexCard({required this.vm});
-
-  final KnowledgeViewModel vm;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final indexable = [
-      for (final item in vm.items)
-        if (vm.indexes(item.kind)) item,
-    ];
-    final done = vm.indexedCount;
-    final total = indexable.length;
-    final current = vm.indexingId == null
-        ? null
-        : vm.items.where((i) => i.id == vm.indexingId).firstOrNull;
-    return Card(
-      key: const Key('knowledge-index-card'),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '$done of $total indexed',
-                    key: const Key('knowledge-indexed-count'),
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
-                if (done > 0 && !vm.busy)
-                  TextButton(
-                    key: const Key('knowledge-clear'),
-                    onPressed: vm.clearIndex,
-                    child: const Text('Clear'),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: TweenAnimationBuilder<double>(
-                tween: Tween(end: total == 0 ? 0 : done / total),
-                duration: const Duration(milliseconds: 350),
-                curve: Curves.easeOut,
-                builder: (context, value, _) =>
-                    LinearProgressIndicator(value: value, minHeight: 8),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              vm.indexing
-                  ? 'Embedding ${current?.kind.label.toLowerCase() ?? 'item'}'
-                        '${current == null ? '' : ' “${current.title}”'}…'
-                  : vm.lastRunTook != null
-                  ? 'Last run took ${shortDuration(vm.lastRunTook!)} on the '
-                        'device. Every item: one EmbeddingGemma 2 vector.'
-                  : 'Notes as text, photos as pixels, memos as sound — one '
-                        'embedding space.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            if (vm.pending.isNotEmpty && !vm.indexing) ...[
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  key: const Key('knowledge-index'),
-                  onPressed: vm.busy ? null : vm.indexLibrary,
-                  icon: const Icon(Icons.bolt),
-                  label: Text(
-                    'Index ${vm.pending.length} '
-                    'item${vm.pending.length == 1 ? '' : 's'}',
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// The "+" of a section: a note, a photo, or a recorded memo.
-class _AddButton extends StatelessWidget {
-  const _AddButton({required this.vm, required this.kind});
-
-  final KnowledgeViewModel vm;
-  final KnowledgeKind kind;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = !vm.busy && vm.indexes(kind);
-    return switch (kind) {
-      KnowledgeKind.note => TextButton.icon(
-        key: const Key('knowledge-add-note'),
-        onPressed: enabled ? () => _addNote(context) : null,
-        icon: const Icon(Icons.add, size: 18),
-        label: const Text('Note'),
-      ),
-      KnowledgeKind.photo => TextButton.icon(
-        key: const Key('knowledge-add-photo'),
-        onPressed: enabled ? vm.addPhoto : null,
-        icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
-        label: const Text('Photo'),
-      ),
-      KnowledgeKind.memo => TextButton.icon(
-        key: const Key('knowledge-record'),
-        onPressed: enabled ? vm.startRecording : null,
-        icon: const Icon(Icons.fiber_manual_record, size: 18),
-        label: const Text('Record'),
-      ),
-    };
-  }
-
-  Future<void> _addNote(BuildContext context) async {
-    final note = await showModalBottomSheet<({String title, String body})>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => const _NoteSheet(),
-    );
-    if (note != null && note.body.trim().isNotEmpty) {
-      await vm.addNote(title: note.title, body: note.body);
-    }
-  }
-}
-
-/// A new note: a title and its text. Pops the two, or nothing.
-class _NoteSheet extends StatefulWidget {
-  const _NoteSheet();
-
-  @override
-  State<_NoteSheet> createState() => _NoteSheetState();
-}
-
-class _NoteSheetState extends State<_NoteSheet> {
-  final _title = TextEditingController();
-  final _body = TextEditingController();
-
-  @override
-  void dispose() {
-    _title.dispose();
-    _body.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        0,
-        20,
-        20 + MediaQuery.viewInsetsOf(context).bottom,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('New note', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          TextField(
-            key: const Key('knowledge-note-title'),
-            controller: _title,
-            decoration: const InputDecoration(labelText: 'Title'),
-            textInputAction: TextInputAction.next,
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            key: const Key('knowledge-note-body'),
-            controller: _body,
-            decoration: const InputDecoration(
-              labelText: 'Note (markdown)',
-              alignLabelWithHint: true,
-            ),
-            minLines: 3,
-            maxLines: 8,
-          ),
-          const SizedBox(height: 16),
-          FilledButton(
-            key: const Key('knowledge-note-save'),
-            onPressed: () =>
-                Navigator.pop(context, (title: _title.text, body: _body.text)),
-            child: const Text('Save and index'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _Notice extends StatelessWidget {
   const _Notice({
     required this.icon,
     required this.text,
-    required this.action,
-    required this.onAction,
+    this.action,
+    this.onAction,
   });
 
   final IconData icon;
   final String text;
-  final String action;
-  final VoidCallback onAction;
+  final String? action;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -643,12 +245,16 @@ class _Notice extends StatelessWidget {
               Icon(icon, size: 18, color: scheme.onTertiaryContainer),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  text,
-                  style: TextStyle(color: scheme.onTertiaryContainer),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Text(
+                    text,
+                    style: TextStyle(color: scheme.onTertiaryContainer),
+                  ),
                 ),
               ),
-              TextButton(onPressed: onAction, child: Text(action)),
+              if (action case final action?)
+                TextButton(onPressed: onAction, child: Text(action)),
             ],
           ),
         ),
@@ -657,62 +263,27 @@ class _Notice extends StatelessWidget {
   }
 }
 
-/// An item's index state: a spinner while it is embedded, the time it took
-/// once it is, the reason when it failed.
-class _ItemStatus extends StatelessWidget {
-  const _ItemStatus({required this.vm, required this.item});
+class _EmptyHint extends StatelessWidget {
+  const _EmptyHint({required this.icon, required this.text});
 
-  final KnowledgeViewModel vm;
-  final KnowledgeItem item;
+  final IconData icon;
+  final String text;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final muted = theme.textTheme.labelSmall?.copyWith(
-      color: theme.colorScheme.onSurfaceVariant,
-    );
-    final Widget child;
-    if (vm.indexingId == item.id) {
-      child = const SizedBox(
-        width: 16,
-        height: 16,
-        child: CircularProgressIndicator(strokeWidth: 2),
-      );
-    } else if (vm.costOf(item.id) case final cost?) {
-      child = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.check_circle, size: 14, color: theme.colorScheme.primary),
-          const SizedBox(width: 4),
-          Text(
-            [
-              if (cost.transcribe case final stt?) 'STT ${shortDuration(stt)}',
-              shortDuration(cost.embed),
-            ].join(' · '),
-            style: muted,
+    return Column(
+      children: [
+        Icon(icon, size: 40, color: theme.colorScheme.outline),
+        const SizedBox(height: 8),
+        Text(
+          text,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
           ),
-        ],
-      );
-    } else if (vm.failureOf(item.id) case final failure?) {
-      child = Tooltip(
-        message: failure,
-        child: Icon(
-          Icons.error_outline,
-          size: 16,
-          color: theme.colorScheme.error,
         ),
-      );
-    } else if (vm.isQueued(item.id)) {
-      child = Icon(Icons.schedule, size: 14, color: muted?.color);
-    } else {
-      child = Text(vm.indexes(item.kind) ? 'not indexed' : '—', style: muted);
-    }
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 250),
-      child: KeyedSubtree(
-        key: ValueKey('${item.id}-${child.runtimeType}-${vm.costOf(item.id)}'),
-        child: child,
-      ),
+      ],
     );
   }
 }
@@ -735,249 +306,6 @@ class _KindBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(size * 0.32),
       ),
       child: Icon(kindIcon(kind), color: color, size: size * 0.5),
-    );
-  }
-}
-
-class _NoteTile extends StatelessWidget {
-  const _NoteTile({required this.vm, required this.note});
-
-  final KnowledgeViewModel vm;
-  final NoteItem note;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Card(
-        key: Key('knowledge-item-${note.id}'),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _KindBadge(kind: KnowledgeKind.note, size: 36),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            note.title,
-                            style: theme.textTheme.titleSmall,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        _ItemStatus(vm: vm, item: note),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      note.body,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PhotoGrid extends StatelessWidget {
-  const _PhotoGrid({required this.vm, required this.photos});
-
-  final KnowledgeViewModel vm;
-  final List<PhotoItem> photos;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = math.max(3, (constraints.maxWidth / 140).floor());
-        const gap = 8.0;
-        final size = (constraints.maxWidth - gap * (columns - 1)) / columns;
-        return Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: [
-            for (final photo in photos)
-              SizedBox(
-                key: Key('knowledge-item-${photo.id}'),
-                width: size,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Stack(
-                      children: [
-                        KnowledgeThumb(
-                          image: vm.imageFor(photo.reference),
-                          size: size,
-                        ),
-                        Positioned(
-                          right: 6,
-                          bottom: 6,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.surface.withValues(alpha: 0.85),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: _ItemStatus(vm: vm, item: photo),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      photo.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelSmall,
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _MemoTile extends StatelessWidget {
-  const _MemoTile({required this.vm, required this.memo});
-
-  final KnowledgeViewModel vm;
-  final MemoItem memo;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Card(
-        key: Key('knowledge-item-${memo.id}'),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              MemoPlayButton(vm: vm, memo: memo),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '${memo.title} · ${clock(memo.duration)}',
-                            style: theme.textTheme.titleSmall,
-                          ),
-                        ),
-                        _ItemStatus(vm: vm, item: memo),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 300),
-                      child: Text(
-                        switch (memo.transcript) {
-                          null => 'Transcribed when it is indexed',
-                          '' => 'No speech heard',
-                          final transcript => '“$transcript”',
-                        },
-                        key: ValueKey(memo.transcript),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          fontStyle: memo.transcript == null
-                              ? FontStyle.normal
-                              : FontStyle.italic,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Recording (with its clock and Stop), then transcribing.
-class _RecordingBanner extends StatelessWidget {
-  const _RecordingBanner({required this.vm});
-
-  final KnowledgeViewModel vm;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final since = vm.recordingSince;
-    return Material(
-      key: const Key('knowledge-recording'),
-      color: scheme.errorContainer,
-      elevation: 6,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-        child: Row(
-          children: [
-            Icon(
-              vm.recording ? Icons.fiber_manual_record : Icons.hearing,
-              color: scheme.error,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: since == null
-                  ? Text(
-                      'Keeping the memo…',
-                      style: TextStyle(color: scheme.onErrorContainer),
-                    )
-                  : StreamBuilder<int>(
-                      stream: Stream.periodic(
-                        const Duration(milliseconds: 250),
-                        (i) => i,
-                      ),
-                      builder: (context, _) => Text(
-                        'Recording ${clock(DateTime.now().difference(since))}'
-                        ' / ${clock(kMaxMemo)}',
-                        style: TextStyle(color: scheme.onErrorContainer),
-                      ),
-                    ),
-            ),
-            if (vm.recording)
-              FilledButton(
-                key: const Key('knowledge-stop-recording'),
-                onPressed: vm.stopRecording,
-                child: const Text('Stop'),
-              ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -1056,8 +384,8 @@ class _WaveformState extends State<_Waveform>
             Container(
               width: 3,
               height:
-                  6 +
-                  10 *
+                  4 +
+                  12 *
                       (0.5 +
                           0.5 *
                               math.sin(
@@ -1075,17 +403,159 @@ class _WaveformState extends State<_Waveform>
   }
 }
 
-/// A photo, decoded at the size it is shown.
-class KnowledgeThumb extends StatelessWidget {
-  const KnowledgeThumb({super.key, required this.image, required this.size});
+/// A spoken question: its waveform, never its words. While it is still
+/// coming in, the bars fill from the left.
+class _VoiceBubble extends StatefulWidget {
+  const _VoiceBubble({super.key, required this.run});
 
-  final ImageProvider image;
-  final double size;
+  final AnswerRun run;
+
+  @override
+  State<_VoiceBubble> createState() => _VoiceBubbleState();
+}
+
+class _VoiceBubbleState extends State<_VoiceBubble>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _fill = AnimationController(
+    vsync: this,
+    duration: widget.run.spoken == null
+        ? Duration.zero
+        : pcmDuration(widget.run.spoken!),
+    value: widget.run.listening ? 0 : 1,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.run.listening) unawaited(_fill.forward());
+  }
+
+  @override
+  void dispose() {
+    _fill.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final px = (size * math.max(2.0, MediaQuery.devicePixelRatioOf(context)))
-        .round();
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final levels = widget.run.spokenLevels;
+    final spoken = widget.run.spoken;
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 300),
+      padding: const EdgeInsets.fromLTRB(12, 10, 14, 10),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(20),
+          topRight: Radius.circular(20),
+          bottomLeft: Radius.circular(20),
+          bottomRight: Radius.circular(4),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: scheme.onPrimaryContainer.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.mic, size: 18, color: scheme.onPrimaryContainer),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 170,
+            height: 34,
+            child: AnimatedBuilder(
+              animation: _fill,
+              builder: (context, _) => CustomPaint(
+                painter: _BubbleWavePainter(
+                  levels: levels,
+                  progress: _fill.value,
+                  color: scheme.onPrimaryContainer,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            spoken == null ? '' : clock(pcmDuration(spoken)),
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: scheme.onPrimaryContainer,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BubbleWavePainter extends CustomPainter {
+  _BubbleWavePainter({
+    required this.levels,
+    required this.progress,
+    required this.color,
+  });
+
+  final List<double> levels;
+  final double progress;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (levels.isEmpty) return;
+    final step = size.width / levels.length;
+    final on = Paint()
+      ..color = color
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = math.max(2, step * 0.55);
+    final off = Paint()
+      ..color = color.withValues(alpha: 0.25)
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = on.strokeWidth;
+    for (final (i, level) in levels.indexed) {
+      final h = math.max(3.0, math.min(1.0, level * 1.6) * size.height);
+      final x = step * (i + 0.5);
+      canvas.drawLine(
+        Offset(x, (size.height - h) / 2),
+        Offset(x, (size.height + h) / 2),
+        (i + 0.5) / levels.length <= progress ? on : off,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BubbleWavePainter old) =>
+      old.progress != progress || old.levels != levels;
+}
+
+/// A photo, decoded at the size it is shown.
+class KnowledgeThumb extends StatelessWidget {
+  const KnowledgeThumb({
+    super.key,
+    required this.image,
+    required this.size,
+    this.height,
+    this.fit = BoxFit.cover,
+  });
+
+  final ImageProvider image;
+  final double size;
+  final double? height;
+  final BoxFit fit;
+
+  @override
+  Widget build(BuildContext context) {
+    final h = height ?? size;
+    final px =
+        (math.max(size, h) *
+                math.max(2.0, MediaQuery.devicePixelRatioOf(context)))
+            .round();
     final scheme = Theme.of(context).colorScheme;
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
@@ -1097,161 +567,15 @@ class KnowledgeThumb extends StatelessWidget {
           policy: ResizeImagePolicy.fit,
         ),
         width: size,
-        height: size,
-        fit: BoxFit.cover,
+        height: h,
+        fit: fit,
         errorBuilder: (context, error, stackTrace) => Container(
           width: size,
-          height: size,
+          height: h,
           color: scheme.surfaceContainerHighest,
           child: Icon(Icons.broken_image_outlined, color: scheme.outline),
         ),
       ),
-    );
-  }
-}
-
-// ── Search ──────────────────────────────────────────────────────────────────
-
-class SearchTab extends StatelessWidget {
-  const SearchTab({
-    super.key,
-    required this.vm,
-    required this.controller,
-    required this.onSearch,
-  });
-
-  final KnowledgeViewModel vm;
-  final TextEditingController controller;
-  final void Function(String text) onSearch;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final results = vm.results;
-    final query = vm.resultsFor;
-    return ListView(
-      key: const Key('knowledge-search'),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      children: [
-        _ErrorBanner(vm: vm),
-        SearchBar(
-          key: const Key('knowledge-search-field'),
-          controller: controller,
-          hintText: 'Search notes, photos and memos',
-          leading: const Padding(
-            padding: EdgeInsets.only(left: 4),
-            child: Icon(Icons.search),
-          ),
-          trailing: [
-            if (vm.searching)
-              const Padding(
-                padding: EdgeInsets.all(12),
-                child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              )
-            else
-              IconButton(
-                key: const Key('knowledge-search-go'),
-                tooltip: 'Search',
-                onPressed: () => onSearch(controller.text),
-                icon: const Icon(Icons.arrow_forward),
-              ),
-          ],
-          elevation: const WidgetStatePropertyAll(0),
-          backgroundColor: WidgetStatePropertyAll(
-            theme.colorScheme.surfaceContainerHighest,
-          ),
-          textInputAction: TextInputAction.search,
-          onSubmitted: onSearch,
-        ),
-        const SizedBox(height: 12),
-        _Suggestions(
-          keyPrefix: 'knowledge-suggestion',
-          suggestions: kKnowledgeSuggestions,
-          onTap: onSearch,
-        ),
-        if (query != null) ...[
-          const SizedBox(height: 8),
-          _SectionHeader(
-            results.isEmpty
-                ? 'NO STRONG MATCH FOR “$query”'
-                : '${results.length} RESULT${results.length == 1 ? '' : 'S'}'
-                      '${vm.searchTook == null ? '' : ' · ${shortDuration(vm.searchTook!)}'}',
-            trailing: Text(
-              'text · images · audio',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          for (final (i, result) in results.indexed)
-            _Appear(
-              key: ValueKey('$query-${result.item.id}'),
-              delay: Duration(milliseconds: 70 * i),
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _ResultCard(
-                  key: Key('knowledge-result-$i'),
-                  vm: vm,
-                  result: result,
-                  query: query,
-                  rank: i + 1,
-                ),
-              ),
-            ),
-          if (results.isEmpty)
-            Text(
-              'Nothing stands out from the rest of its kind. Try one of the '
-              'suggestions.',
-              style: theme.textTheme.bodyMedium,
-            ),
-        ] else if (vm.indexedCount == 0)
-          const Padding(
-            padding: EdgeInsets.only(top: 24),
-            child: _EmptyHint(
-              icon: Icons.collections_bookmark_outlined,
-              text: 'Index the library first (Library tab).',
-            ),
-          )
-        else
-          const Padding(
-            padding: EdgeInsets.only(top: 24),
-            child: _EmptyHint(
-              icon: Icons.travel_explore,
-              text:
-                  'One query, three kinds of memory: notes by their words, '
-                  'photos by their pixels, voice memos by their sound.',
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _EmptyHint extends StatelessWidget {
-  const _EmptyHint({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      children: [
-        Icon(icon, size: 40, color: theme.colorScheme.outline),
-        const SizedBox(height: 8),
-        Text(
-          text,
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
     );
   }
 }
@@ -1286,57 +610,6 @@ class _Suggestions extends StatelessWidget {
             ),
         ],
       ),
-    );
-  }
-}
-
-/// Suggested questions, one per line: they are too long for chips.
-class _QuestionSuggestions extends StatelessWidget {
-  const _QuestionSuggestions({required this.onTap});
-
-  final void Function(String text)? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      children: [
-        for (final (i, question) in kKnowledgeQuestions.indexed)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Material(
-              color: theme.colorScheme.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(16),
-              child: InkWell(
-                key: Key('knowledge-question-$i'),
-                borderRadius: BorderRadius.circular(16),
-                onTap: onTap == null ? null : () => onTap!(question),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.north_east,
-                        size: 16,
-                        color: theme.colorScheme.primary,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          question,
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
     );
   }
 }
@@ -1391,327 +664,31 @@ class _AppearState extends State<_Appear> with SingleTickerProviderStateMixin {
   }
 }
 
-class _ResultCard extends StatelessWidget {
-  const _ResultCard({
-    super.key,
-    required this.vm,
-    required this.result,
-    required this.query,
-    required this.rank,
-  });
-
-  final KnowledgeViewModel vm;
-  final KnowledgeResult result;
-  final String query;
-  final int rank;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final item = result.item;
-    final hit = result.hit;
-    final color = kindColor(item.kind, theme.brightness);
-    final leading = switch (item) {
-      PhotoItem(:final reference) => KnowledgeThumb(
-        image: vm.imageFor(reference),
-        size: 72,
-      ),
-      MemoItem() => MemoPlayButton(vm: vm, memo: item, size: 52),
-      NoteItem() => const _KindBadge(kind: KnowledgeKind.note, size: 52),
-    };
-    final snippet = switch (item) {
-      NoteItem(:final body) => body,
-      MemoItem(:final transcript?) when transcript.isNotEmpty =>
-        '“$transcript”',
-      MemoItem(transcript: '') => 'No speech heard',
-      MemoItem() => 'No transcript yet',
-      PhotoItem() => 'Found by what is in the picture — no caption, no OCR',
-    };
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                leading,
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(kindIcon(item.kind), size: 14, color: color),
-                          const SizedBox(width: 4),
-                          Text(
-                            [
-                              item.kind.label.toUpperCase(),
-                              if (item case MemoItem(:final duration))
-                                clock(duration),
-                            ].join(' · '),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: color,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.6,
-                            ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            '#$rank',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        item.title,
-                        style: theme.textTheme.titleSmall,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      _Highlighted(
-                        text: snippet,
-                        query: item is PhotoItem ? '' : query,
-                        color: color,
-                        italic: item is MemoItem,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            _RelevanceBar(hit: hit, color: color),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Highlighted extends StatelessWidget {
-  const _Highlighted({
-    required this.text,
-    required this.query,
-    required this.color,
-    this.italic = false,
-  });
-
-  final String text;
-  final String query;
-  final Color color;
-  final bool italic;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final base = theme.textTheme.bodySmall?.copyWith(
-      color: theme.colorScheme.onSurfaceVariant,
-      fontStyle: italic ? FontStyle.italic : null,
-      height: 1.35,
-    );
-    return Text.rich(
-      TextSpan(
-        style: base,
-        children: [
-          for (final part in highlight(text, query))
-            TextSpan(
-              text: part.text,
-              style: part.match
-                  ? TextStyle(
-                      color: theme.colorScheme.onSurface,
-                      fontWeight: FontWeight.w700,
-                      backgroundColor: color.withValues(alpha: 0.22),
-                    )
-                  : null,
-            ),
-        ],
-      ),
-      maxLines: 3,
-      overflow: TextOverflow.ellipsis,
-    );
-  }
-}
-
-/// How far a hit stands out from the rest of its kind (its lift, see
-/// knowledge_ranking.dart), with the raw cosine beside it.
-class _RelevanceBar extends StatelessWidget {
-  const _RelevanceBar({required this.hit, required this.color});
-
-  final RankedHit hit;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      children: [
-        Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: hit.strength),
-              duration: const Duration(milliseconds: 700),
-              curve: Curves.easeOutCubic,
-              builder: (context, value, _) => LinearProgressIndicator(
-                value: value,
-                minHeight: 6,
-                color: color,
-                backgroundColor: color.withValues(alpha: 0.14),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Text(
-          'cos ${hit.similarity.toStringAsFixed(2)}',
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ── Ask ─────────────────────────────────────────────────────────────────────
-
-class AskTab extends StatelessWidget {
-  const AskTab({
-    super.key,
-    required this.vm,
-    required this.controller,
-    required this.onAsk,
-    required this.onOpenList,
-  });
-
-  final KnowledgeViewModel vm;
-  final TextEditingController controller;
-  final void Function(String text) onAsk;
-  final OpenModelList onOpenList;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final llm = vm.setup?.llm;
-    return ListView(
-      key: const Key('knowledge-ask'),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      children: [
-        _ErrorBanner(vm: vm),
-        if (llm == null)
-          _Notice(
-            icon: Icons.auto_awesome_outlined,
-            text:
-                'Answers need a language model: install Gemma 4 E2B from the '
-                'Inference Models list.',
-            action: 'Install',
-            onAction: () => onOpenList(KnowledgeModelList.llm),
-          ),
-        TextField(
-          key: const Key('knowledge-ask-field'),
-          controller: controller,
-          enabled: llm != null,
-          minLines: 1,
-          maxLines: 4,
-          textInputAction: TextInputAction.send,
-          onSubmitted: onAsk,
-          decoration: InputDecoration(
-            hintText: 'Ask about your notes, photos and memos',
-            filled: true,
-            fillColor: theme.colorScheme.surfaceContainerHighest,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(24),
-              borderSide: BorderSide.none,
-            ),
-            contentPadding: const EdgeInsets.fromLTRB(20, 14, 8, 14),
-            suffixIcon: Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: vm.asking
-                  ? IconButton.filledTonal(
-                      key: const Key('knowledge-ask-stop'),
-                      tooltip: 'Stop',
-                      onPressed: vm.stopAnswer,
-                      icon: const Icon(Icons.stop_rounded),
-                    )
-                  : IconButton.filled(
-                      key: const Key('knowledge-ask-send'),
-                      tooltip: 'Ask',
-                      onPressed: llm == null
-                          ? null
-                          : () => onAsk(controller.text),
-                      icon: const Icon(Icons.arrow_upward_rounded),
-                    ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        // Suggestions until the first question; then the conversation.
-        if (vm.question == null)
-          _QuestionSuggestions(onTap: llm == null ? null : onAsk),
-        if (vm.question case final question?) ...[
-          const SizedBox(height: 16),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 320),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(18),
-                  topRight: Radius.circular(18),
-                  bottomLeft: Radius.circular(18),
-                  bottomRight: Radius.circular(4),
-                ),
-              ),
-              child: Text(
-                question,
-                style: TextStyle(color: theme.colorScheme.onPrimaryContainer),
-              ),
-            ),
-          ),
-          if (vm.answerSources.isNotEmpty) ...[
-            const _SectionHeader('FROM YOUR LIBRARY'),
-            _SourcesStrip(vm: vm),
-          ],
-          const SizedBox(height: 12),
-          _AnswerCard(vm: vm),
-        ],
-      ],
-    );
-  }
-}
+// ── Answers (Ask and Live) ──────────────────────────────────────────────────
 
 /// The retrieved items, numbered as the answer cites them.
 class _SourcesStrip extends StatelessWidget {
-  const _SourcesStrip({required this.vm});
+  const _SourcesStrip({required this.vm, required this.run});
 
   final KnowledgeViewModel vm;
+  final AnswerRun run;
 
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<String>(
-      valueListenable: vm.answer,
+      valueListenable: run.text,
       builder: (context, answer, _) {
         final cited = citedSources(answer);
         return SizedBox(
           height: 72,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemCount: vm.answerSources.length,
+            itemCount: run.sources.length,
             separatorBuilder: (_, _) => const SizedBox(width: 8),
             itemBuilder: (context, i) => _SourceChip(
               vm: vm,
-              source: vm.answerSources[i],
-              cited: cited.contains(vm.answerSources[i].number),
+              source: run.sources[i],
+              cited: cited.contains(run.sources[i].number),
             ),
           ),
         );
@@ -1736,6 +713,11 @@ class _SourceChip extends StatelessWidget {
     final theme = Theme.of(context);
     final item = source.item;
     final color = kindColor(item.kind, theme.brightness);
+    final sent = switch (item) {
+      PhotoItem() when source.attached => ' · seen',
+      MemoItem() when source.attached => ' · heard',
+      _ => '',
+    };
     return AnimatedContainer(
       key: Key('knowledge-source-${source.number}'),
       duration: const Duration(milliseconds: 300),
@@ -1769,8 +751,9 @@ class _SourceChip extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  '[${source.number}] ${item.kind.label}'
-                  '${source.attached ? ' · seen' : ''}',
+                  '[${source.number}] ${item.kind.label}$sent',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: color,
                     fontWeight: FontWeight.w700,
@@ -1791,94 +774,266 @@ class _SourceChip extends StatelessWidget {
   }
 }
 
-/// The streamed answer, its citations drawn as small numbered pills.
+/// The streamed answer, its citations drawn as small numbered pills, and
+/// under it a card for each source it cites.
 class _AnswerCard extends StatelessWidget {
-  const _AnswerCard({required this.vm});
+  const _AnswerCard({
+    required this.vm,
+    required this.run,
+    this.cardKey = const Key('knowledge-answer'),
+    this.highlighted = false,
+  });
 
   final KnowledgeViewModel vm;
+  final AnswerRun run;
+  final Key cardKey;
+
+  /// Live's climax: the answer card stands out.
+  final bool highlighted;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final llm = vm.setup?.llm;
-    return Card(
-      key: const Key('knowledge-answer'),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.auto_awesome,
-                  size: 18,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  llm?.name ?? 'Answer',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: theme.colorScheme.primary,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Card(
+          key: cardKey,
+          color: highlighted
+              ? Color.alphaBlend(
+                  theme.colorScheme.primary.withValues(alpha: 0.10),
+                  theme.colorScheme.surfaceContainerHigh,
+                )
+              : null,
+          shape: highlighted
+              ? RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  side: BorderSide(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.6),
+                    width: 1.5,
                   ),
+                )
+              : null,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.auto_awesome,
+                      size: 18,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      llm?.name ?? 'Answer',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 8),
+                ValueListenableBuilder<String>(
+                  valueListenable: run.text,
+                  builder: (context, answer, _) {
+                    if (answer.isEmpty && run.busy) {
+                      return _Thinking(vm: vm, run: run);
+                    }
+                    return _CitedText(
+                      run: run,
+                      text: answer.trim(),
+                      streaming: run.busy,
+                    );
+                  },
+                ),
+                if (_stats(vm, run) case final stats?) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    stats,
+                    key: const Key('knowledge-answer-stats'),
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ],
             ),
-            const SizedBox(height: 8),
-            ValueListenableBuilder<String>(
-              valueListenable: vm.answer,
-              builder: (context, answer, _) {
-                if (answer.isEmpty && vm.asking) {
-                  return _Thinking(vm: vm);
-                }
-                return _CitedText(
-                  vm: vm,
-                  text: answer.trim(),
-                  streaming: vm.asking,
-                );
-              },
-            ),
-            if (_stats(vm) case final stats?) ...[
-              const SizedBox(height: 12),
-              Text(
-                stats,
-                key: const Key('knowledge-answer-stats'),
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ],
+          ),
         ),
-      ),
+        ValueListenableBuilder<String>(
+          valueListenable: run.text,
+          builder: (context, answer, _) {
+            final cited = [
+              for (final n in citedSources(answer))
+                ?run.sources.where((s) => s.number == n).firstOrNull,
+            ];
+            if (cited.isEmpty || run.busy) return const SizedBox.shrink();
+            return Column(
+              children: [
+                for (final source in cited)
+                  _Appear(
+                    key: ValueKey('cite-${run.question}-${source.number}'),
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: _CitationCard(
+                        vm: vm,
+                        source: source,
+                        compact: highlighted,
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
     );
   }
 
-  static String? _stats(KnowledgeViewModel vm) {
+  static String? _stats(KnowledgeViewModel vm, AnswerRun run) {
     final parts = [
-      if (vm.retrievalTook case final t?) 'retrieved in ${shortDuration(t)}',
-      if (vm.firstWordsAfter case final t?) 'first words ${shortDuration(t)}',
-      if (vm.answerTook case final t?) 'done in ${shortDuration(t)}',
+      if (run.retrievalTook case final t?) 'retrieved in ${shortDuration(t)}',
+      if (run.firstWordsAfter case final t?) 'first words ${shortDuration(t)}',
+      if (run.chunksPerSecond case final rate?)
+        '${rate.toStringAsFixed(1)} tok/s',
       if (vm.llmBackend case final backend? when vm.llmState == LlmState.ready)
         'on $backend',
-      if (vm.answerSources.any((s) => s.attached)) '1 photo seen',
+      if (run.sentImage) 'photo sent',
+      if (run.sentAudio) 'audio sent',
     ];
     return parts.isEmpty ? null : parts.join(' · ');
   }
 }
 
-class _Thinking extends StatelessWidget {
-  const _Thinking({required this.vm});
+/// A cited source, large: the photo the answer was read from, the note, the
+/// memo.
+class _CitationCard extends StatelessWidget {
+  const _CitationCard({
+    required this.vm,
+    required this.source,
+    this.compact = false,
+  });
 
   final KnowledgeViewModel vm;
+  final KnowledgeSource source;
+
+  /// Smaller, in Live, where the photo already surfaced above.
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final item = source.item;
+    final color = kindColor(item.kind, theme.brightness);
+    final caption = switch (item) {
+      PhotoItem() when source.attached => 'Read from this photo',
+      PhotoItem() => 'Photo',
+      MemoItem() when source.attached => 'Heard in this memo',
+      MemoItem() => 'Voice memo',
+      NoteItem() => 'Note',
+    };
+    return Container(
+      key: Key('knowledge-citation-${source.number}'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: 0.7), width: 1.5),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          switch (item) {
+            PhotoItem(:final reference) => KnowledgeThumb(
+              image: vm.imageFor(reference),
+              size: compact ? 64 : 110,
+              height: compact ? 88 : 150,
+              fit: BoxFit.contain,
+            ),
+            MemoItem() => MemoPlayButton(vm: vm, memo: item, size: 56),
+            NoteItem() => const _KindBadge(kind: KnowledgeKind.note, size: 56),
+          },
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${source.number}',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: color,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        caption.toUpperCase(),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: color,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(item.title, style: theme.textTheme.titleSmall),
+                const SizedBox(height: 4),
+                Text(
+                  switch (item) {
+                    NoteItem(:final body) => body,
+                    PhotoItem() =>
+                      'No caption, no OCR: EmbeddingGemma 2 found it by what '
+                          'it shows, Gemma 4 read it.',
+                    MemoItem(:final duration) =>
+                      '${clock(duration)} · found by what is said in it',
+                  },
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Thinking extends StatelessWidget {
+  const _Thinking({required this.vm, required this.run});
+
+  final KnowledgeViewModel vm;
+  final AnswerRun run;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final text = switch (vm.llmState) {
       LlmState.loading => 'Loading ${vm.setup?.llm?.name ?? 'the model'}…',
-      _ when vm.answerSources.any((s) => s.attached) =>
-        'Reading the sources and looking at the photo…',
+      _ when run.sentImage => 'Looking at the photo…',
+      _ when run.sentAudio => 'Listening…',
       _ => 'Reading the sources…',
     };
     return Row(
@@ -1904,12 +1059,12 @@ class _Thinking extends StatelessWidget {
 
 class _CitedText extends StatelessWidget {
   const _CitedText({
-    required this.vm,
+    required this.run,
     required this.text,
     required this.streaming,
   });
 
-  final KnowledgeViewModel vm;
+  final AnswerRun run;
   final String text;
   final bool streaming;
 
@@ -1921,7 +1076,7 @@ class _CitedText extends StatelessWidget {
     var last = 0;
     for (final match in RegExp(r'\[(\d+(?:\s*,\s*\d+)*)\]').allMatches(text)) {
       if (match.start > last) {
-        spans.add(TextSpan(text: text.substring(last, match.start)));
+        spans.addAll(_amounts(text.substring(last, match.start)));
       }
       // Punctuation right after a citation stays with it, so a line never
       // starts with the full stop that ends the cited sentence.
@@ -1945,7 +1100,7 @@ class _CitedText extends StatelessWidget {
       );
       last = end;
     }
-    if (last < text.length) spans.add(TextSpan(text: text.substring(last)));
+    if (last < text.length) spans.addAll(_amounts(text.substring(last)));
     if (streaming) {
       spans.add(
         WidgetSpan(
@@ -1960,9 +1115,30 @@ class _CitedText extends StatelessWidget {
     );
   }
 
+  /// [text] with its amounts ("26.50", "£40") in bold: what was read off a
+  /// receipt stands out.
+  static List<InlineSpan> _amounts(String text) {
+    final spans = <InlineSpan>[];
+    var last = 0;
+    for (final m in RegExp(r'[£$€]?\d+[.,]\d{2}\b').allMatches(text)) {
+      if (m.start > last) {
+        spans.add(TextSpan(text: text.substring(last, m.start)));
+      }
+      spans.add(
+        TextSpan(
+          text: m.group(0),
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+      );
+      last = m.end;
+    }
+    if (last < text.length) spans.add(TextSpan(text: text.substring(last)));
+    return spans;
+  }
+
   /// A source number as a small pill in its kind's color.
   Widget _citation(ThemeData theme, int? n) {
-    final source = vm.answerSources.where((s) => s.number == n).firstOrNull;
+    final source = run.sources.where((s) => s.number == n).firstOrNull;
     final color = source == null
         ? theme.colorScheme.outline
         : kindColor(source.item.kind, theme.brightness);
@@ -2047,25 +1223,27 @@ Future<void> showKnowledgeAbout(BuildContext context, KnowledgeViewModel vm) {
                 '${embedder == null ? '' : ' (${embedder.name})'} turns notes '
                 '(their text), photos (their pixels) and voice memos (their '
                 'sound) into vectors in ONE space, each kind in its own '
-                'SQLite index (flutter_edge_ai_rag, sqlite-vec).',
+                'SQLite index (flutter_edge_ai_rag, sqlite-vec). Nothing is '
+                'transcribed and nothing is captioned.',
               ),
               para(
-                'A text query is compared with all three. Each kind has its '
-                'own baseline similarity, so a hit is ranked by how far it '
-                'stands out from the rest of its kind (its similarity minus '
-                'the median of its kind); the bar shows that, the number is '
-                'the raw cosine.',
+                'A query — text, a photo, or a few seconds of a meeting — is '
+                'compared with all three. Each kind has its own baseline '
+                'similarity, so a hit is ranked by how far it stands out from '
+                'the rest of its kind; the bar shows that, the number is the '
+                'raw cosine.',
               ),
               para(
-                'Voice memos are found by their sound, not their transcript: '
-                'the transcript (from the speech-to-text model) is only what '
-                'you read, and what the language model reads.',
-              ),
-              para(
-                'Ask retrieves the closest $kAnswerSources items, sends them '
-                'to the language model as numbered sources — the best photo '
-                'as an image, when the model sees images — and the answer '
+                'Ask retrieves the closest $kAnswerSources items and sends '
+                'them to Gemma 4 as numbered sources — the best photo as an '
+                'image and the best memo as a recording — and the answer '
                 'cites them.',
+              ),
+              para(
+                'Live cuts the meeting into windows of about five seconds. '
+                'EmbeddingGemma 2 files each one by its sound; Gemma 4 hears '
+                'it and names any question asked, which is then answered '
+                'from your library.',
               ),
             ],
           ),
@@ -2074,3 +1252,6 @@ Future<void> showKnowledgeAbout(BuildContext context, KnowledgeViewModel vm) {
     },
   );
 }
+
+/// A window's place in the meeting: "0:13–0:18".
+String windowSpan(MeetingWindow w) => '${clock(w.start)}–${clock(w.end)}';

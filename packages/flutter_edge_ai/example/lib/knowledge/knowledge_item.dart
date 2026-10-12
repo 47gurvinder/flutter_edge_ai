@@ -54,7 +54,6 @@ sealed class KnowledgeItem {
         title: title,
         reference: _reference(json),
         duration: Duration(milliseconds: json['durationMs'] as int? ?? 0),
-        transcript: json['transcript'] as String?,
       ),
       final kind => throw FormatException('unknown knowledge kind', kind),
     };
@@ -116,31 +115,20 @@ final class PhotoItem extends KnowledgeItem {
   };
 }
 
-/// A voice memo. The audio index embeds the sound itself; [transcript] (from
-/// the active speech-to-text model) is what the screen shows and what the
-/// language model reads.
+/// A voice memo. The audio index embeds the sound itself — there is no
+/// transcript: a memo is found by what is said in it, and a language model
+/// that hears audio is given the recording.
 final class MemoItem extends KnowledgeItem {
   const MemoItem({
     required super.id,
     required super.title,
     required this.reference,
     required this.duration,
-    this.transcript,
     super.seeded = false,
   });
 
   final String reference;
   final Duration duration;
-  final String? transcript;
-
-  MemoItem withTranscript(String transcript) => MemoItem(
-    id: id,
-    title: title,
-    reference: reference,
-    duration: duration,
-    transcript: transcript,
-    seeded: seeded,
-  );
 
   @override
   KnowledgeKind get kind => KnowledgeKind.memo;
@@ -152,6 +140,5 @@ final class MemoItem extends KnowledgeItem {
     'title': title,
     'ref': reference,
     'durationMs': duration.inMilliseconds,
-    'transcript': ?transcript,
   };
 }

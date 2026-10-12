@@ -1,12 +1,15 @@
 // The Knowledge screen's pure parts: ranking across kinds by lift, snippet
-// highlighting, splitting a memo for a speech-to-text window, the prompt and
-// its citations, and the saved library.
+// highlighting, cutting audio at its quietest moment, Live's utterance
+// windows and question parsing, the prompt and its citations, and the saved
+// library.
 
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_edge_ai_example/knowledge/knowledge_audio.dart';
 import 'package:flutter_edge_ai_example/knowledge/knowledge_item.dart';
 import 'package:flutter_edge_ai_example/knowledge/knowledge_library.dart';
+import 'package:flutter_edge_ai_example/knowledge/knowledge_live.dart';
 import 'package:flutter_edge_ai_example/knowledge/knowledge_prompt.dart';
 import 'package:flutter_edge_ai_example/knowledge/knowledge_ranking.dart';
 import 'package:flutter_edge_ai_example/knowledge/knowledge_seed.dart';
@@ -16,6 +19,21 @@ import 'package:flutter_test/flutter_test.dart';
 List<ScoredDocument> _docs(String prefix, List<double> scores) => [
   for (final (i, s) in scores.indexed) (id: '$prefix$i', similarity: s),
 ];
+
+/// 16 kHz mono PCM16: each span [ms] long at [amplitude] (0 is silence).
+Uint8List speech(List<(int ms, int amplitude)> spans) {
+  final samples = <int>[];
+  for (final (ms, amplitude) in spans) {
+    for (var i = 0; i < ms * 16; i++) {
+      samples.add(i.isEven ? amplitude : -amplitude);
+    }
+  }
+  final bytes = ByteData(samples.length * 2);
+  for (final (i, s) in samples.indexed) {
+    bytes.setInt16(i * 2, s, Endian.little);
+  }
+  return bytes.buffer.asUint8List();
+}
 
 void main() {
   group('rankAcrossKinds', () {
@@ -80,20 +98,6 @@ void main() {
   });
 
   group('splitForSpeechWindow', () {
-    Uint8List speech(List<(int ms, int amplitude)> spans) {
-      final samples = <int>[];
-      for (final (ms, amplitude) in spans) {
-        for (var i = 0; i < ms * 16; i++) {
-          samples.add(i.isEven ? amplitude : -amplitude);
-        }
-      }
-      final bytes = ByteData(samples.length * 2);
-      for (final (i, s) in samples.indexed) {
-        bytes.setInt16(i * 2, s, Endian.little);
-      }
-      return bytes.buffer.asUint8List();
-    }
-
     test('a memo inside the window stays whole', () {
       final pcm = speech([(4000, 1000)]);
       expect(splitForSpeechWindow(pcm, window: const Duration(seconds: 5)), [
@@ -131,6 +135,117 @@ void main() {
     });
   });
 
+  group('MeetingWindower', () {
+    List<({Duration start, Uint8List pcm})> feed(
+      MeetingWindower windower,
+      Uint8List pcm, {
+      int chunk = 3200,
+    }) => [
+      for (var i = 0; i < pcm.length; i += chunk)
+        ...windower.add(
+          Uint8List.sublistView(pcm, i, math.min(i + chunk, pcm.length)),
+        ),
+    ];
+
+    test('cuts at the first pause once a window holds enough speech, and '
+        'leaves leading silence out', () {
+      final windower = MeetingWindower();
+      final windows = feed(
+        windower,
+        speech([
+          (500, 0),
+          (2000, 3000),
+          (400, 0),
+          (1000, 3000),
+          (100, 0), // too short a pause
+          (1200, 3000),
+          (400, 0),
+        ]),
+      );
+      expect(windows, hasLength(2));
+      expect(windows[0].start, const Duration(milliseconds: 500));
+      expect(
+        pcmDuration(windows[0].pcm).inMilliseconds,
+        inInclusiveRange(2280, 2300),
+        reason: 'the speech and the pause that ended it',
+      );
+      // The rest of the pause is the next window's leading silence.
+      expect(windows[1].start, const Duration(milliseconds: 2900));
+      expect(
+        pcmDuration(windows[1].pcm).inMilliseconds,
+        greaterThan(2300),
+        reason: 'a 100 ms pause does not end a window',
+      );
+      expect(windower.heard, const Duration(milliseconds: 5600));
+    });
+
+    test('speech without a pause is cut at the longest window', () {
+      final windower = MeetingWindower();
+      final windows = feed(windower, speech([(9000, 3000)]));
+      expect(windows, hasLength(1));
+      expect(pcmDuration(windows.single.pcm), kLiveMaxWindow);
+      final tail = windower.flush();
+      expect(pcmDuration(tail!.pcm), const Duration(seconds: 3));
+      expect(tail.start, kLiveMaxWindow);
+    });
+
+    test('a tail too short to hear is dropped', () {
+      final windower = MeetingWindower();
+      expect(feed(windower, speech([(500, 3000)])), isEmpty);
+      expect(windower.flush(), isNull);
+    });
+
+    test('chunk size does not change the windows', () {
+      final pcm = speech([
+        (300, 0),
+        (2500, 3000),
+        (500, 0),
+        (2100, 2000),
+        (300, 0),
+      ]);
+      String shape(int chunk) => [
+        for (final w in feed(MeetingWindower(), pcm, chunk: chunk))
+          '${w.start.inMilliseconds}+${pcmDuration(w.pcm).inMilliseconds}',
+      ].join(' ');
+      expect(shape(640), shape(3200));
+      expect(shape(1000), shape(3200));
+    });
+
+    test('pcmLevel is 0 for silence and rises with loudness', () {
+      expect(pcmLevel(speech([(100, 0)])), 0);
+      expect(
+        pcmLevel(speech([(100, 3000)])),
+        greaterThan(pcmLevel(speech([(100, 300)]))),
+      );
+      expect(pcmLevel(speech([(100, 32000)])), 1.0);
+    });
+  });
+
+  group('parseLiveQuestion', () {
+    test('reads the question Gemma 4 names', () {
+      expect(
+        parseLiveQuestion('QUESTION: How much did the airport taxi cost?'),
+        'How much did the airport taxi cost?',
+      );
+      expect(
+        parseLiveQuestion('question:  Wait, when is the dentist\nmore'),
+        'Wait, when is the dentist',
+      );
+    });
+
+    test('NONE, other replies and statements named as questions are none', () {
+      expect(parseLiveQuestion('NONE'), isNull);
+      expect(parseLiveQuestion('QUESTION: NONE'), isNull);
+      expect(parseLiveQuestion('Okay, quick sync before the weekend.'), isNull);
+      expect(
+        parseLiveQuestion(
+          'QUESTION: Also, the office kitchen lights keep flickering again.',
+        ),
+        isNull,
+      );
+    });
+  });
+
   group('prompt', () {
     const note = NoteItem(id: 'n', title: 'London trip', body: 'Terminal 5.');
     const photo = PhotoItem(id: 'p', title: 'IMG_1', reference: 'asset:x');
@@ -139,26 +254,35 @@ void main() {
       title: 'Voice memo 1',
       reference: 'asset:y',
       duration: Duration(seconds: 4),
-      transcript: ' Call Mom. ',
     );
 
-    test('numbers the sources and says which photo is attached', () {
+    test('numbers the sources and says which photo and memo are attached', () {
       final prompt = buildKnowledgePrompt(' When? ', [
         (number: 1, item: photo, attached: true),
         (number: 2, item: note, attached: false),
-        (number: 3, item: memo, attached: false),
+        (number: 3, item: memo, attached: true),
         (number: 4, item: photo, attached: false),
+        (number: 5, item: memo, attached: false),
       ]);
       expect(
         prompt,
         'Sources:\n'
         '[1] Photo: the attached image\n'
         '[2] Note "London trip": Terminal 5.\n'
-        '[3] Voice memo, transcript: "Call Mom."\n'
+        '[3] Voice memo: the attached recording\n'
         '[4] Photo (not shown to you)\n'
+        '[5] Voice memo (not played to you)\n'
         '\n'
         'Question: When?',
       );
+    });
+
+    test('a spoken question is the recording, never written out', () {
+      final prompt = buildKnowledgePrompt('Spoken question', [
+        (number: 1, item: photo, attached: true),
+      ], spoken: true);
+      expect(prompt, isNot(contains('Spoken question')));
+      expect(prompt, contains('it is the attached recording'));
     });
 
     test('reads the citations of an answer', () {
@@ -168,32 +292,18 @@ void main() {
   });
 
   group('library', () {
-    test('saves the user\'s items, the samples\' transcripts and what is '
-        'indexed per embedding space', () {
+    test('saves the user\'s items and what is indexed per embedding '
+        'space', () {
       final library = KnowledgeLibrary.seeded()
         ..add(const NoteItem(id: 'note-1', title: 'Mine', body: 'text'))
-        ..replace(
-          (KnowledgeLibrary.seeded().byId('memo-mom')! as MemoItem)
-              .withTranscript('Call Mom on Sunday.'),
-        )
-        ..markIndexed('space-a', 'note-1', (
-          embed: const Duration(milliseconds: 40),
-          transcribe: null,
-        ))
-        ..markIndexed('space-a', 'memo-mom', (
-          embed: const Duration(milliseconds: 160),
-          transcribe: const Duration(milliseconds: 90),
-        ));
+        ..markIndexed('space-a', 'note-1', const Duration(milliseconds: 40))
+        ..markIndexed('space-a', 'memo-mom', const Duration(milliseconds: 160));
       final restored = KnowledgeLibrary.decode(library.encode());
       expect(restored.items, hasLength(library.items.length));
       expect((restored.byId('note-1')! as NoteItem).body, 'text');
       expect(
-        (restored.byId('memo-mom')! as MemoItem).transcript,
-        'Call Mom on Sunday.',
-      );
-      expect(
-        restored.indexedIn('space-a')['memo-mom']!.transcribe,
-        const Duration(milliseconds: 90),
+        restored.indexedIn('space-a')['memo-mom'],
+        const Duration(milliseconds: 160),
       );
       expect(restored.indexedIn('space-b'), isEmpty);
       restored.forgetIndexed('space-a', kind: KnowledgeKind.memo);

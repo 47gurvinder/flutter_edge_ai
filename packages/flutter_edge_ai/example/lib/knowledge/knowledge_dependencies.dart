@@ -28,27 +28,27 @@ final class KnowledgeEmbedderInfo {
 
   /// npu for a per-SoC bundle, null (CPU natively) for every other.
   final PreferredBackend? backend;
-}
 
-/// The active speech-to-text model, as the Speech-to-Text list left it.
-final class KnowledgeSttInfo {
-  const KnowledgeSttInfo({required this.name, required this.window});
-
-  final String name;
-
-  /// How much audio it hears at once; longer memos are transcribed in
-  /// pieces.
-  final Duration window;
+  /// Whether it embeds audio here: voice memos, and Live's meeting windows.
+  bool get embedsAudio => kinds.contains(KnowledgeKind.memo);
 }
 
 /// The active language model, as the Inference Models list left it.
 final class KnowledgeLlmInfo {
-  const KnowledgeLlmInfo({required this.name, required this.seesImages});
+  const KnowledgeLlmInfo({
+    required this.name,
+    required this.seesImages,
+    required this.hearsAudio,
+  });
 
   final String name;
 
   /// Whether a retrieved photo is sent along with the question.
   final bool seesImages;
+
+  /// Whether it takes audio: a retrieved memo is played to it, and Live
+  /// sends it the meeting.
+  final bool hearsAudio;
 }
 
 /// What is installed and active. A null part is missing: the screen says
@@ -57,7 +57,6 @@ final class KnowledgeSetup {
   const KnowledgeSetup({
     this.embedder,
     this.embedderProblem,
-    this.stt,
     this.llm,
     required this.audioSupported,
     this.preloadLlm = true,
@@ -67,36 +66,45 @@ final class KnowledgeSetup {
 
   /// Why there is no usable embedder, ready to show; null when there is one.
   final String? embedderProblem;
-  final KnowledgeSttInfo? stt;
   final KnowledgeLlmInfo? llm;
 
-  /// Whether this platform records and plays voice memos (not the web).
+  /// Whether this platform records and plays audio (not the web).
   final bool audioSupported;
 
   /// Whether the language model may load in the background while the user
   /// searches: not on the web, where it and the vision encoder take turns.
   final bool preloadLlm;
+
+  /// Whether Live can run: the embedder embeds audio and the language model
+  /// hears it.
+  bool get liveSupported =>
+      audioSupported &&
+      (embedder?.embedsAudio ?? false) &&
+      (llm?.hearsAudio ?? false);
 }
 
-/// The language model behind Ask.
+/// The language model behind Ask and Live. Calls are serialized by the view
+/// model: one session at a time.
 abstract interface class KnowledgeAnswerer {
   /// Loads the active language model unless it is loaded; returns what it
   /// runs on, e.g. "gpu".
   Future<String> warmUp();
 
-  /// Streams the answer to [prompt], with [image] (encoded) when one is sent.
-  /// A fresh session per answer, closed when the stream ends.
+  /// Streams the reply to [prompt], with [images] and [audio] (encoded WAV)
+  /// when sent. A fresh session per call, closed when the stream ends.
   Stream<String> answer({
     required String systemInstruction,
     required String prompt,
-    Uint8List? image,
+    List<Uint8List> images = const [],
+    Uint8List? audio,
+    int maxOutputTokens = 220,
   });
 
-  /// Stops the answer being generated.
+  /// Stops the reply being generated.
   Future<void> stop();
 }
 
-/// Plays voice memos.
+/// Plays voice memos and the sample meeting.
 abstract interface class KnowledgeMemoPlayer {
   /// Plays [reference]; completes when it has finished or was stopped.
   Future<void> play(String reference);
@@ -147,7 +155,7 @@ abstract interface class KnowledgeMedia {
   Future<void> forget(String reference);
 }
 
-/// Saves the library (user items, transcripts, what is indexed).
+/// Saves the library (user items, what is indexed).
 abstract interface class KnowledgeLibraryStore {
   Future<String?> read();
   Future<void> write(String json);
@@ -160,17 +168,17 @@ final class KnowledgeDependencies {
     required this.readSetup,
     required this.embedderFor,
     required this.openIndex,
+    required this.openMeetingIndex,
     required this.library,
     required this.media,
-    required this.transcribe,
     required this.answerer,
     required this.player,
     required this.recorder,
+    required this.microphone,
     required this.pickPhoto,
     this.preparePhoto = preparePhotoForEmbedding,
     this.beforeEmbedding = _released,
     this.beforeAnswer = _nothing,
-    this.release = _nothing,
     this.now = DateTime.now,
   });
 
@@ -189,22 +197,23 @@ final class KnowledgeDependencies {
   )
   openIndex;
 
+  /// Opens Live's meeting index (audio windows) for the active embedder.
+  final Future<RagIndex> Function(KnowledgeEmbedderInfo info) openMeetingIndex;
+
   final KnowledgeLibraryStore library;
   final KnowledgeMedia media;
-
-  /// Transcribes 16 kHz mono PCM16 with the active speech-to-text model, in
-  /// pieces of its window.
-  final Future<String> Function(Uint8List pcm16kMono, KnowledgeSttInfo stt)
-  transcribe;
-
   final KnowledgeAnswerer answerer;
   final KnowledgeMemoPlayer player;
   final KnowledgeRecorder recorder;
 
+  /// The microphone as 16 kHz mono PCM16 chunks; cancelling the
+  /// subscription stops it. Errors as [KnowledgeRecorderException].
+  final Stream<Uint8List> Function() microphone;
+
   /// A photo from the library; null when the user cancelled.
   final Future<({String name, Uint8List bytes})?> Function() pickPhoto;
 
-  /// Upright, at most 1024 px, as a BMP (what the model gets).
+  /// Upright, at most 1024 px, as a BMP (what the models get).
   final Future<PreparedPhoto> Function(Uint8List encoded) preparePhoto;
 
   /// Runs before anything is embedded, and before Ask: on the web, where
@@ -216,9 +225,6 @@ final class KnowledgeDependencies {
   /// Runs before the language model loads: on the web it releases the
   /// embedder's vision encoder.
   final Future<void> Function() beforeAnswer;
-
-  /// Closes what the dependencies opened (the speech recognizer).
-  final Future<void> Function() release;
 
   final DateTime Function() now;
 
