@@ -2,6 +2,9 @@
 // with the real models. Everything up to the `[clip] … start` line is setup
 // (index the library, load Gemma 4, open the tab); cut the recording there.
 //
+//   --dart-define=KNOWLEDGE_CLIP=search  search as it is typed: "the airport
+//       taxi receipt" and the Russian "чек за такси" find the receipt photo,
+//       then "Find similar" searches the photos with it.
 //   --dart-define=KNOWLEDGE_CLIP=ask   "How much was the airport taxi?": the
 //       amount is only in the receipt photo; EmbeddingGemma 2 finds the
 //       uncaptioned photo by meaning, Gemma 4 reads the total off it, and a
@@ -195,6 +198,59 @@ Future<void> _askClip(WidgetTester tester) async {
   _mark('end');
 }
 
+/// Search as it is typed: an English and a Russian query find the receipt
+/// photo by meaning, then "Find similar" searches the photos with it.
+Future<void> _searchClip(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('knowledge-tab-search')));
+  await _pause(tester, 800);
+  _mark('start');
+  await _pause(tester, 1200);
+  final field = find.descendant(
+    of: find.byKey(const Key('knowledge-search-field')),
+    matching: find.byType(EditableText),
+  );
+  Future<String> searchFor(String text) async {
+    await _type(tester, field, text);
+    await _pause(tester, 600);
+    await _waitUntil(
+      tester,
+      () =>
+          _found(find.byKey(const Key('knowledge-result-0'))) &&
+          _found(find.byKey(const Key('knowledge-search-go'))),
+      what: '"$text"',
+    );
+    final first = _texts(find.byKey(const Key('knowledge-result-0')));
+    _mark('searched "$text" → $first');
+    await _pause(tester, 1800);
+    return first;
+  }
+
+  expect(await searchFor('the airport taxi receipt'), contains('IMG_0412'));
+  expect(
+    await searchFor('чек за такси'),
+    contains('IMG_0412'),
+    reason: 'one space across languages',
+  );
+  await _screenshot('russian');
+  final similar = find.byKey(const Key('knowledge-similar-photo-0412'));
+  await tester.ensureVisible(similar);
+  await _pause(tester, 400);
+  await tester.tap(similar);
+  _mark('similar');
+  await _waitUntil(
+    tester,
+    () =>
+        _found(find.textContaining('image → image')) &&
+        _found(find.byKey(const Key('knowledge-result-0'))),
+    what: 'similar photos',
+  );
+  _mark('similar ${_texts(find.byKey(const Key('knowledge-result-0')))}');
+  await _pause(tester, 1500);
+  await _screenshot('similar');
+  await _pause(tester, 2500);
+  _mark('end');
+}
+
 /// S2b: the question is spoken (the bundled recording, as if from the
 /// microphone); its sound is the query.
 Future<void> _askVoiceClip(WidgetTester tester) async {
@@ -303,6 +359,8 @@ void main() {
     if (_desktop) await binding.setSurfaceSize(const Size(390, 844));
     await _setUpScreen(tester);
     switch (_clip) {
+      case 'search':
+        await _searchClip(tester);
       case 'ask':
         await _askClip(tester);
       case 'askvoice':
@@ -310,7 +368,7 @@ void main() {
       case 'live':
         await _liveClip(tester);
       default:
-        fail('KNOWLEDGE_CLIP is ask, askvoice or live, not $_clip');
+        fail('KNOWLEDGE_CLIP is search, ask, askvoice or live, not $_clip');
     }
   });
 }
