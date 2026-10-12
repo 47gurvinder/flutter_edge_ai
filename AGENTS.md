@@ -332,10 +332,11 @@ flutter analyze packages/ && dart format . && tool/test_all.sh
 
 | File | Purpose |
 |------|---------|
-| `lib/src/flutter_edge_ai_rag.dart` | `FlutterEdgeAiRag` provider registry and `open()` validation |
-| `lib/src/rag_index.dart` | Owned `RagIndex` lifecycle, text/vector operations and concurrency gate |
-| `lib/src/embedding.dart` | `EmbeddingProfile`, custom `RagEmbedder`, and borrowed active-core adapter |
-| `lib/src/{vector_store,vector_store_provider,filter}.dart` | Store/provider contracts and backend-neutral filter DSL |
+| `lib/src/flutter_edge_ai_rag.dart` | `FlutterEdgeAiRag` provider registry; `open(embedder:)` resolves the profile and binds `(profile, spec.documents)` at open, `openVectors(profile:)` for vector-only indexes |
+| `lib/src/rag_index.dart` | Owned `RagIndex` lifecycle, `add`/`search` over `EmbeddingInput`, vector operations, filter-field validation and concurrency gate |
+| `lib/src/embedding.dart` | `EmbeddingProfile`, the `RagEmbedder` role API, and `FlutterEdgeAiActiveEmbedder` (re-resolves the core model per operation, retries once on `EmbedderClosedException`, `forActiveModel` ids) |
+| `lib/src/{vector_store,vector_store_provider,filter}.dart` | Store/provider contracts (`VectorStoreBinding`: v1 record always written, image/audio under a U+001F-qualified id plus a v2 record), `VectorStoreSpec.documents`, backend-neutral filter DSL |
+| `../../tool/rag_store_compat/` | Store compatibility harness: hosted rag 1.0.0 + sqlite/qdrant 2.0.1 must refuse the train's image/audio stores (`run_downgrade_harness.sh`); generator of the committed `test/fixtures/v2_0_1/` stores |
 
 **`packages/flutter_edge_ai_qdrant/` (native RAG via the official `qdrant_edge` UniFFI SDK; no web):**
 

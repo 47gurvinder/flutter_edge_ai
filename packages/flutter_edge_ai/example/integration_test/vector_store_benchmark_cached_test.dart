@@ -190,10 +190,12 @@ void main() {
             '${base.path}/dart_bench_cached_${size}_${DateTime.now().microsecondsSinceEpoch}.db';
         final dartRepo = SqliteVectorStore();
         await dartRepo.initialize(dartDbPath);
-        await dartRepo.bindEmbeddingProfile(
-          rag.EmbeddingProfile(
-            id: 'cached-benchmark-embedding-768d-v1',
-            dimension: _expectedDim,
+        await dartRepo.bind(
+          rag.VectorStoreBinding(
+            profile: rag.EmbeddingProfile(
+              id: 'cached-benchmark-embedding-768d-v1',
+              dimension: _expectedDim,
+            ),
           ),
         );
 
