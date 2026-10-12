@@ -219,11 +219,15 @@ DownloadedCatalogMatch? resolveCatalog(String installedId) {
     )) {
       return EmbeddingMatch(model: model, isTokenizer: false);
     }
-    if (_matchesInstalledId(
-      installedId,
-      filename: model.tokenizerFilename,
-      url: model.tokenizerUrl,
-    )) {
+    final tokenizerFilename = model.tokenizerFilename;
+    final tokenizerUrl = model.tokenizerUrl;
+    if (tokenizerFilename != null &&
+        tokenizerUrl != null &&
+        _matchesInstalledId(
+          installedId,
+          filename: tokenizerFilename,
+          url: tokenizerUrl,
+        )) {
       return EmbeddingMatch(model: model, isTokenizer: true);
     }
   }

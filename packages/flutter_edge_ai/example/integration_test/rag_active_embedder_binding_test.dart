@@ -18,6 +18,7 @@ import 'dart:io';
 
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:flutter_edge_ai_example/models/embedding_model.dart' as catalog;
+import 'package:flutter_edge_ai_example/services/embedding_catalog_install.dart';
 import 'package:flutter_edge_ai_rag/flutter_edge_ai_rag.dart';
 import 'package:flutter_edge_ai_sqlite/flutter_edge_ai_sqlite.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -36,13 +37,10 @@ const _documents = {
 
 Future<void> _install(catalog.EmbeddingModel model) async {
   await registerTestEngines();
-  await FlutterEdgeAi.installEmbedder()
-      .modelFromNetwork(model.url, filename: model.filename)
-      .tokenizerFromNetwork(
-        model.tokenizerUrl,
-        filename: model.tokenizerFilename,
-      )
-      .install();
+  await withCatalogEmbedderSources(
+    FlutterEdgeAi.installEmbedder(),
+    model,
+  ).install();
 }
 
 Future<String> _freshLocation(String name) async {
