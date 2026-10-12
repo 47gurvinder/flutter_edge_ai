@@ -124,11 +124,13 @@ void main() {
     // Every other entry is a two-file EG1/Gecko spec, or the 440m bundle.
     for (final model in catalog.EmbeddingModel.values) {
       if (model == eg2 ||
-          model == catalog.EmbeddingModel.embeddingGemma2TextVision440m) {
+          model == catalog.EmbeddingModel.embeddingGemma2TextVision440m ||
+          model == catalog.EmbeddingModel.embeddingGemma2TextVisionAudio740m) {
         continue;
       }
       expect(model.isLiteRtLmBundle, isFalse, reason: model.name);
       expect(model.embedsImages, isFalse, reason: model.name);
+      expect(model.embedsAudio, isFalse, reason: model.name);
     }
   });
 
@@ -160,6 +162,38 @@ void main() {
     );
     expect(catalog.kExampleVisionTokensPerImage, 140);
     expect(_catalogSpec(vision).files, hasLength(1));
+    expect(vision.embedsAudio, isFalse);
+  });
+
+  test('EmbeddingGemma 2 740M is one pinned, ungated .litertlm bundle that '
+      'embeds images and audio, with the text id (and the text id + -vis140 '
+      'for image indexes)', () {
+    const audio = catalog.EmbeddingModel.embeddingGemma2TextVisionAudio740m;
+    expect(audio.isLiteRtLmBundle, isTrue);
+    expect(
+      audio.url,
+      'https://huggingface.co/litert-community/'
+      'embeddinggemma-2-740m-litert-lm/resolve/'
+      '24d962e906c7d332c6428e71c9676855024569e2/'
+      'embeddinggemma-2-740m.litertlm',
+    );
+    expect(audio.filename, contains('__rev-24d962e906c7'));
+    expect(
+      audio.sha256,
+      'e7a8a2204b91e0f96e92960e84a09a89212e1633dcb7575a9bf3378b4df77f4c',
+    );
+    expect(audio.needsAuth, isFalse);
+    expect(audio.embedsImages, isTrue);
+    expect(audio.embedsAudio, isTrue);
+    expect(
+      audio.ragProfileId,
+      catalog.EmbeddingModel.embeddingGemma2Text270m.ragProfileId,
+    );
+    expect(
+      audio.imageRagProfileId,
+      catalog.EmbeddingModel.embeddingGemma2TextVision440m.imageRagProfileId,
+    );
+    expect(_catalogSpec(audio).files, hasLength(1));
   });
 
   test('a restart restores the profile of the entry that was installed, also '

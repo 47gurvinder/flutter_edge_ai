@@ -14,8 +14,9 @@
 //   >= 0.97 against Sentence Transformers fp32 everywhere; every query ranks
 //   its document first;
 // - the 9 TaskTypes give 9 different vectors;
-// - an over-long text is EmbeddingInputTooLongException(1024, null) and the
-//   model keeps working;
+// - an over-long text is EmbeddingInputTooLongException with the exact
+//   counts (1024 of 11509, as Google's litert-lm wheel counts the same input)
+//   and the model keeps working (native-v0.18.0-e);
 // - the calling isolate stays live during a 50-text batch (#299);
 // - closing during a batch returns, fails the queued requests with
 //   EmbedderClosedException, and gives the memory back (M12; measured on
@@ -444,13 +445,18 @@ void main() {
     _log('TaskTypes: the closest two vectors have cos $closest');
   });
 
-  testWidgets('an over-long text is EmbeddingInputTooLongException(1024, '
-      'null), and the model keeps working', (tester) async {
+  testWidgets('an over-long text is EmbeddingInputTooLongException with the '
+      'exact counts, and the model keeps working', (tester) async {
     await _ensureEg2();
     final model = await FlutterEdgeAi.getActiveEmbedder();
     final text = 'lorem ipsum dolor sit amet ' * 2300; // ~62,000 characters
+    // 11509 tokens with the document prefix, BOS and EOS: what Google's
+    // litert-lm 0.18.0 wheel reports for this input (its kError message).
     await expectLater(
-      model.embed(EmbeddingInput.text(text), taskType: TaskType.retrievalQuery),
+      model.embed(
+        EmbeddingInput.text(text),
+        taskType: TaskType.retrievalDocument,
+      ),
       throwsA(
         isA<EmbeddingInputTooLongException>()
             .having((e) => e.maxInputTokens, 'maxInputTokens', 1024)
@@ -459,7 +465,7 @@ void main() {
               'model.maxInputTokens',
               model.maxInputTokens,
             )
-            .having((e) => e.actualTokens, 'actualTokens', isNull),
+            .having((e) => e.actualTokens, 'actualTokens', 11509),
       ),
     );
     expect(model.isClosed, isFalse);
@@ -645,7 +651,8 @@ void main() {
             .having(
               (e) => e.message,
               'message',
-              '${_eg2.filename} has no vision encoder; install '
+              '${_openedName(_eg2, _fileOverride)} has no vision encoder; '
+                  'install '
                   'embeddinggemma-2-text-vision-440m',
             ),
       ),

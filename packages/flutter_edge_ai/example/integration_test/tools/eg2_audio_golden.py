@@ -14,11 +14,16 @@ through it, in a separate process, and stored as `vector_native` next to the
 wheel's `vector`: the wheel is the reference, our build is what the device
 suites run (on macOS the device suite reproduces `vector_native` to 0.9999).
 Our build and the wheel agree on text bit for bit but not on audio (measured:
-cos 0.97-0.997 per clip) — and the wheel does not even agree with itself on
-audio: two runs of it give cos 0.992-0.9998 per clip, while our build is bit
-for bit the same run to run. So a suite that only had the wheel's vectors could
-not tell a regression from that noise. The wheel's own run-to-run spread is
-measured here (a second run in another process) and recorded.
+cos 0.97-0.997 per clip), and the wheel does not even agree with itself on
+audio: two runs of it give cos 0.99-0.9998 per clip, while our build is bit for
+bit the same run to run and at any thread count. The cause is the model: the
+740m's audio encoder quantizes its activations to int8 (120 QUANTIZE ops,
+scales 0.1-0.3), so a last-bit fp32 difference — another XNNPACK kernel, the
+wheel's thread-dependent sums, or one input sample changed by 1 — flips some
+roundings (±1 LSB dither moves a clip by cos 0.95-0.997 in either build). So a
+suite that only had the wheel's vectors could not tell a regression from that
+noise. The wheel's own run-to-run spread is measured here (a second run in
+another process) and recorded.
 
 Reads the clips generate_eg2_audio_clips.py wrote (example/assets/eg2_audio/)
 and two of the vision scenes (example/assets/eg2_vision/), and writes:

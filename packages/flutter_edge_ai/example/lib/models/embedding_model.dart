@@ -153,6 +153,32 @@ enum EmbeddingModel implements EmbeddingModelInterface {
     embedsImages: true,
   ),
 
+  // EmbeddingGemma 2 (740M): the 440M's text and vision towers (the same
+  // bytes, so the same text and image vectors and the same profile ids) plus
+  // an audio encoder, so it also embeds audio (WAV, MP3, FLAC; about 25
+  // tokens per second, so a clip of up to about 40 s fits the 1024-token cap)
+  // and combinations — a photo with its caption, a clip with a note — in one
+  // vector. Native platforms only for audio (the web embeds its text and
+  // images). Ungated. On top of the 440M (macOS figures): 485 MB on disk, a
+  // further 95 MB audio weight cache written at every load (385 MB of caches
+  // in all, even for text-only use), and more RAM on the first clip. Audio
+  // vectors do not depend on the vision budget, so an audio index keeps the
+  // text id.
+  embeddingGemma2TextVisionAudio740m(
+    url:
+        'https://huggingface.co/litert-community/embeddinggemma-2-740m-litert-lm/resolve/24d962e906c7d332c6428e71c9676855024569e2/embeddinggemma-2-740m.litertlm',
+    filename: 'embeddinggemma-2-740m__rev-24d962e906c7.litertlm',
+    displayName: 'EmbeddingGemma 2 Text + Vision + Audio (740M)',
+    size: '485MB',
+    dimension: 768,
+    maxSeqLen: 1024,
+    needsAuth: false,
+    sha256: 'e7a8a2204b91e0f96e92960e84a09a89212e1633dcb7575a9bf3378b4df77f4c',
+    ragProfileId: 'embeddinggemma2-litertlm-text-4410a540ce75-prefix-v1',
+    embedsImages: true,
+    embedsAudio: true,
+  ),
+
   // Gecko-110m models (generate 768D embeddings)
   // Gecko 64 is the smallest and fastest model - ideal for short queries
   gecko64(
@@ -243,6 +269,10 @@ enum EmbeddingModel implements EmbeddingModelInterface {
   /// Whether the model embeds images (a bundle with a vision encoder).
   final bool embedsImages;
 
+  /// Whether the model embeds audio (a bundle with an audio encoder; native
+  /// platforms only).
+  final bool embedsAudio;
+
   /// The profile of an IMAGE index built with this model, or null when it
   /// embeds no images: the text id plus the vision budget the example
   /// registers (`-vis140`). Image vectors depend on that budget, text vectors
@@ -264,6 +294,7 @@ enum EmbeddingModel implements EmbeddingModelInterface {
     required this.ragProfileId,
     this.sha256,
     this.embedsImages = false,
+    this.embedsAudio = false,
     this.sourceType = ModelSourceType
         .network, // Default to network for backward compatibility
   }) : assert(
