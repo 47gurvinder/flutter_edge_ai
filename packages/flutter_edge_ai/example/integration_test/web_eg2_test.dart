@@ -99,8 +99,10 @@ const _tests = [
   'EG2 70 tokens',
   'M11 CPU',
   'Image Search screen',
-  'WebGPU check',
   'minInputLength',
+  // Last: a WebGPU failure that takes the page's WASM module down must not
+  // fail a CPU test after it.
+  'WebGPU check',
 ];
 
 const _eg2 = catalog.EmbeddingModel.embeddingGemma2Text270m;
@@ -175,9 +177,23 @@ Future<String> _sha256(String url) async {
   return (await digest.toDart).toDart;
 }
 
-/// The cached embedder, closed, so the next `getActiveEmbedder()` builds.
-Future<void> _closeActive({bool images = false}) async =>
-    (await FlutterEdgeAi.getActiveEmbedder(supportImage: images)).close();
+/// The embedder the suite last got from `getActiveEmbedder()` — the one core
+/// has cached, while it is open.
+EmbeddingModel? _held;
+
+/// `getActiveEmbedder()`, remembering the model so [_releaseActive] can close
+/// it without building a new one first.
+Future<EmbeddingModel> _active({bool images = false}) async =>
+    _held = await FlutterEdgeAi.getActiveEmbedder(supportImage: images);
+
+/// Closes the cached embedder, if one is open, so the next
+/// `getActiveEmbedder()` builds — or so a pass built directly is the only
+/// engine on the page.
+Future<void> _releaseActive() async {
+  final model = _held;
+  _held = null;
+  if (model != null && !model.isClosed) await model.close();
+}
 
 void _start(String name) {
   expect(_tests, contains(name));
@@ -380,10 +396,10 @@ void main() {
     _start('EG2 load');
     report('page', _page());
     await _ensureEg2();
-    await _closeActive();
+    await _releaseActive();
 
     final load = Stopwatch()..start();
-    final model = await FlutterEdgeAi.getActiveEmbedder();
+    final model = await _active();
     load.stop();
     expect(model.dimension, 768);
     expect(model.maxInputTokens, 1024);
@@ -411,7 +427,7 @@ void main() {
       'query\'s document first', (tester) async {
     _start('EG2 golden');
     await _ensureEg2();
-    final model = await FlutterEdgeAi.getActiveEmbedder();
+    final model = await _active();
     final vectors = <String, List<double>>{};
     final micros = <int>[];
     var worstGolden = 1.0, worstSt = 1.0;
@@ -450,7 +466,7 @@ void main() {
     _start('EG2 task types');
     await _ensureEg2();
     await expectEveryTaskTypeDistinct(
-      await FlutterEdgeAi.getActiveEmbedder(),
+      await _active(),
       'How tall is Mount Everest?',
     );
   }, timeout: const Timeout(Duration(minutes: 30)));
@@ -460,7 +476,7 @@ void main() {
   ) async {
     _start('EG2 empty text');
     await _ensureEg2();
-    final model = await FlutterEdgeAi.getActiveEmbedder();
+    final model = await _active();
     for (final text in ['', '   ']) {
       expectUnitVector(
         await model.embed(
@@ -478,7 +494,7 @@ void main() {
       'working', (tester) async {
     _start('EG2 overflow');
     await _ensureEg2();
-    final model = await FlutterEdgeAi.getActiveEmbedder();
+    final model = await _active();
     expectUnitVector(
       await model.embed(
         EmbeddingInput.text(_textOfTokens(1024)),
@@ -516,7 +532,7 @@ void main() {
       'EmbeddingLoadException naming the line', (tester) async {
     _start('EG2 shim missing');
     await _ensureEg2();
-    await _closeActive();
+    await _releaseActive();
     final saved = globalContext['EmbeddingEngine'];
     globalContext.delete('EmbeddingEngine'.toJS);
     try {
@@ -535,26 +551,33 @@ void main() {
     } finally {
       globalContext['EmbeddingEngine'] = saved;
     }
-    expect((await FlutterEdgeAi.getActiveEmbedder()).dimension, 768);
+    expect((await _active()).dimension, 768);
   }, timeout: const Timeout(Duration(minutes: 30)));
 
   testWidgets('supportImage on the 270m is refused, naming the 440m; text '
       'still works after', (tester) async {
     _start('EG2 270m images refused');
     await _ensureEg2();
-    await expectLater(
-      FlutterEdgeAi.getActiveEmbedder(supportImage: true),
-      throwsA(
-        isA<EmbeddingLoadException>()
-            .having((e) => e.engine, 'engine', 'LiteRT-LM')
-            .having(
-              (e) => e.message,
-              'message',
-              contains('embeddinggemma-2-text-vision-440m'),
-            ),
-      ),
+    EmbeddingLoadException? refusal;
+    try {
+      await FlutterEdgeAi.getActiveEmbedder(supportImage: true);
+    } on EmbeddingLoadException catch (e) {
+      refusal = e;
+    }
+    // The runtime's own reason, for the record: the web has no ModelInfo, so
+    // this is the only evidence that `create` refuses a vision tower the
+    // bundle lacks (rather than failing at the first image).
+    report('eg2_270m_images_refusal', refusal?.message);
+    expect(refusal, isNotNull, reason: 'the 270m loaded with images');
+    expect(refusal!.engine, 'LiteRT-LM');
+    expect(refusal.cause, isNotNull, reason: 'no runtime error behind it');
+    expect(
+      refusal.message,
+      contains('could not create the embedding engine'),
+      reason: 'refused somewhere other than EmbeddingEngine.create',
     );
-    final model = await FlutterEdgeAi.getActiveEmbedder();
+    expect(refusal.message, contains('embeddinggemma-2-text-vision-440m'));
+    final model = await _active();
     expect(model.modalities, {EmbeddingModality.text});
     expect(
       await model.embed(EmbeddingInput.text('x'), taskType: TaskType.none),
@@ -567,7 +590,7 @@ void main() {
   ) async {
     _start('EG2 close and recreate');
     await _ensureEg2();
-    final model = await FlutterEdgeAi.getActiveEmbedder();
+    final model = await _active();
     final input = EmbeddingInput.text('The cat sat on the mat.');
     final before = await model.embed(input, taskType: TaskType.none);
     await model.close();
@@ -575,7 +598,7 @@ void main() {
       model.embed(input, taskType: TaskType.none),
       throwsA(isA<EmbedderClosedException>()),
     );
-    final next = await FlutterEdgeAi.getActiveEmbedder();
+    final next = await _active();
     expect(identical(next, model), isFalse);
     expect(
       cosine(before, await next.embed(input, taskType: TaskType.none)),
@@ -589,7 +612,7 @@ void main() {
       _start('EG2 440m load');
       await _ensureEg2Vision();
       final load = Stopwatch()..start();
-      final model = await FlutterEdgeAi.getActiveEmbedder(supportImage: true);
+      final model = await _active(images: true);
       load.stop();
       expect(model.dimension, 768);
       expect(model.maxInputTokens, 1024);
@@ -627,7 +650,7 @@ void main() {
         'the retrieval-query prefix recorded (M10)', (tester) async {
       _start('EG2 text to image');
       await _ensureEg2Vision();
-      final model = await FlutterEdgeAi.getActiveEmbedder(supportImage: true);
+      final model = await _active(images: true);
       final images = <List<double>>[];
       final micros = <int>[];
       for (final scene in _scenes) {
@@ -679,7 +702,7 @@ void main() {
     ) async {
       _start('EG2 image to image');
       await _ensureEg2Vision();
-      final model = await FlutterEdgeAi.getActiveEmbedder(supportImage: true);
+      final model = await _active(images: true);
       final originals = [
         for (final scene in _scenes)
           _cpuSceneVectors[scene] ??= await model.embed(
@@ -704,7 +727,7 @@ void main() {
         'the model keeps working', (tester) async {
       _start('EG2 formats');
       await _ensureEg2Vision();
-      final model = await FlutterEdgeAi.getActiveEmbedder(supportImage: true);
+      final model = await _active(images: true);
       Future<List<double>> embed(Uint8List bytes) =>
           model.embed(EmbeddingInput.image(bytes), taskType: TaskType.none);
 
@@ -752,10 +775,12 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 30)));
 
     testWidgets('70 vision tokens per image through the public describe(): '
-        'loads, embeds, differs slightly from 140', (tester) async {
+        'loads, embeds, and differs slightly from the native 140 vector', (
+      tester,
+    ) async {
       _start('EG2 70 tokens');
       await _ensureEg2Vision();
-      await _closeActive(images: true); // one engine at a time on the page
+      await _releaseActive(); // one engine at a time on the page
       final described =
           await const LiteRtEmbeddingBackend(visionTokensPerImage: 70).describe(
             FlutterEdgeAi.activeEmbedderSpec!,
@@ -776,11 +801,14 @@ void main() {
         );
         watch.stop();
         expectUnitVector(at70, 768, what: '70 tokens');
-        final at140 = _cpuSceneVectors['stop_sign'];
+        // Against the native 140-token vector: close, but not equal — equal
+        // would mean the budget never reached EmbeddingEngine.create.
+        final cosVs140 = cosine(at70, _imageGolden['stop_sign']!);
         report('vision70', {
           'imageMs': watch.elapsedMilliseconds,
-          'cosVs140': at140 == null ? null : cosine(at70, at140),
+          'cosVsNative140': cosVs140,
         });
+        expect(cosVs140, inExclusiveRange(0.9, 0.99999));
       } finally {
         await pass.close();
       }
@@ -790,7 +818,7 @@ void main() {
         'images and ten texts are embedded on the CPU', (tester) async {
       _start('M11 CPU');
       await _ensureEg2Vision();
-      final model = await FlutterEdgeAi.getActiveEmbedder(supportImage: true);
+      final model = await _active(images: true);
       final images = [
         for (final scene in _scenes)
           EmbeddingInput.image(await _asset(eg2VisionSampleAsset(scene))),
@@ -923,90 +951,6 @@ void main() {
       await until(find.text('0 photos in the index'), 'the index to clear');
       await tester.pumpWidget(const SizedBox()); // disposes: closes the model
     }, timeout: const Timeout(Duration(minutes: 45)));
-
-    testWidgets('WebGPU check (measured, never asserted): NaN/zero, cosine '
-        'against the native CPU text and image goldens, M11 on WebGPU', (
-      tester,
-    ) async {
-      _start('WebGPU check');
-      await _ensureEg2Vision();
-      await _closeActive(images: true); // one engine at a time on the page
-      final record = <String, Object?>{'webgpuOnPage': _page()['webgpu']};
-      final pass = await _directPass(
-        model: _eg2Vision,
-        backend: LiteRtLmWebBackend.gpu,
-        images: true,
-      );
-      try {
-        final load = Stopwatch()..start();
-        final info = await pass.load();
-        record['loadMs'] = load.elapsedMilliseconds;
-        record['dimension'] = info.dimension;
-        record['maxInputTokens'] = info.maxInputTokens;
-
-        var textNaNOrZero = 0;
-        var worstText = 1.0;
-        for (final item in _golden) {
-          try {
-            final vector = await pass.embed(
-              EmbeddingInput.text(item.text),
-              _taskFor(item.role),
-            );
-            worstText = math.min(worstText, cosine(vector, item.vector));
-          } on EmbeddingEngineException {
-            textNaNOrZero++;
-          }
-        }
-        record['textMinCosVsNativeCpu'] = worstText;
-        record['textNaNOrZero'] = textNaNOrZero;
-
-        var imageNaNOrZero = 0;
-        var worstImage = 1.0;
-        final micros = <int>[];
-        for (final scene in _scenes) {
-          try {
-            final watch = Stopwatch()..start();
-            final vector = await pass.embed(
-              EmbeddingInput.image(await _asset(eg2VisionSampleAsset(scene))),
-              TaskType.retrievalDocument,
-            );
-            micros.add(watch.elapsedMicroseconds);
-            worstImage = math.min(
-              worstImage,
-              cosine(vector, _imageGolden[scene]!),
-            );
-          } on EmbeddingEngineException {
-            imageNaNOrZero++;
-          }
-        }
-        record['imageMinCosVsNativeCpu'] = worstImage;
-        record['imageNaNOrZero'] = imageNaNOrZero;
-        if (micros.isNotEmpty) record['perImageMedianMs'] = _median(micros);
-
-        final (_, stalls) = await _watchMainThread(() async {
-          for (final scene in _scenes) {
-            await pass.embed(
-              EmbeddingInput.image(await _asset(eg2VisionSampleAsset(scene))),
-              TaskType.retrievalDocument,
-            );
-          }
-        });
-        record['m11_images'] = stalls;
-      } on EmbeddingLoadException catch (e) {
-        // A NaN/zero probe or no WebGPU device: that IS the answer.
-        record['loadFailed'] = e.message;
-      } finally {
-        await pass.close();
-      }
-      record['passesTheBar'] =
-          record['loadFailed'] == null &&
-          record['textNaNOrZero'] == 0 &&
-          record['imageNaNOrZero'] == 0 &&
-          (record['textMinCosVsNativeCpu'] as double? ?? 0) >= 0.998 &&
-          (record['imageMinCosVsNativeCpu'] as double? ?? 0) >= 0.998;
-      report('webgpu', record);
-      _log('WebGPU: $record');
-    }, timeout: const Timeout(Duration(minutes: 30)));
   });
 
   testWidgets('minInputLength (measured): short-text latency with the '
@@ -1014,7 +958,7 @@ void main() {
       'vectors are the same', (tester) async {
     _start('minInputLength');
     await _ensureEg2();
-    await _closeActive(); // one engine at a time on the page
+    await _releaseActive(); // one engine at a time on the page
     final record = <String, Object?>{};
     final texts = [for (final item in _golden) item];
     Future<(List<List<double>>, double)> run(int? minInputLength) async {
@@ -1055,6 +999,90 @@ void main() {
     }
     report('min_input_length', record);
     _log('minInputLength: $record');
+  }, timeout: const Timeout(Duration(minutes: 30)));
+
+  testWidgets('WebGPU check (measured, never asserted): NaN/zero, cosine '
+      'against the native CPU text and image goldens, M11 on WebGPU', (
+    tester,
+  ) async {
+    _start('WebGPU check');
+    await _ensureEg2Vision();
+    await _releaseActive(); // one engine at a time on the page
+    final record = <String, Object?>{'webgpuOnPage': _page()['webgpu']};
+    final pass = await _directPass(
+      model: _eg2Vision,
+      backend: LiteRtLmWebBackend.gpu,
+      images: true,
+    );
+    try {
+      final load = Stopwatch()..start();
+      final info = await pass.load();
+      record['loadMs'] = load.elapsedMilliseconds;
+      record['dimension'] = info.dimension;
+      record['maxInputTokens'] = info.maxInputTokens;
+
+      var textNaNOrZero = 0;
+      var worstText = 1.0;
+      for (final item in _golden) {
+        try {
+          final vector = await pass.embed(
+            EmbeddingInput.text(item.text),
+            _taskFor(item.role),
+          );
+          worstText = math.min(worstText, cosine(vector, item.vector));
+        } on EmbeddingEngineException {
+          textNaNOrZero++;
+        }
+      }
+      record['textMinCosVsNativeCpu'] = worstText;
+      record['textNaNOrZero'] = textNaNOrZero;
+
+      var imageNaNOrZero = 0;
+      var worstImage = 1.0;
+      final micros = <int>[];
+      for (final scene in _scenes) {
+        try {
+          final watch = Stopwatch()..start();
+          final vector = await pass.embed(
+            EmbeddingInput.image(await _asset(eg2VisionSampleAsset(scene))),
+            TaskType.retrievalDocument,
+          );
+          micros.add(watch.elapsedMicroseconds);
+          worstImage = math.min(
+            worstImage,
+            cosine(vector, _imageGolden[scene]!),
+          );
+        } on EmbeddingEngineException {
+          imageNaNOrZero++;
+        }
+      }
+      record['imageMinCosVsNativeCpu'] = worstImage;
+      record['imageNaNOrZero'] = imageNaNOrZero;
+      if (micros.isNotEmpty) record['perImageMedianMs'] = _median(micros);
+
+      final (_, stalls) = await _watchMainThread(() async {
+        for (final scene in _scenes) {
+          await pass.embed(
+            EmbeddingInput.image(await _asset(eg2VisionSampleAsset(scene))),
+            TaskType.retrievalDocument,
+          );
+        }
+      });
+      record['m11_images'] = stalls;
+    } on EmbeddingLoadException catch (e) {
+      // A NaN/zero probe or no WebGPU device: that IS the answer.
+      record['loadFailed'] = e.message;
+    } finally {
+      await pass.close();
+    }
+    record['passesTheBar'] =
+        record['loadFailed'] == null &&
+        record['textNaNOrZero'] == 0 &&
+        record['imageNaNOrZero'] == 0 &&
+        (record['textMinCosVsNativeCpu'] as double? ?? 0) >= 0.998 &&
+        (record['imageMinCosVsNativeCpu'] as double? ?? 0) >= 0.998;
+    report('webgpu', record);
+    _log('WebGPU: $record');
   }, timeout: const Timeout(Duration(minutes: 30)));
 
   testWidgets('every test above started (an absent test reads as a pass '
