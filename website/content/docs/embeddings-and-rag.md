@@ -213,6 +213,12 @@ the Web, where the browser decodes (CanvasKit or skwasm) on the page itself.
   fidelity (min cos 0.970). Any other value throws **EmbeddingLoadException**.
   Text vectors do not depend on it; image stores do, so their profile id names
   it (`-vis140`, `-vis70`).
+- **On the Web, not next to an LLM:** the page's `@litert-lm/core` module has
+  4 GB of WebAssembly memory, and the vision encoder does not fit in it next
+  to Gemma 4 E2B (measured) — **getActiveEmbedder(supportImage: true)** then
+  throws **EmbeddingLoadException** saying to close the LLM first. Text-only
+  embedding loads next to the LLM. On WebGPU an image takes about 0.33 s
+  (Tesla T4).
 - **Cost** (CPU, measured): a 388 MB bundle; a 218 MB vision weight cache
   written at every load, next to the 71 MB text cache in the app's cache
   directory, also when you embed only text. The first image adds about 385 MB

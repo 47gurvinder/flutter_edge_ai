@@ -236,7 +236,11 @@ browser without WebGPU: there is no CPU fallback, because the CPU (WebAssembly)
 path of `@litert-lm/core` 0.18.0 cannot read these bundles' external weights.
 An LLM and an embedder on the same page share one WebAssembly module and one
 WebGPU device, and take turns: an embedding waits while a reply is being
-generated, and a reply waits for an embedding in progress.
+generated, and a reply waits for an embedding in progress. The module has 4 GB
+of memory, and the 440m's vision encoder does not fit in it next to Gemma 4
+E2B (measured): whichever loads second fails. Close the LLM before loading the
+440m with images, or embed text only — the 270m, or the 440m without images,
+loads next to the LLM.
 
 Native platforms need no web setup.
 

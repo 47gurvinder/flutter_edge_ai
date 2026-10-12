@@ -331,15 +331,20 @@ page.
   `EmbeddingLoadException`. Text vectors do not depend on it. Image vectors
   do, so give an image store an id that names the budget: the text profile id
   plus `-vis140` (or `-vis70`).
+- **Next to an LLM on the web** the vision encoder does not fit: see
+  [Web setup](#web-setup-early-preview). Close the `.litertlm` LLM before
+  loading the 440m with images, or embed text only.
 - **Cost** (CPU, measured): a 388 MB bundle; at every load the engine writes a
   218 MB vision weight cache next to the 71 MB text cache in the app's cache
   directory, also when you only embed text. The first image adds about 385 MB
   of RAM on an M4 Pro Mac and about 500 MB on a Pixel 8. Per image at 140
   tokens: about 0.35 s on an Apple-silicon Mac, about 2 s on an Android flagship
   (Pixel 8 Pro 1.8 s, Pixel 8a 2.3 s), more on mid-range phones and rising
-  under sustained load; 70 tokens takes about half. LiteRT-LM's thread setting
-  reaches the text tower only; images run with its default threads. A 440m
-  loaded for text alone still loads its vision tower: for text use the 270m.
+  under sustained load; 70 tokens takes about half. On the web (WebGPU, Tesla
+  T4) an image takes about 0.33 s and a short text about 0.12 s. LiteRT-LM's
+  thread setting reaches the text tower only; images run with its default
+  threads. A 440m loaded for text alone still loads its vision tower: for
+  text use the 270m.
 - The example app's **Image Search** screen indexes photos (or ten bundled
   sample pictures) in a RAG image index and searches them by text and by
   photo; choose "EmbeddingGemma 2 Text + Vision (440M)" under Embedding Models
@@ -476,7 +481,12 @@ An LLM and an EmbeddingGemma 2 embedder on the same page share one WebAssembly
 module and one WebGPU device, so they take turns and their GPU memory adds up:
 an embedding, or an embedder's load, waits while a reply is being generated
 (until its stream ends, even if you stopped listening), and a reply waits for
-an embedding in progress.
+an embedding in progress. The module has 4 GB of memory (WebAssembly is
+32-bit), and the 440m's vision encoder does not fit in it next to Gemma 4 E2B
+(measured: the vision engine alone takes about 3.3 GB): whichever loads
+second fails, the embedder with an `EmbeddingLoadException` that says to close
+the LLM first. A text-only embedder — the 270m, or the 440m without
+`supportImage` — loads next to the LLM.
 
 Native platforms need no web setup.
 
