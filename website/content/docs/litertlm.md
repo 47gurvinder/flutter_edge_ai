@@ -16,8 +16,8 @@ use [Built-in AI](/docs/builtin-ai). The native library is fetched at build time
 there's no manual native setup.
 
 The same package also ships **`LiteRtEmbeddingBackend`**: EmbeddingGemma 2 from
-one `.litertlm` bundle (native; text since 1.13.0, images from the 440m bundle
-since 1.14.0) and EmbeddingGemma 1 / Gecko
+one `.litertlm` bundle (native: text since 1.13.0, images from the 440m bundle
+since 1.14.0; Web: both since 1.15.0, on the CPU) and EmbeddingGemma 1 / Gecko
 `.tflite` models through the LiteRT C API (and LiteRT.js on web) — see
 [Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2).
 
@@ -223,10 +223,15 @@ awaits `window.litertLmReady` (which resolves to the `Engine` constructor):
 window.litertLmReady = (async () => {
   const m = await import('https://cdn.jsdelivr.net/npm/@litert-lm/core@0.18.0/+esm');
   window.Engine = m.Engine;
+  window.EmbeddingEngine = m.EmbeddingEngine;
   return m.Engine;
 })();
 </script>
 ```
+
+`window.EmbeddingEngine` (1.15.0) is what EmbeddingGemma 2 embedders run on in
+the browser — text and images, on the CPU (WebAssembly). A page without it
+fails the embedder's load with an `EmbeddingLoadException` naming the line.
 
 Native platforms need no web setup.
 

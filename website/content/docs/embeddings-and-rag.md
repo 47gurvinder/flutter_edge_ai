@@ -23,7 +23,7 @@ inference model and is not initialized through **FlutterEdgeAi.initialize()**.
 ```
 dependencies:
   flutter_edge_ai: ^2.3.0
-  flutter_edge_ai_litertlm: ^1.14.0
+  flutter_edge_ai_litertlm: ^1.15.0
   flutter_edge_ai_embeddings: ^2.3.0 # tokenizers for .tflite / .onnx models
   flutter_edge_ai_rag: ^1.1.0
   flutter_edge_ai_sqlite: ^2.1.0 # all six platforms, including Web
@@ -87,25 +87,30 @@ final vector = await embedder.embed(
 );
 ```
 
-- **Native only**: Android, iOS, macOS, Linux and Windows (flutter_edge_ai_litertlm
-  1.13.0 for text, 1.14.0 for images). On Web, **install()** refuses a
-  `.litertlm` embedder with an **UnsupportedError** before downloading anything.
+- **Every platform**: Android, iOS, macOS, Linux and Windows
+  (flutter_edge_ai_litertlm 1.13.0 for text, 1.14.0 for images), and the Web
+  (1.15.0, text and images), where it runs through `@litert-lm/core`'s
+  EmbeddingEngine and needs **window.EmbeddingEngine = m.EmbeddingEngine;** in
+  `web/index.html` ([Installation](/docs/installation#web)).
 - **Text on every bundle, images on the 440m.** On the 270m,
   **getActiveEmbedder(supportImage: true)** throws **EmbeddingLoadException**
-  naming the 440m bundle, before any engine or cache is made.
+  naming the 440m bundle (natively before any engine or cache is made).
   **supportAudio: true** throws on every bundle: audio arrives in litertlm
   1.16.0.
 - **At most 1024 tokens per input**, task prefix, BOS and EOS included
   (**maxInputTokens** is 1024). Keep chunks at 512 tokens or fewer: memory
   grows with the input length — on an M4 Pro Mac about +170 MB at 128 tokens,
   +340 MB at 512 and +560 MB at 1024. A longer input throws
-  **EmbeddingInputTooLongException** whose **actualTokens** is null.
-- **CPU.** **activeBackend** is **PreferredBackend.cpu**.
+  **EmbeddingInputTooLongException**; its **actualTokens** is null natively
+  and the exact count on the Web.
+- **CPU**, WebAssembly on the Web. **activeBackend** is
+  **PreferredBackend.cpu**.
 - **Disk:** the 165 MB bundle plus a 71 MB weight cache the engine writes at
   its first load (the 440m bundle adds 218 MB for vision, the 740m bundle
   writes 385 MB in total, even for text-only use). The cache lives in the app's
   cache directory: never backed up, and rebuilt at the next load if the OS
-  clears it.
+  clears it. The Web keeps no weight cache: the bundle sits in the browser's
+  storage.
 - EmbeddingGemma 1 and 2 are different embedding spaces with the same
   dimension: give each its own vector-store location and profile.
 
@@ -113,8 +118,8 @@ final vector = await embedder.embed(
 
 The 440m bundle has the 270m's text tower (the same text vectors) plus a vision
 encoder, so one model embeds text and photos, and a text finds photos. It needs
-flutter_edge_ai_litertlm 1.14.0. Declare images when you get the embedder, and
-keep the photos in an image index:
+flutter_edge_ai_litertlm 1.14.0 (1.15.0 on the Web). Declare images when you get
+the embedder, and keep the photos in an image index:
 
 ```dart
 const visionRevision = 'e301f74d5551b0c2641bd5cb4652a76239d5c5f8';
@@ -415,8 +420,9 @@ An image or audio index needs an embedder whose **modalities** include it; its
 documents carry a **content** reference (a URI, file path or asset id), never
 the media bytes. A text query over an image index is text-to-image search.
 With the active embedder, an image index needs the EmbeddingGemma 2 440m
-bundle on a native platform ([above](#embeddinggemma-2-images)); with any other
-model, and for audio, the index fails to open with **EmbeddingLoadException**.
+bundle ([above](#embeddinggemma-2-images); on the Web from litertlm 1.15.0);
+with any other model, and for audio, the index fails to open with
+**EmbeddingLoadException**.
 A custom **RagEmbedder** can embed media with any model. Cross-modal scores are not on one scale:
 mixed corpora use one index per modality.
 

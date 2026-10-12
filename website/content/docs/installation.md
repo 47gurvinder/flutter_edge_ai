@@ -49,8 +49,8 @@ dependencies:
 | Run `.task` / `.bin` models (Gemma3n, Gemma 3, DeepSeek, Qwen 2.5, Phi-4) | `flutter_edge_ai_mediapipe` |
 | Run the OS system model with no download (Gemini Nano / Apple FM / Windows AI Foundry) | `flutter_edge_ai_builtin_ai` |
 | Run ONNX models — ORT-GenAI (native) or Transformers.js (Web) | `flutter_edge_ai_onnx` |
-| Generate text embeddings with EmbeddingGemma 2 (`.litertlm`, native) | `flutter_edge_ai_litertlm` (`LiteRtEmbeddingBackend`) alone |
-| Embed images with EmbeddingGemma 2 (the 440m `.litertlm`, native) | `flutter_edge_ai_litertlm` 1.14.0 (`LiteRtEmbeddingBackend`) alone |
+| Generate text embeddings with EmbeddingGemma 2 (`.litertlm`) | `flutter_edge_ai_litertlm` (`LiteRtEmbeddingBackend`) alone; 1.15.0 on Web |
+| Embed images with EmbeddingGemma 2 (the 440m `.litertlm`) | `flutter_edge_ai_litertlm` 1.14.0 (`LiteRtEmbeddingBackend`) alone; 1.15.0 on Web |
 | Generate text embeddings with EmbeddingGemma 1 / Gecko (`.tflite`) | `flutter_edge_ai_embeddings` + `flutter_edge_ai_litertlm` (`LiteRtEmbeddingBackend`) |
 | Generate text embeddings from ONNX/ORT models | `flutter_edge_ai_embeddings` + `flutter_edge_ai_onnx` (`OnnxEmbeddingBackend`) |
 | On-device RAG on native, fastest (Android/iOS/desktop) | `flutter_edge_ai_rag` + `flutter_edge_ai_qdrant` |
@@ -426,10 +426,16 @@ deferred, so Dart must await `window.litertLmReady` before any static interop:
 window.litertLmReady = (async () => {
   const m = await import('https://cdn.jsdelivr.net/npm/@litert-lm/core@0.18.0/+esm');
   window.Engine = m.Engine;
+  window.EmbeddingEngine = m.EmbeddingEngine;
   return m.Engine;
 })();
 </script>
 ```
+
+`window.Engine` runs `.litertlm` LLMs. `window.EmbeddingEngine` (litertlm
+1.15.0+) runs EmbeddingGemma 2 `.litertlm` embedders, text and images, on the
+CPU (WebAssembly); without that line such an embedder fails to load with an
+`EmbeddingLoadException` that names it.
 
 **`flutter_edge_ai_onnx`** (ONNX models on Web): generation runs on
 [Transformers.js](https://huggingface.co/docs/transformers.js) v4, embeddings
@@ -472,8 +478,10 @@ module is loaded locally:
 Copy the four files again after every `flutter_edge_ai_litertlm` upgrade: 1.13.0
 changed the bundle's API, and a copy from an earlier version fails
 `getActiveEmbedder()` with an `EmbeddingLoadException` that names
-`litert_embeddings.js`. Web runs `.tflite` embedding models; an EmbeddingGemma 2
-`.litertlm` embedder is refused at `install()` on web, before any download.
+`litert_embeddings.js`. These four files serve `.tflite` embedding models;
+EmbeddingGemma 2 `.litertlm` embedders (flutter_edge_ai_litertlm 1.15.0+) need
+none of them, only the `window.EmbeddingEngine` line in the `@litert-lm/core`
+script above.
 
 The WASM runtime underneath comes from a pinned CDN copy by default
 (`flutter_edge_ai_litertlm`) — nothing else to install. To serve it

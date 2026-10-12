@@ -48,6 +48,10 @@ only the engines, stores and features your app uses — see
   from one `.litertlm` bundle with its own tokenizer, on Android, iOS, macOS,
   Linux and Windows; up to 1024 tokens per input. See
   [Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2).
+- **EmbeddingGemma 2 on the Web** (`flutter_edge_ai_litertlm` 1.15.0): text
+  and images in the browser through `@litert-lm/core`, on the CPU; add
+  `window.EmbeddingEngine = m.EmbeddingEngine;` to `web/index.html`. See
+  [Installation → Web](/docs/installation#web).
 - **EmbeddingGemma 2 images** (`flutter_edge_ai_litertlm` 1.14.0): the 440m
   bundle embeds JPEG, PNG, GIF and BMP photos next to text, for text-to-image
   and image-to-image search in a RAG image index. See

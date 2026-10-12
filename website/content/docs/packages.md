@@ -59,8 +59,8 @@ is on the [Capabilities](/docs/capabilities) page.
 | Run `.task` / `.bin` models (Gemma3n, Gemma 3, DeepSeek, Qwen 2.5, Phi-4) | `flutter_edge_ai_mediapipe` |
 | Run the OS system model with no download (Gemini Nano / Apple FM / Windows AI Foundry) | `flutter_edge_ai_builtin_ai` |
 | Run ONNX models — ORT-GenAI (native) or Transformers.js (Web) | `flutter_edge_ai_onnx` |
-| Generate text embeddings with EmbeddingGemma 2 (`.litertlm`, native) | `flutter_edge_ai_litertlm` (`LiteRtEmbeddingBackend`) alone |
-| Embed images with EmbeddingGemma 2 (the 440m `.litertlm`, native) | `flutter_edge_ai_litertlm` 1.14.0 (`LiteRtEmbeddingBackend`) alone |
+| Generate text embeddings with EmbeddingGemma 2 (`.litertlm`) | `flutter_edge_ai_litertlm` (`LiteRtEmbeddingBackend`) alone; 1.15.0 on Web |
+| Embed images with EmbeddingGemma 2 (the 440m `.litertlm`) | `flutter_edge_ai_litertlm` 1.14.0 (`LiteRtEmbeddingBackend`) alone; 1.15.0 on Web |
 | Generate text embeddings with EmbeddingGemma 1 / Gecko (`.tflite`) | `flutter_edge_ai_embeddings` + `flutter_edge_ai_litertlm` (`LiteRtEmbeddingBackend`) |
 | Generate text embeddings from ONNX/ORT models | `flutter_edge_ai_embeddings` + `flutter_edge_ai_onnx` (`OnnxEmbeddingBackend`) |
 | On-device RAG on native, fastest (Android/iOS/desktop) | `flutter_edge_ai_rag` + `flutter_edge_ai_qdrant` |

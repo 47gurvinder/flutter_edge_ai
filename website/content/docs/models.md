@@ -74,7 +74,7 @@ for ONNX models ([`flutter_edge_ai_onnx`](/docs/onnx)), and
 | Format | Android | iOS | Web | Desktop | Use Case |
 |---|:---:|:---:|:---:|:---:|---|
 | `.task` | ✅ | ✅ ⁴ | ✅ | ❌ | Older models (Gemma3n, Gemma 3, DeepSeek, Qwen 2.5, Phi-4) |
-| `.litertlm` | ✅ | ✅ ¹ | ⚠️ ² | ✅ | Newer models (Gemma 4, Qwen3, FastVLM + desktop for all); EmbeddingGemma 2 embeddings (native only) |
+| `.litertlm` | ✅ | ✅ ¹ | ⚠️ ² | ✅ | Newer models (Gemma 4, Qwen3, FastVLM + desktop for all); EmbeddingGemma 2 embeddings (every platform; web from litertlm 1.15.0) |
 | `-web.task` | ❌ | ❌ | ✅ | ❌ | Web-specific MediaPipe builds (Gemma 4, Gemma 3 1B and Gemma 3 270M in the current catalog) |
 | `.bin` | ✅ | ✅ | ✅ | ❌ | Manual chat template formatting required |
 | `.tflite` | ✅ | ✅ | ✅ | ✅ | LLM via `ModelFileType.binary` (MediaPipe, mobile and web), and LiteRT embedding models (EmbeddingGemma, Gecko) on every platform |
@@ -470,8 +470,8 @@ the maximum is never truncated: it throws `EmbeddingInputTooLongException`.
 
 | Model | Parameters | Dimensions | Max Seq Length | Size | Auth Required |
 |---|---|---|---|---|---|
-| **[EmbeddingGemma 2 text](https://huggingface.co/litert-community/embeddinggemma-2-text-270m-litert-lm)** (`.litertlm`, native only) | 270M | 768D | 1024 tokens | 165MB + 71MB weight cache | ❌ |
-| **[EmbeddingGemma 2 text + vision](https://huggingface.co/litert-community/embeddinggemma-2-text-vision-440m-litert-lm)** (`.litertlm`, native only; text and images) | 440M | 768D | 1024 tokens | 388MB + 71MB + 218MB weight caches | ❌ |
+| **[EmbeddingGemma 2 text](https://huggingface.co/litert-community/embeddinggemma-2-text-270m-litert-lm)** (`.litertlm`; web from litertlm 1.15.0) | 270M | 768D | 1024 tokens | 165MB + 71MB weight cache (native) | ❌ |
+| **[EmbeddingGemma 2 text + vision](https://huggingface.co/litert-community/embeddinggemma-2-text-vision-440m-litert-lm)** (`.litertlm`, text and images; web from litertlm 1.15.0) | 440M | 768D | 1024 tokens | 388MB + 71MB + 218MB weight caches (native) | ❌ |
 | **[Gecko 64](https://huggingface.co/litert-community/Gecko-110m-en)** | 110M | 768D | 64 tokens | 110MB | ❌ |
 | **[Gecko 256](https://huggingface.co/litert-community/Gecko-110m-en)** | 110M | 768D | 256 tokens | 114MB | ❌ |
 | **[Gecko 512](https://huggingface.co/litert-community/Gecko-110m-en)** | 110M | 768D | 512 tokens | 116MB | ❌ |
@@ -481,7 +481,8 @@ the maximum is never truncated: it throws `EmbeddingInputTooLongException`.
 | **[EmbeddingGemma 2048](https://huggingface.co/litert-community/embeddinggemma-300m)** | 300M | 768D | 2048 tokens | 196MB | ✅ |
 
 EmbeddingGemma 2 is one `.litertlm` file with its own tokenizer (no
-`tokenizerFrom…()`) and runs on CPU on Android, iOS, macOS, Linux and Windows.
+`tokenizerFrom…()`) and runs on CPU on Android, iOS, macOS, Linux and Windows,
+and in the browser (WebAssembly) since `flutter_edge_ai_litertlm` 1.15.0.
 Both bundles embed text (`flutter_edge_ai_litertlm` 1.13.0, identical text
 vectors); the 440m also embeds JPEG, PNG, GIF and BMP images (1.14.0, about
 0.36–0.56 s per image and 385 MB more RAM from the first image). Keep chunks at

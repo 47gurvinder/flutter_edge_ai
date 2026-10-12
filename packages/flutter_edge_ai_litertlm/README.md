@@ -43,7 +43,7 @@ other engines (e.g. `MediaPipeEngine` from `flutter_edge_ai_mediapipe`) if your 
 uses both formats.
 
 Depend on both packages (`flutter_edge_ai: ^2.3.0`,
-`flutter_edge_ai_litertlm: ^1.14.0`) and install `.litertlm` files with
+`flutter_edge_ai_litertlm: ^1.15.0`) and install `.litertlm` files with
 `fileType: ModelFileType.litertlm`: `installModel` defaults to
 `ModelFileType.task`, which routes the file to MediaPipe.
 
@@ -140,7 +140,7 @@ on every install, because the variant's filename is only known after the fetch.
 
 | Model file | Platforms | Tokenizer | Longest input |
 |---|---|---|---|
-| EmbeddingGemma 2 text, one `.litertlm` | Android, iOS, macOS, Linux, Windows | inside the bundle | 1024 tokens |
+| EmbeddingGemma 2 text and images, one `.litertlm` | Android, iOS, macOS, Linux, Windows; Web via `@litert-lm/core` | inside the bundle | 1024 tokens |
 | EmbeddingGemma 1, Gecko: `.tflite` + a tokenizer file | Android, iOS, macOS, Linux, Windows; Web via LiteRT.js | `flutter_edge_ai_embeddings` | the model's sequence length (256 for a `seq256` file) |
 
 ```dart
@@ -207,27 +207,31 @@ final vector = await embedder.embed(
 );
 ```
 
-- **Native only:** Android, iOS, macOS, Linux and Windows. On web `install()`
-  refuses a `.litertlm` embedder with an `UnsupportedError` before downloading
-  anything.
-- **Text on every bundle; images on the 440m (1.14.0).** On the 270m,
-  `getActiveEmbedder(supportImage: true)` fails with `EmbeddingLoadException`
-  naming the 440m bundle, before any engine or cache is made.
-  `supportAudio: true` fails on every bundle: audio arrives in 1.16.0.
+- **Android, iOS, macOS, Linux and Windows, and the web (1.15.0).** On the web
+  the bundle runs through `@litert-lm/core`'s `EmbeddingEngine`, which needs
+  one more line in `web/index.html` — see [Web setup](#web-setup-early-preview).
+- **Text on every bundle; images on the 440m (1.14.0 native, 1.15.0 web).** On
+  the 270m, `getActiveEmbedder(supportImage: true)` fails with
+  `EmbeddingLoadException` naming the 440m bundle (natively before any engine
+  or cache is made). `supportAudio: true` fails on every bundle: audio arrives
+  in 1.16.0.
 - **At most 1024 tokens per input**, task prefix, BOS and EOS included
   (`maxInputTokens == 1024`). Keep chunks at 512 tokens or fewer: memory grows
   with the input length (on an M4 Pro Mac about +170 MB at 128 tokens, +340 MB
   at 512 and +560 MB at 1024). A longer input fails with
-  `EmbeddingInputTooLongException` whose `actualTokens` is null — LiteRT-LM
-  reports the overflow without a count.
-- **CPU.** `activeBackend` is `PreferredBackend.cpu`; `preferredBackend` is not
-  applied.
+  `EmbeddingInputTooLongException`. Natively its `actualTokens` is null —
+  LiteRT-LM's C API reports the overflow without a count; on the web it is the
+  exact count.
+- **CPU**, on the web too (WebAssembly). `activeBackend` is
+  `PreferredBackend.cpu`; `preferredBackend` is not applied.
 - **Disk:** the 165 MB bundle plus a 71 MB weight cache the engine writes at
   its first load. The 440m bundle adds a 218 MB vision cache and the 740m
   bundle writes 385 MB of caches in total, even for text-only use. The cache
   lives in
   the app's cache directory: it is never backed up, and if the OS clears it the
-  next load writes it again.
+  next load writes it again. On the web there is no weight cache: the bundle
+  sits in the browser's storage and the engine rebuilds its weights at every
+  load.
 - EmbeddingGemma 1 and 2 both produce 768-dimensional vectors in different
   embedding spaces: never mix them in one vector store.
 
@@ -265,7 +269,8 @@ final query = await embedder.embed(
   `EmbeddingFormatNotSupportedException` (which names the detected and the
   accepted formats) before anything is sent; convert them first. A corrupt or
   truncated file of an accepted type fails with `EmbeddingEngineException`
-  (`nativeCode` 3) and the embedder keeps working. One image per vector.
+  (`nativeCode` 3 natively; on the web the message carries the runtime's
+  reason) and the embedder keeps working. One image per vector.
 - **Vision budget:** 140 tokens per image by default, the closest to the
   reference model. `LiteRtEmbeddingBackend(visionTokensPerImage: 70)` is about
   twice as fast with slightly different image vectors; any other value fails
@@ -282,9 +287,10 @@ final query = await embedder.embed(
   photo; choose "EmbeddingGemma 2 Text + Vision (440M)" under Embedding Models
   first.
 
-`EmbeddingModel.activeBackend` is `cpu` on native, the only backend this
-package's embedder uses, so `preferredBackend` is not applied. On web it is
-`null` and LiteRT.js picks: `window.getLiteRtEmbeddingAccelerator()` names where
+`EmbeddingModel.activeBackend` is `cpu` on native and for EmbeddingGemma 2 on
+the web, the only backend this package's embedder uses, so `preferredBackend`
+is not applied. For EmbeddingGemma 1 on the web it is `null` and LiteRT.js
+picks: `window.getLiteRtEmbeddingAccelerator()` names where
 the output buffer lived after the first embedding, and
 `window.getLiteRtEmbeddingFullyAccelerated()` says whether the graph landed
 entirely on the requested accelerator — `false` also when LiteRT silently
@@ -292,7 +298,11 @@ recompiled a WebGPU request for WASM.
 
 ## Embeddings on web
 
-On web, `flutter_edge_ai_litertlm`'s embedding backend runs via LiteRT.js. Copy
+EmbeddingGemma 2 (`.litertlm`) on the web needs no files from this package —
+only the `window.EmbeddingEngine` line in [Web setup](#web-setup-early-preview).
+The rest of this section is about EmbeddingGemma 1 and Gecko (`.tflite`).
+
+On web, `flutter_edge_ai_litertlm`'s `.tflite` embedding backend runs via LiteRT.js. Copy
 all four files from this package's `web/` into your app's `web/`, next to
 `index.html` — `litert_embeddings.js` imports the other three by relative path,
 so they have to sit together:
@@ -391,10 +401,16 @@ assign window globals and module scripts are deferred, so Dart awaits
 window.litertLmReady = (async () => {
   const m = await import('https://cdn.jsdelivr.net/npm/@litert-lm/core@0.18.0/+esm');
   window.Engine = m.Engine;
+  window.EmbeddingEngine = m.EmbeddingEngine;
   return m.Engine;
 })();
 </script>
 ```
+
+`window.EmbeddingEngine` (1.15.0) is what EmbeddingGemma 2 `.litertlm`
+embedders run on, text and images, on the CPU (WebAssembly); WebGPU is not used
+for them yet. A page without that line fails the embedder's load with an
+`EmbeddingLoadException` that names it. The LLM engine does not need it.
 
 Native platforms need no web setup.
 
@@ -406,7 +422,7 @@ Native platforms need no web setup.
 | iOS      | ✅ FFI (GPU via Metal on device; CPU on simulator) |
 | macOS / Linux | ✅ FFI (GPU via Metal / Vulkan; NPU on Qualcomm Linux arm64 — opt-in, below) |
 | Windows  | ✅ FFI (CPU + GPU via DirectX 12 + Intel NPU) |
-| Web      | ⚠️ early preview via `@litert-lm/core` (CDN, text-only) |
+| Web      | ⚠️ early preview via `@litert-lm/core` (CDN; LLMs text-only; EmbeddingGemma 2 text and images on CPU) |
 
 The native library (`native-v0.18.0-d`, LiteRT-LM v0.18.0) is fetched at build
 time by `hook/build.dart` from a SHA256-verified GitHub release. The app still
