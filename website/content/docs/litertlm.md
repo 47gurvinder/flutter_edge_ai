@@ -17,7 +17,8 @@ there's no manual native setup.
 
 The same package also ships **`LiteRtEmbeddingBackend`**: EmbeddingGemma 2 from
 one `.litertlm` bundle (native: text since 1.13.0, images from the 440m bundle
-since 1.14.0; Web: both since 1.15.0, on the CPU) and EmbeddingGemma 1 / Gecko
+since 1.14.0, audio and combined inputs from the 740m bundle since 1.16.0; Web:
+text and images since 1.15.0, on the CPU) and EmbeddingGemma 1 / Gecko
 `.tflite` models through the LiteRT C API (and LiteRT.js on web) — see
 [Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2).
 

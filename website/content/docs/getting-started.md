@@ -48,6 +48,12 @@ only the engines, stores and features your app uses — see
   from one `.litertlm` bundle with its own tokenizer, on Android, iOS, macOS,
   Linux and Windows; up to 1024 tokens per input. See
   [Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2).
+- **EmbeddingGemma 2 audio and combined inputs** (`flutter_edge_ai_litertlm`
+  1.16.0, `flutter_edge_ai` 2.4.0): the 740m bundle embeds WAV, MP3 and FLAC
+  clips on native platforms, and `EmbeddingInput(text:, images:, audio:)` puts
+  several parts in one vector; an over-long input reports its exact token
+  count. See
+  [Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2-audio-and-combined-inputs).
 - **EmbeddingGemma 2 on the Web** (`flutter_edge_ai_litertlm` 1.15.0): text
   and images in the browser through `@litert-lm/core`, on the CPU; add
   `window.EmbeddingEngine = m.EmbeddingEngine;` to `web/index.html`. See

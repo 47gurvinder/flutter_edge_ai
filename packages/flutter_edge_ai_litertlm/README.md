@@ -42,8 +42,8 @@ await FlutterEdgeAi.initialize(
 other engines (e.g. `MediaPipeEngine` from `flutter_edge_ai_mediapipe`) if your app
 uses both formats.
 
-Depend on both packages (`flutter_edge_ai: ^2.3.0`,
-`flutter_edge_ai_litertlm: ^1.15.0`) and install `.litertlm` files with
+Depend on both packages (`flutter_edge_ai: ^2.4.0`,
+`flutter_edge_ai_litertlm: ^1.16.0`) and install `.litertlm` files with
 `fileType: ModelFileType.litertlm`: `installModel` defaults to
 `ModelFileType.task`, which routes the file to MediaPipe.
 
@@ -140,7 +140,7 @@ on every install, because the variant's filename is only known after the fetch.
 
 | Model file | Platforms | Tokenizer | Longest input |
 |---|---|---|---|
-| EmbeddingGemma 2 text and images, one `.litertlm` | Android, iOS, macOS, Linux, Windows; Web via `@litert-lm/core` | inside the bundle | 1024 tokens |
+| EmbeddingGemma 2 text, images and audio, one `.litertlm` | Android, iOS, macOS, Linux, Windows; Web via `@litert-lm/core` (text and images) | inside the bundle | 1024 tokens |
 | EmbeddingGemma 1, Gecko: `.tflite` + a tokenizer file | Android, iOS, macOS, Linux, Windows; Web via LiteRT.js | `flutter_edge_ai_embeddings` | the model's sequence length (256 for a `seq256` file) |
 
 ```dart
@@ -184,7 +184,8 @@ future (`EmbeddingException` and its subclasses).
 EmbeddingGemma 2 ships as one `.litertlm` bundle that carries its own
 tokenizer, so it installs without `tokenizerFrom…()` and needs neither
 `flutter_edge_ai_embeddings` nor `embeddingTokenizers:`. The text-only 270m
-bundle is the one for text; the 440m adds images ([below](#embeddinggemma-2-images)).
+bundle is the one for text; the 440m adds images ([below](#embeddinggemma-2-images))
+and the 740m adds audio ([below](#embeddinggemma-2-audio-and-combined-inputs)).
 The repositories are not gated:
 
 ```dart
@@ -210,20 +211,20 @@ final vector = await embedder.embed(
 - **Android, iOS, macOS, Linux and Windows, and the web (1.15.0).** On the web
   the bundle runs through `@litert-lm/core`'s `EmbeddingEngine`, which needs
   one more line in `web/index.html` — see [Web setup](#web-setup-early-preview).
-- **Text on every bundle; images on the 440m (1.14.0 native, 1.15.0 web).** On
-  the 270m, `getActiveEmbedder(supportImage: true)` fails with
-  `EmbeddingLoadException` naming the 440m bundle (natively before any engine
-  or cache is made). `supportAudio: true` fails on every bundle: audio arrives
-  in 1.16.0.
+- **Text on every bundle; images on the 440m and the 740m (1.14.0 native,
+  1.15.0 web); audio on the 740m, natively (1.16.0).** On the 270m,
+  `getActiveEmbedder(supportImage: true)` fails with `EmbeddingLoadException`
+  naming the 440m bundle, and on the 270m and the 440m `supportAudio: true`
+  fails naming the 740m — natively before any engine or cache is made. On the
+  web `supportAudio: true` fails on every bundle.
 - **At most 1024 tokens per input**, task prefix, BOS and EOS included
   (`maxInputTokens == 1024`). Keep chunks at 512 tokens or fewer: memory grows
   with the input length (on an M4 Pro Mac about +170 MB at 128 tokens, +340 MB
   at 512 and +560 MB at 1024). A longer input fails with
-  `EmbeddingInputTooLongException`. Natively its `actualTokens` is null —
-  LiteRT-LM's C API reports the overflow without a count; on the web it is the
-  exact count, which the engine reports from a truncated run — so there an
-  over-long input costs one full embedding before it is refused. Split before
-  embedding.
+  `EmbeddingInputTooLongException` whose `actualTokens` is the exact count
+  (natively from 1.16.0; the web always had it). The engine reports it from a
+  truncated run, so an over-long input costs one full embedding before it is
+  refused. Split before embedding.
 - **CPU**, on the web too (WebAssembly). `activeBackend` is
   `PreferredBackend.cpu`; `preferredBackend` is not applied.
 - **Disk:** the 165 MB bundle plus a 71 MB weight cache the engine writes at
@@ -332,6 +333,74 @@ page.
   sample pictures) in a RAG image index and searches them by text and by
   photo; choose "EmbeddingGemma 2 Text + Vision (440M)" under Embedding Models
   first.
+
+### EmbeddingGemma 2 audio and combined inputs
+
+The 740m bundle carries the 440m's text and vision towers (the same text and
+image vectors) plus an audio encoder, so a text can find a spoken sentence or a
+sound, and one vector can hold several parts — a photo with its caption, a clip
+with a note. Native platforms only; on the web this bundle embeds text and
+images. Declare what you send when you get the embedder:
+
+```dart
+const audioRevision = '24d962e906c7d332c6428e71c9676855024569e2';
+
+await FlutterEdgeAi.installEmbedder()
+    .modelFromNetwork(
+      'https://huggingface.co/litert-community/'
+      'embeddinggemma-2-740m-litert-lm/resolve/$audioRevision/'
+      'embeddinggemma-2-740m.litertlm',
+    )
+    .install();
+final embedder = await FlutterEdgeAi.getActiveEmbedder(supportAudio: true);
+final clip = await embedder.embed(
+  EmbeddingInput.audio(wavBytes),
+  taskType: TaskType.retrievalDocument, // prefixes reach text only
+);
+final query = await embedder.embed(
+  EmbeddingInput.text('turn off the kitchen lights'),
+  taskType: TaskType.none, // a text query over media, as rag sends it
+);
+
+// Several parts, one vector (flutter_edge_ai 2.4.0):
+final note = await embedder.embed(
+  EmbeddingInput(text: 'kitchen', audio: wavBytes),
+  taskType: TaskType.retrievalDocument,
+);
+```
+
+- **Formats the engine decodes:** WAV, MP3 and FLAC, any sample rate and
+  channel count — the engine mixes down to mono and resamples to 16 kHz. Ogg
+  and M4A fail with `EmbeddingFormatNotSupportedException` before anything is
+  sent; a corrupt file of an accepted type fails with
+  `EmbeddingEngineException` (`nativeCode` 2) and the embedder keeps working.
+  One clip per vector.
+- **Length:** about 25 tokens per second of audio, so a clip of up to about
+  40 seconds fits the 1024-token cap; a 60-second clip fails with
+  `EmbeddingInputTooLongException(maxInputTokens: 1024, actualTokens: 1504)`.
+  Split long recordings.
+- **Combined inputs:** `EmbeddingInput(text:, images:, audio:)` puts the text
+  (with its task prefix), then the images in order, then the audio into one
+  vector — that order whatever order you write the arguments in. Declare every
+  medium you send (`supportImage: true, supportAudio: true`); the cap counts
+  all parts together (about 140 tokens per image).
+- **Cost** (CPU, measured on an M4 Pro Mac): a 485 MB bundle; at every load the
+  engine writes 385 MB of weight caches (text 71 MB, vision 218 MB, audio
+  95 MB) in the app's cache directory, also when you only embed text; about
+  0.2–0.3 s per 3-second clip. For text use the 270m, for text and images the
+  440m.
+- **Index ids:** audio vectors do not depend on the vision budget, so an audio
+  store keeps the text profile id (rag tells the stores apart by their
+  `documents` modality).
+- **Audio vectors are not bit-portable.** The audio encoder quantizes its
+  activations to 8 bits, so a difference in the last bit of a float — another
+  CPU kernel, or one sample of the clip changed by 1 — can move a clip's
+  vector by up to cos 0.05. Text and image vectors do not move that way. Our
+  native build and Google's `litert-lm` Python wheel give identical text
+  vectors and audio vectors within cos 0.97 (the wheel even varies by thread
+  scheduling run to run); one build is deterministic on one platform. What
+  holds across builds is retrieval: a text finds its clip on every build we
+  measured.
 
 `EmbeddingModel.activeBackend` is `cpu` on native and for EmbeddingGemma 2 on
 the web, the only backend this package's embedder uses, so `preferredBackend`

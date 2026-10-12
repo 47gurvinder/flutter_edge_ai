@@ -191,14 +191,15 @@ final eg2Index = await rag.open(
 - The 270m is text only: `getActiveEmbedder(supportImage: true)` throws
   `EmbeddingLoadException` naming the 440m bundle — natively before any engine
   or cache is made (below); on Web only after the bundle was read, when the
-  runtime refuses to create the engine. `supportAudio: true` is refused on every bundle (audio
-  arrives in 1.16.0).
+  runtime refuses to create the engine. `supportAudio: true` needs the 740m
+  bundle (below): on the 270m and the 440m it throws `EmbeddingLoadException`
+  naming the 740m, and on Web it is refused on every bundle.
 - `maxInputTokens` is 1024 — task prefix, BOS and EOS included. Keep chunks at
   512 tokens or fewer: memory grows with the input length. A longer text throws
-  `EmbeddingInputTooLongException`. Natively its `actualTokens` is null —
-  LiteRT-LM's C API reports the overflow without a count; on Web it is the
-  exact count, read from a truncated run — so on Web an over-long chunk still
-  costs one full embedding before it is refused: split before embedding.
+  `EmbeddingInputTooLongException` with the exact `actualTokens` (natively
+  from `flutter_edge_ai_litertlm` 1.16.0). The count is read from a truncated
+  run, so an over-long chunk still costs one full embedding before it is
+  refused: split before embedding.
 - It runs on CPU (`activeBackend` is `PreferredBackend.cpu`). Natively it keeps
   a weight cache of about 71 MB, on top of the 165 MB bundle, in the app's
   cache directory: never backed up, and rebuilt at the next load if the OS
@@ -318,6 +319,76 @@ page itself: there are no isolates there.
 - A text query over an image index is sent raw (`TaskType.none`): measured,
   the retrieval-query prefix found the same photos with a smaller margin. Do
   not set `queryTask` for it: that applies to text documents only.
+
+### EmbeddingGemma 2 audio and combined inputs (740m; `flutter_edge_ai_litertlm` 1.16.0, native)
+
+The 740m bundle (`litert-community/embeddinggemma-2-740m-litert-lm`, revision
+`24d962e906c7d332c6428e71c9676855024569e2`, ungated, 485 MB) has the 440m's
+text and vision towers — the same text and image vectors, so the same profile
+ids — plus an audio encoder. Native platforms only; on Web it embeds text and
+images.
+
+```dart
+import 'package:flutter_edge_ai_rag/flutter_edge_ai_rag.dart';
+import 'package:flutter_edge_ai_sqlite/flutter_edge_ai_sqlite.dart';
+
+final rag = FlutterEdgeAiRag(
+  providers: const [SqliteVectorStoreProvider()],
+);
+final clips = await rag.open(
+  spec: VectorStoreSpec(
+    providerId: SqliteVectorStoreProvider.providerId,
+    location: path, // its own location: one modality per location
+    documents: EmbeddingModality.audio,
+  ),
+  embedder: FlutterEdgeAiActiveEmbedder.forActiveModel(
+    namespace: 'clips',
+    supportAudio: true,
+  ),
+);
+await clips.add(
+  id: 'memo-1',
+  document: EmbeddingInput.audio(bytes), // encoded WAV, MP3 or FLAC bytes
+  content: 'file:///memos/1.wav',
+);
+final hits = await clips.search(
+  query: EmbeddingInput.text('turn off the kitchen lights'),
+);
+
+// Several parts in one vector (flutter_edge_ai 2.4.0), outside an index:
+final embedder = await FlutterEdgeAi.getActiveEmbedder(
+  supportImage: true,
+  supportAudio: true,
+);
+final vector = await embedder.embed(
+  EmbeddingInput(text: 'kitchen', audio: bytes),
+  taskType: TaskType.retrievalDocument,
+);
+```
+
+- Formats: WAV, MP3 and FLAC, any rate and channel count (the engine mixes
+  down to mono and resamples to 16 kHz). Ogg and M4A throw
+  `EmbeddingFormatNotSupportedException` before anything is sent; a corrupt
+  file of an accepted type throws `EmbeddingEngineException` (`nativeCode` 2)
+  and the model keeps working. One clip per vector.
+- Length: about 25 tokens per second, so up to about 40 seconds fit the
+  1024-token cap; a 60-second clip throws `EmbeddingInputTooLongException`
+  with `actualTokens` 1504. Split long recordings.
+- `EmbeddingInput(text:, images:, audio:)` puts the text (with its task
+  prefix), then the images in order, then the audio into one vector, whatever
+  order the arguments are written in. Declare every medium it carries. An
+  engine that embeds one modality per vector (every other one here) refuses it
+  with `UnsupportedEmbeddingCombinationException`.
+- An audio index keeps the text profile id: audio vectors do not depend on the
+  vision budget, and the store's `documents` modality keeps it apart from a
+  text store. A text query over it is sent raw (`TaskType.none`).
+- Audio vectors are not bit-portable: the audio encoder quantizes activations
+  to 8 bits, so another CPU kernel can move a clip's vector by up to cos 0.05
+  (text and image vectors do not move that way). Retrieval holds: every test
+  sentence was found by its text query on every build measured.
+- Cost (CPU, M4 Pro Mac): 385 MB of weight caches written at every load (text
+  71 MB, vision 218 MB, audio 95 MB), also for text-only use; about 0.2–0.3 s
+  per 3-second clip. Use the 270m for text, the 440m for text and images.
 
 ## Index and search
 
@@ -709,11 +780,13 @@ location.
 - `EmbeddingInputTooLongException` from `add` or `search`: the text is longer
   than the embedder's `maxInputTokens`. Split it into smaller chunks; older
   releases truncated it silently. With EmbeddingGemma 2 its `actualTokens` is
-  null.
+  the exact count (natively from `flutter_edge_ai_litertlm` 1.16.0).
 - `EmbeddingLoadException` from `open()` of an image index: the installed
   model has no vision encoder — "has no vision encoder; install
   embeddinggemma-2-text-vision-440m" on the 270m — or is not an EmbeddingGemma
-  2 bundle. From an audio index: no bundled embedder embeds audio yet.
+  2 bundle. From an audio index: "has no audio encoder; install
+  embeddinggemma-2-740m" on the 270m and the 440m; on Web every bundle refuses
+  audio.
 - `EmbeddingFormatNotSupportedException` from `add` or `search` on an image
   index: HEIC, WebP, TIFF or AVIF; convert to JPEG or PNG.
 - `VectorStoreException` "… is not a valid embedding profile" on open: the

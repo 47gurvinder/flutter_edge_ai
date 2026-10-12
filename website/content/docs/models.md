@@ -472,6 +472,7 @@ the maximum is never truncated: it throws `EmbeddingInputTooLongException`.
 |---|---|---|---|---|---|
 | **[EmbeddingGemma 2 text](https://huggingface.co/litert-community/embeddinggemma-2-text-270m-litert-lm)** (`.litertlm`; web from litertlm 1.15.0) | 270M | 768D | 1024 tokens | 165MB + 71MB weight cache (native) | ❌ |
 | **[EmbeddingGemma 2 text + vision](https://huggingface.co/litert-community/embeddinggemma-2-text-vision-440m-litert-lm)** (`.litertlm`, text and images; web from litertlm 1.15.0) | 440M | 768D | 1024 tokens | 388MB + 71MB + 218MB weight caches (native) | ❌ |
+| **[EmbeddingGemma 2 text + vision + audio](https://huggingface.co/litert-community/embeddinggemma-2-740m-litert-lm)** (`.litertlm`, text, images and audio; audio native only, from litertlm 1.16.0) | 740M | 768D | 1024 tokens | 485MB + 385MB weight caches (native) | ❌ |
 | **[Gecko 64](https://huggingface.co/litert-community/Gecko-110m-en)** | 110M | 768D | 64 tokens | 110MB | ❌ |
 | **[Gecko 256](https://huggingface.co/litert-community/Gecko-110m-en)** | 110M | 768D | 256 tokens | 114MB | ❌ |
 | **[Gecko 512](https://huggingface.co/litert-community/Gecko-110m-en)** | 110M | 768D | 512 tokens | 116MB | ❌ |
@@ -483,10 +484,13 @@ the maximum is never truncated: it throws `EmbeddingInputTooLongException`.
 EmbeddingGemma 2 is one `.litertlm` file with its own tokenizer (no
 `tokenizerFrom…()`) and runs on CPU on Android, iOS, macOS, Linux and Windows,
 and in the browser (WebAssembly) since `flutter_edge_ai_litertlm` 1.15.0.
-Both bundles embed text (`flutter_edge_ai_litertlm` 1.13.0, identical text
-vectors); the 440m also embeds JPEG, PNG, GIF and BMP images (1.14.0; per
-image about 0.35 s on an Apple-silicon Mac and about 2 s on an Android flagship,
-and about 400–500 MB more RAM from the first image). Keep chunks at
+All three bundles embed text (`flutter_edge_ai_litertlm` 1.13.0, identical text
+vectors); the 440m and the 740m also embed JPEG, PNG, GIF and BMP images
+(1.14.0; per image about 0.35 s on an Apple-silicon Mac and about 2 s on an
+Android flagship, and about 400–500 MB more RAM from the first image); the 740m
+also embeds WAV, MP3 and FLAC audio of up to about 40 seconds, natively (1.16.0;
+about 0.2–0.3 s per 3-second clip on an Apple-silicon Mac), and any of them
+together in one vector. Keep chunks at
 512 tokens or fewer, and use the 270m when you embed only text; see
 [Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2).
 Every other row is a `.tflite` model plus a tokenizer file.
