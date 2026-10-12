@@ -1,3 +1,8 @@
+## 1.16.0
+- EmbeddingGemma 2 audio (WAV, MP3, FLAC) and combined-input embeddings on native platforms.
+- Over-long EmbeddingGemma 2 inputs report their exact token count.
+- Require `flutter_edge_ai` ^2.4.0.
+
 ## 1.15.0
 - Web: EmbeddingGemma 2 text and image embeddings via @litert-lm/core 0.18.0.
 
