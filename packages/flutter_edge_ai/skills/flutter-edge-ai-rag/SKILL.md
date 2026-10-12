@@ -53,7 +53,8 @@ before opening an index: `open()` resolves the embedder's profile, which loads
 the model. Pin model downloads to an immutable revision.
 
 `FlutterEdgeAiActiveEmbedder.forActiveModel(namespace:)` derives the profile id
-from the installed file names (`'<namespace>@<files joined by +>'`), so
+from the installed file names (`'<namespace>@<files joined by +>'`, with `%`,
+`@` and `+` inside a name percent-encoded), so
 installing a model under different file names changes the id and the old
 location refuses to open instead of mixing two embedding spaces. EmbeddingGemma
 1 and 2 are both 768-dimensional: the id is the only thing that tells them

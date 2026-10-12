@@ -131,6 +131,11 @@ final class FlutterEdgeAiActiveEmbedder implements RagEmbedder {
   /// An adapter whose profile id is derived from the installed files of the
   /// active embedder: `'<namespace>@<installed file names joined by +>'`.
   ///
+  /// Different namespaces or file lists always give different ids: `%`, `@`,
+  /// `+` and U+0000–U+001F in the namespace and the file names are
+  /// percent-encoded (`%25`, `%40`, `%2B`, `%XX`). Names without those
+  /// characters appear as they are, so their ids read exactly as above.
+  ///
   /// Installing a model under different file names therefore changes the id,
   /// and a store bound to the old one refuses to open — EmbeddingGemma 1 and
   /// 2 are both 768-dimensional, so the id is the only guard against mixing
@@ -145,8 +150,7 @@ final class FlutterEdgeAiActiveEmbedder implements RagEmbedder {
   /// are never re-keyed.
   ///
   /// Throws [StateError] when no embedding model is active, and
-  /// [ArgumentError] when [namespace] is empty or contains a control
-  /// character.
+  /// [ArgumentError] when [namespace] is empty or blank.
   factory FlutterEdgeAiActiveEmbedder.forActiveModel({
     required String namespace,
     PreferredBackend? preferredBackend,
@@ -154,7 +158,9 @@ final class FlutterEdgeAiActiveEmbedder implements RagEmbedder {
     bool supportAudio = false,
     TaskType queryTask = TaskType.retrievalQuery,
   }) {
-    checkProfileIdText(namespace, 'namespace');
+    if (namespace.trim().isEmpty) {
+      throw ArgumentError.value(namespace, 'namespace', 'must not be empty');
+    }
     final spec = _activeSpec();
     if (spec == null) {
       throw StateError(

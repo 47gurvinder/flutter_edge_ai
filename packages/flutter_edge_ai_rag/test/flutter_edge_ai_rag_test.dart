@@ -1224,6 +1224,49 @@ void main() {
         expect(EmbeddingProfile(id: id, dimension: 768).id, id);
       }
     });
+
+    test('forActiveModel ids are injective over delimiter-bearing names', () {
+      EmbeddingModelSpec bundle(String file) => EmbeddingModelSpec(
+        name: file,
+        modelSource: ModelSource.asset('models/any.litertlm'),
+        modelFilename: file,
+      );
+      EmbeddingModelSpec pair(String model, String tokenizer) =>
+          EmbeddingModelSpec(
+            name: model,
+            modelSource: ModelSource.asset('models/any.tflite'),
+            tokenizerSource: ModelSource.asset('models/any.json'),
+            modelFilename: model,
+            tokenizerFilename: tokenizer,
+          );
+
+      // Each pair spells the same id when nothing is escaped.
+      final cases = {
+        'kb@x | y': (namespace: 'kb@x', spec: bundle('y.litertlm')),
+        'kb | x@y': (namespace: 'kb', spec: bundle('x@y.litertlm')),
+        'm+x | t': (namespace: 'kb', spec: pair('m+x.tflite', 't.json')),
+        'm | x+t': (namespace: 'kb', spec: pair('m', 'x.tflite+t.json')),
+        'literal %2B': (namespace: 'kb', spec: bundle('a%2Bb.litertlm')),
+        'plus': (namespace: 'kb', spec: bundle('a+b.litertlm')),
+        'tab in namespace': (namespace: 'k\tb', spec: bundle('a.litertlm')),
+      };
+      final ids = {
+        for (final MapEntry(key: name, value: c) in cases.entries)
+          name: activeModelProfileId(namespace: c.namespace, spec: c.spec),
+      };
+
+      expect(ids.values.toSet(), hasLength(cases.length), reason: '$ids');
+      expect(ids['kb@x | y'], 'kb%40x@y.litertlm');
+      expect(ids['kb | x@y'], 'kb@x%40y.litertlm');
+      expect(ids['m+x | t'], 'kb@m%2Bx.tflite+t.json');
+      expect(ids['m | x+t'], 'kb@m+x.tflite%2Bt.json');
+      expect(ids['literal %2B'], 'kb@a%252Bb.litertlm');
+      expect(ids['plus'], 'kb@a%2Bb.litertlm');
+      expect(ids['tab in namespace'], 'k%09b@a.litertlm');
+      for (final id in ids.values) {
+        expect(EmbeddingProfile(id: id, dimension: 768).id, id);
+      }
+    });
   });
 
   group('VectorStoreBinding', () {
