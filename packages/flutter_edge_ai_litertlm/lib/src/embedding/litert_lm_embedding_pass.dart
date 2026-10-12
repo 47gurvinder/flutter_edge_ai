@@ -9,17 +9,23 @@
 //
 // What it decides, and why (R5 D21-D26, §4.8, §4.10, measured in
 // eg2_design_backup/measurements/REPORT.md):
-// - Capabilities come from ModelInfo, read and freed BEFORE any settings or
-//   engine exist: model type, dimension, text signatures, and image support
-//   from `vision_signature_selection` — never `supports_input_modality`, which
-//   claims vision and audio on the text-only 270m (D23). A declared medium is
-//   refused here, so no engine (and no tower cache) is made for a request that
-//   cannot be served. Text, and images on a bundle with a vision encoder (the
-//   440m); audio arrives in 1.16.0.
-// - Images: one encoded file per request, decoded by the engine (stb: JPEG,
-//   PNG, GIF, BMP — reported at load, so core refuses anything else before
-//   sending), at 140 vision tokens per image or the opt-in 70 (D25). Tower
-//   backends stay NULL: the vision tower runs on the main backend (D26).
+// - Capabilities come from the bundle, read BEFORE any settings or engine
+//   exist: model type, dimension, text signatures and image support from
+//   ModelInfo (`vision_signature_selection`), audio support from the
+//   container's section table (`litertlm_container.dart`) — never
+//   `supports_input_modality`, which claims vision and audio on the text-only
+//   270m and audio on the 440m (D23). A declared medium the bundle lacks is
+//   refused here, so no engine (and no tower cache) is made for a request
+//   that cannot be served. Text; images on a bundle with a vision encoder (the
+//   440m and the 740m); audio on a bundle with an audio encoder (the 740m).
+// - Media are encoded files, decoded by the engine and reported at load, so
+//   core refuses any other container before sending: images through stb
+//   (JPEG, PNG, GIF, BMP) at 140 vision tokens per image or the opt-in 70
+//   (D25); audio through miniaudio (WAV, MP3, FLAC; mixed down to mono and
+//   resampled to 16 kHz by the engine, about 25 tokens per second). Tower
+//   backends stay NULL: present towers run on the main backend (D26).
+// - One vector may combine parts (`combinedInputs`): the text with its task
+//   prefix, then the images in order, then the audio (`embedding_parts.dart`).
 // - The input cap is set explicitly to 1024 tokens (D21): the bundles' metadata
 //   says 1024 but no C getter exposes it, and one 8192-token input peaked at
 //   +10.25 GB. `maxInputTokens` is the smallest text signature at or above the
@@ -32,14 +38,15 @@
 //   (see `liteRtLmCacheDirName`: Windows MAX_PATH), and a load that leaves it empty is reported. Caches of earlier
 //   copies of the same file name are deleted only after the engine exists,
 //   and not while they were touched in the last 10 minutes.
-// - Overflow (§4.8): options use kError; a NULL response with status 3
-//   (InvalidArgument) on the single, well-formed text part this pass built is
-//   an overflow — the only InvalidArgument reachable for such a request at
-//   v0.18.0. The count is not parsed out of the message (owner decision), so
-//   `actualTokens` is null until the response getters land (P3). On an image
-//   request code 3 is a decode failure (a corrupt or truncated file; an image
-//   cannot reach the 1024-token cap at 140 tokens), so it stays an engine
-//   error.
+// - Overflow (§4.8, the P3 gate): options use kTruncate for every request,
+//   and the response reports how many tokens the input had and how many the
+//   engine kept (`litert_lm_embedding_response_get_input_length` /
+//   `…_get_truncated_length`, patch_c_api.sh section 14, native-v0.18.0-e). A
+//   truncated response is never returned: it becomes
+//   `EmbeddingInputTooLongException` with both counts exact, media tokens
+//   included. A NULL response is never an overflow any more, so its status is
+//   an engine error — on an image, status 3 is a decode failure (stb), and on
+//   audio, status 2 is miniaudio refusing the file.
 // - Ownership (§4.10): every create has its delete on every path, and the
 //   native error (thread-local) is copied in the same synchronous segment as
 //   the failing call, before any other native call.
@@ -58,19 +65,25 @@ import '../ffi/litert_lm_embedding_bindings.dart';
 import '../ffi/litert_lm_library.dart';
 import 'embedding_parts.dart';
 import 'litert_lm_embedding_common.dart';
+import 'litertlm_container.dart';
 import 'vision_budget.dart';
 
 // Shared with the web pass; re-exported so this file's users keep one import.
 export 'litert_lm_embedding_common.dart'
     show
+        liteRtLmAudioFormats,
         liteRtLmEngineTag,
         liteRtLmImageFormats,
-        liteRtLmMaxInputLength,
-        liteRtLmNoAudioRefusal;
+        liteRtLmMaxInputLength;
 
-/// `kLiteRtLmStatusOk` / `kLiteRtLmStatusInvalidArgument` (`c/error_reporter.h`).
+/// `kLiteRtLmStatusOk` / `kLiteRtLmStatusUnknown` /
+/// `kLiteRtLmStatusInvalidArgument` (`c/error_reporter.h`).
 const _statusOk = 0;
+const _statusUnknown = 2;
 const _statusInvalidArgument = 3;
+
+/// The bundle to install for audio, named in the refusal.
+const _audioBundle = 'embeddinggemma-2-740m';
 
 /// What `LiteRtEmbeddingBackend.describe` hands core for a `.litertlm`
 /// embedder. Crosses to core's worker isolate: strings, a set of enums and an
@@ -95,9 +108,9 @@ final class LiteRtLmEmbeddingConfig {
   /// create rebuilds the weight cache.
   final String cacheBase;
 
-  /// The media the caller declared. The pass refuses, from ModelInfo and
+  /// The media the caller declared. The pass refuses, from the bundle and
   /// before creating an engine, images on a bundle without a vision encoder
-  /// and audio (1.16.0).
+  /// and audio on a bundle without an audio encoder.
   final Set<EmbeddingModality> declaredMedia;
 
   /// Engine threads; null leaves the engine's default (about 4).
@@ -143,6 +156,8 @@ const liteRtLmEmbeddingSymbols = <String>[
   'litert_lm_input_data_delete',
   'litert_lm_embedding_response_get_size',
   'litert_lm_embedding_response_get_values',
+  'litert_lm_embedding_response_get_input_length',
+  'litert_lm_embedding_response_get_truncated_length',
   'litert_lm_embedding_response_delete',
 ];
 
@@ -160,7 +175,7 @@ void checkLiteRtLmEmbeddingSymbols(
   throw EmbeddingLoadException(
     '$library does not export the LiteRT-LM EmbeddingEngine C API '
     '(missing: ${missing.join(', ')}). EmbeddingGemma 2 needs the native '
-    'libraries of native-v0.18.0-d or newer; a stale local prebuilt under '
+    'libraries of native-v0.18.0-e or newer; a stale local prebuilt under '
     'native/litert_lm/prebuilt/ is the usual cause.',
     engine: liteRtLmEngineTag,
   );
@@ -178,8 +193,9 @@ LiteRtLmEmbeddingBindings bindLiteRtLmEmbeddings(
 LiteRtLmEmbeddingBindings _openBindings() =>
     bindLiteRtLmEmbeddings(openLiteRtLmLibrary());
 
-/// The `.litertlm` embedding pass: text, and images on a bundle with a vision
-/// encoder; CPU.
+/// The `.litertlm` embedding pass: text, images on a bundle with a vision
+/// encoder, audio on a bundle with an audio encoder, and any combination of
+/// them in one vector; CPU.
 ///
 /// Built and run inside one isolate: the native handles it holds cannot cross
 /// an isolate boundary — only its [LiteRtLmEmbeddingConfig] does.
@@ -206,8 +222,8 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
   Pointer<LiteRtLmEmbeddingEngine> _engine = nullptr;
   Pointer<LiteRtLmEmbeddingOptions> _options = nullptr;
   int _dimension = 0;
-  int _maxInputTokens = 0;
   bool _images = false;
+  bool _audio = false;
   String? _cacheDir;
   bool _loaded = false;
   bool _closed = false;
@@ -241,6 +257,9 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
     final textSignatures = _checkModelInfo(info);
     final (:setting, :maxInputTokens) = liteRtLmInputLimit(textSignatures);
     final images = _config.declaredMedia.contains(EmbeddingModality.image);
+    // Checked by _checkModelInfo against the container: the bundle has an
+    // audio encoder whenever audio was declared.
+    final audio = _config.declaredMedia.contains(EmbeddingModality.audio);
     final cacheDir = _createCacheDir();
 
     try {
@@ -262,25 +281,33 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
     _deleteStaleSiblings(cacheDir);
 
     _dimension = info.dimension;
-    _maxInputTokens = maxInputTokens;
     _images = images;
+    _audio = audio;
     _cacheDir = cacheDir;
     _loaded = true;
-    // D23: what the BUNDLE can do. Core keeps the model at what was declared
-    // (text, plus images only when the caller asked for them).
+    // D23: what the BUNDLE can do — images whenever it has a vision encoder;
+    // audio is known only when it was declared (the container is read for it
+    // then and only then). Core keeps the model at what was declared.
     final vision = _hasVision(info);
     edgeAiLog(
       '[LiteRtLmEmbeddingPass] loaded $_file: dim=${info.dimension}, '
       'maxInputTokens=$maxInputTokens, backend=cpu, '
       'vision=${vision ? info.visionSignatures : 'none'}'
       '${images ? ', ${_config.visionTokensPerImage} tokens/image' : ''}, '
+      'audio=${audio ? 'yes' : 'not declared'}, '
       'cache=$cacheDir',
     );
     return EmbeddingPassInfo(
       dimension: info.dimension,
       maxInputTokens: maxInputTokens,
-      modalities: {EmbeddingModality.text, if (vision) EmbeddingModality.image},
+      modalities: {
+        EmbeddingModality.text,
+        if (vision) EmbeddingModality.image,
+        if (audio) EmbeddingModality.audio,
+      },
       imageFormats: vision ? liteRtLmImageFormats : const {},
+      audioFormats: audio ? liteRtLmAudioFormats : const {},
+      combinedInputs: true,
     );
   }
 
@@ -294,104 +321,156 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
       );
     }
     final parts = embeddingParts(input, taskType);
-    final kind = parts.length == 1 ? parts.single.kind : null;
-    if (kind == null ||
-        kind == EmbeddingPartKind.audio ||
-        (kind == EmbeddingPartKind.image && !_images)) {
-      // Core refuses all of these before sending (one modality per vector,
-      // and only the modalities the model was loaded with); reaching here is
-      // a host bug.
+    final kinds = {for (final part in parts) part.kind};
+    if (parts.isEmpty ||
+        (kinds.contains(EmbeddingPartKind.image) && !_images) ||
+        (kinds.contains(EmbeddingPartKind.audio) && !_audio)) {
+      // Core refuses all of these before sending (only the modalities the
+      // model was loaded with, and never an input without a part); reaching
+      // here is a host bug.
       throw EmbeddingEngineException(
-        'flutter_edge_ai_litertlm embeds one text or one declared image per '
-        'vector, got $input',
+        'flutter_edge_ai_litertlm embeds text and the media this model was '
+        'loaded with, got $input',
         engine: liteRtLmEngineTag,
       );
     }
-    final image = kind == EmbeddingPartKind.image;
+    final images = kinds.contains(EmbeddingPartKind.image);
+    final audio = kinds.contains(EmbeddingPartKind.audio);
 
     // Everything below is synchronous: the native error state is
     // thread-local, and an `await` could resume this isolate on another
     // thread before it is read.
-    final bytes = parts.single.bytes;
+    final handles = <Pointer<LiteRtLmInputData>>[];
+    try {
+      for (final part in parts) {
+        handles.add(_createPart(b, part));
+      }
+      final partArray = _alloc<Pointer<LiteRtLmInputData>>(handles.length);
+      try {
+        for (var i = 0; i < handles.length; i++) {
+          partArray[i] = handles[i];
+        }
+        // The error state is per thread and survives successful calls: clear
+        // it, so a NULL with nothing reported is never read as an old status.
+        b.litert_lm_clear_last_error();
+        final response = b.litert_lm_embedding_engine_compute_embedding(
+          _engine,
+          partArray,
+          handles.length,
+          _options,
+        );
+        if (response == nullptr) {
+          final (:code, :message) = _lastError(b);
+          // kTruncate: an overflow returns a (truncated) response, never NULL.
+          throw EmbeddingEngineException(
+            code == _statusInvalidArgument && images
+                // stb refusing the bytes (measured: a truncated PNG,
+                // "outofdata").
+                ? 'LiteRT-LM could not decode an image for $_file (a corrupt '
+                      'or truncated file?): $message'
+                : code == _statusUnknown && audio
+                // miniaudio refusing the bytes (measured: a WAV header with
+                // no samples, a RIFF header over garbage).
+                ? 'LiteRT-LM could not decode the audio for $_file (a corrupt '
+                      'file?): $message'
+                : 'compute_embedding failed for $_file: $message',
+            engine: liteRtLmEngineTag,
+            nativeCode: code == _statusOk ? null : code,
+          );
+        }
+        try {
+          return _vectorOf(b, response);
+        } finally {
+          b.litert_lm_embedding_response_delete(response);
+        }
+      } finally {
+        _alloc.free(partArray);
+      }
+    } finally {
+      for (final handle in handles) {
+        b.litert_lm_input_data_delete(handle);
+      }
+    }
+  }
+
+  /// One `LiteRtLmInputData` holding [part]'s bytes (the engine copies them).
+  Pointer<LiteRtLmInputData> _createPart(
+    LiteRtLmEmbeddingBindings b,
+    EmbeddingPart part,
+  ) {
+    final bytes = part.bytes;
     final buffer = _alloc<Uint8>(math.max(bytes.length, 1));
-    final Pointer<LiteRtLmInputData> part;
+    final Pointer<LiteRtLmInputData> handle;
     try {
       buffer.asTypedList(bytes.length).setAll(0, bytes);
       // Copies the bytes (std::string). Returns NULL only for an unknown
       // type, and then sets no error — so none is read.
-      part = b.litert_lm_input_data_create(
-        image
-            ? LiteRtLmInputDataType.kLiteRtLmInputDataTypeImage
-            : LiteRtLmInputDataType.kLiteRtLmInputDataTypeText,
+      handle = b.litert_lm_input_data_create(
+        switch (part.kind) {
+          EmbeddingPartKind.text =>
+            LiteRtLmInputDataType.kLiteRtLmInputDataTypeText,
+          EmbeddingPartKind.image =>
+            LiteRtLmInputDataType.kLiteRtLmInputDataTypeImage,
+          EmbeddingPartKind.audio =>
+            LiteRtLmInputDataType.kLiteRtLmInputDataTypeAudio,
+        },
         buffer.cast(),
         bytes.length,
       );
     } finally {
       _alloc.free(buffer);
     }
-    if (part == nullptr) {
+    if (handle == nullptr) {
       throw EmbeddingEngineException(
-        'litert_lm_input_data_create returned NULL for '
-        '${image ? 'an image' : 'a text'} part',
+        'litert_lm_input_data_create returned NULL for a ${part.kind.name} '
+        'part',
         engine: liteRtLmEngineTag,
       );
     }
+    return handle;
+  }
 
-    final partArray = _alloc<Pointer<LiteRtLmInputData>>();
-    try {
-      partArray[0] = part;
-      // The error state is per thread and survives successful calls: clear
-      // it, so a NULL with nothing reported is never read as an old status.
-      b.litert_lm_clear_last_error();
-      final response = b.litert_lm_embedding_engine_compute_embedding(
-        _engine,
-        partArray,
-        1,
-        _options,
+  /// The vector in [response], or the overflow it reports.
+  List<double> _vectorOf(
+    LiteRtLmEmbeddingBindings b,
+    Pointer<LiteRtLmEmbeddingResponse> response,
+  ) {
+    final inputLength = b.litert_lm_embedding_response_get_input_length(
+      response,
+    );
+    final truncatedLength = b.litert_lm_embedding_response_get_truncated_length(
+      response,
+    );
+    if (inputLength < 0 || truncatedLength < 0) {
+      // -1 is the getters' answer to a NULL response, which this is not.
+      throw EmbeddingEngineException(
+        '$_file returned a response without token counts (input length '
+        '$inputLength, truncated length $truncatedLength)',
+        engine: liteRtLmEngineTag,
       );
-      if (response == nullptr) {
-        final (:code, :message) = _lastError(b);
-        if (code == _statusInvalidArgument && !image) {
-          // §4.8: the only InvalidArgument a single, well-formed text part
-          // built here can reach at v0.18.0 is the signature-length check.
-          throw EmbeddingInputTooLongException(
-            'The input is longer than the $_maxInputTokens tokens '
-            '$_file accepts (task prefix, BOS and EOS included). Nothing was '
-            'truncated; split the text and embed the pieces.',
-            maxInputTokens: _maxInputTokens,
-          );
-        }
-        throw EmbeddingEngineException(
-          code == _statusInvalidArgument
-              // An image cannot overflow at 140 tokens; stb refusing the
-              // bytes is what InvalidArgument means for one (measured: a
-              // truncated PNG, "outofdata").
-              ? 'LiteRT-LM could not decode the image for $_file (a corrupt '
-                    'or truncated file?): $message'
-              : 'compute_embedding failed for $_file: $message',
-          engine: liteRtLmEngineTag,
-          nativeCode: code == _statusOk ? null : code,
-        );
-      }
-      try {
-        final size = b.litert_lm_embedding_response_get_size(response);
-        final values = b.litert_lm_embedding_response_get_values(response);
-        if (size != _dimension || values == nullptr) {
-          throw EmbeddingEngineException(
-            '$_file returned a vector of $size values for dimension '
-            '$_dimension',
-            engine: liteRtLmEngineTag,
-          );
-        }
-        // The values belong to the response: copy before deleting it.
-        return List<double>.generate(size, (i) => values[i]);
-      } finally {
-        b.litert_lm_embedding_response_delete(response);
-      }
-    } finally {
-      b.litert_lm_input_data_delete(part);
-      _alloc.free(partArray);
     }
+    if (truncatedLength > 0) {
+      // §4.8, the P3 gate: the engine kept the first truncatedLength tokens.
+      // A vector of part of the input is not what was asked for.
+      throw EmbeddingInputTooLongException(
+        'The input is $inputLength tokens long; $_file accepts at most '
+        '$truncatedLength (task prefix, BOS and EOS included, and media '
+        'too: about 140 tokens per image and 25 per second of audio). '
+        'Nothing was embedded; split the input and embed the pieces.',
+        maxInputTokens: truncatedLength,
+        actualTokens: inputLength,
+      );
+    }
+    final size = b.litert_lm_embedding_response_get_size(response);
+    final values = b.litert_lm_embedding_response_get_values(response);
+    if (size != _dimension || values == nullptr) {
+      throw EmbeddingEngineException(
+        '$_file returned a vector of $size values for dimension $_dimension',
+        engine: liteRtLmEngineTag,
+      );
+    }
+    // The values belong to the response: copy before deleting it.
+    return List<double>.generate(size, (i) => values[i]);
   }
 
   @override
@@ -502,8 +581,8 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
       _refuse('$_file declares no text signature to embed with.');
     }
     final media = _config.declaredMedia;
-    if (media.contains(EmbeddingModality.audio)) {
-      _refuse(liteRtLmNoAudioRefusal);
+    if (media.contains(EmbeddingModality.audio) && !_hasAudioEncoder()) {
+      _refuse('$_file has no audio encoder; install $_audioBundle');
     }
     if (media.contains(EmbeddingModality.image)) {
       // D23: from the vision signatures, never supports_input_modality.
@@ -531,6 +610,29 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
   /// list (`[70, 140]` on the 440m and 740m, -1 on the 270m).
   static bool _hasVision(_ModelInfo info) =>
       info.visionSignatures?.any((length) => length > 0) ?? false;
+
+  /// Whether the bundle has an audio encoder, from its container header (D23:
+  /// ModelInfo claims audio on the 270m and the 440m). A header this reader
+  /// cannot parse is a load failure, not "no audio".
+  bool _hasAudioEncoder() {
+    try {
+      return litertlmHasAudioEncoder(readLitertlmModelTypes(_config.modelPath));
+    } on FileSystemException catch (e) {
+      throw EmbeddingLoadException(
+        'could not read the container of $_file to find its audio encoder: '
+        '${e.osError?.message ?? e.message}',
+        engine: liteRtLmEngineTag,
+        cause: e,
+      );
+    } on FormatException catch (e) {
+      throw EmbeddingLoadException(
+        'could not read the container of $_file to find its audio encoder: '
+        '${e.message}',
+        engine: liteRtLmEngineTag,
+        cause: e,
+      );
+    }
+  }
 
   Never _refuse(String message) =>
       throw EmbeddingLoadException(message, engine: liteRtLmEngineTag);
@@ -740,9 +842,11 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
       // Pinned (D26): BOS 2 / EOS 1, as Sentence Transformers; off changes
       // the vectors (cos ≈ 0.90).
       ..litert_lm_embedding_options_set_insert_special_tokens(options, true)
+      // kTruncate (§4.8, the P3 gate): an overflowing input comes back as a
+      // truncated response whose token counts the pass reports exactly.
       ..litert_lm_embedding_options_set_input_overflow_strategy(
         options,
-        LiteRtLmInputOverflowStrategy.kLiteRtLmInputOverflowStrategyError,
+        LiteRtLmInputOverflowStrategy.kLiteRtLmInputOverflowStrategyTruncate,
       );
     // output_size is never set: MRL is an app recipe (D18).
     return options;

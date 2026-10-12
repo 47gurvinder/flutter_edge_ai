@@ -52,16 +52,11 @@ REQUIRED = [
     "litert_lm_input_data_delete",
     "litert_lm_embedding_response_get_size",
     "litert_lm_embedding_response_get_values",
-    "litert_lm_embedding_response_delete",
-]
-
-# Exported from native-v0.18.0-e on (patch_c_api.sh section 14). Kept apart
-# from REQUIRED, which must equal what the Dart pass looks up today; it moves
-# there when the pass starts calling them (EG2 P3). Every tarball this gate
-# checks is built from now on, so it requires them already.
-REQUIRED_SINCE_NATIVE_E = [
+    # Exported from native-v0.18.0-e on (patch_c_api.sh section 14); the pass
+    # reads both for every request since flutter_edge_ai_litertlm 1.16.0.
     "litert_lm_embedding_response_get_input_length",
     "litert_lm_embedding_response_get_truncated_length",
+    "litert_lm_embedding_response_delete",
 ]
 
 MAIN_LIBRARY = ("libLiteRtLm.dylib", "libLiteRtLm.so", "LiteRtLm.dll")
@@ -231,12 +226,12 @@ def main(argv):
         print(f"  [FAIL] {label} — cannot read the exports of "
               f"{os.path.basename(library)}: {e}")
         return 1
-    wanted = REQUIRED + REQUIRED_SINCE_NATIVE_E
+    wanted = REQUIRED
     missing = [s for s in wanted if s not in names]
     if missing:
         print(f"  [FAIL] {label} — {os.path.basename(library)} does not export "
               f"{len(missing)} of the {len(wanted)} EmbeddingEngine functions "
-              f"the EmbeddingGemma 2 pass calls or will call:")
+              f"the EmbeddingGemma 2 pass calls:")
         for symbol in missing:
             print(f"         {symbol}")
         return 1

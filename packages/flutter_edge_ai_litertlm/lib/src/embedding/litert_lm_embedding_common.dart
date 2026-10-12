@@ -1,6 +1,7 @@
 // What both `.litertlm` embedding passes share — the native one over
 // LiteRT-LM's C API and the web one over `@litert-lm/core`'s EmbeddingEngine:
-// the engine tag, the input cap, the audio refusal and the image containers.
+// the engine tag, the input cap, the image and audio containers, and the web's
+// audio refusal.
 // Web-safe: imports only core's engine library, so the web arm of
 // `LiteRtEmbeddingBackend` can use it without pulling dart:ffi.
 
@@ -10,11 +11,12 @@ import 'package:flutter_edge_ai/engine.dart';
 /// LiteRT-LM runtime, compiled to WebAssembly on the web.
 const liteRtLmEngineTag = 'LiteRT-LM';
 
-/// This version's answer to declared audio, from `describe()` and from the
-/// passes.
+/// The web's answer to declared audio, from `describe()` and from the web
+/// pass. Native platforms embed audio from 1.16.0 (on a bundle with an audio
+/// encoder); the web pass does not take audio parts.
 const liteRtLmNoAudioRefusal =
-    'flutter_edge_ai_litertlm 1.15.0 embeds text and images; audio arrives in '
-    '1.16.0';
+    'flutter_edge_ai_litertlm embeds EmbeddingGemma 2 audio on native '
+    'platforms (from 1.16.0); on the web it embeds text and images only';
 
 /// The explicit text input cap (D21), on every platform. Never raised on
 /// mobile; on the web it is also the runtime's own default, which keeps the
@@ -35,4 +37,16 @@ final liteRtLmImageFormats = Set<EncodedMediaFormat>.unmodifiable({
   EncodedMediaFormat.png,
   EncodedMediaFormat.gif,
   EncodedMediaFormat.bmp,
+});
+
+/// The audio containers LiteRT-LM decodes, natively: miniaudio reads WAV, MP3
+/// and FLAC, mixes down to mono and resamples to 16 kHz (upstream
+/// `audio_preprocessor_miniaudio.cc`; measured on the 740m: a 44.1 kHz stereo
+/// WAV is cos 0.993 to the same speech at 16 kHz mono, FLAC 0.9998, MP3 at
+/// 48 kbit/s 0.973). Ogg and M4A fail to open in miniaudio (status 2), so they
+/// are left out and core refuses them on the caller's isolate.
+final liteRtLmAudioFormats = Set<EncodedMediaFormat>.unmodifiable({
+  EncodedMediaFormat.wav,
+  EncodedMediaFormat.mp3,
+  EncodedMediaFormat.flac,
 });

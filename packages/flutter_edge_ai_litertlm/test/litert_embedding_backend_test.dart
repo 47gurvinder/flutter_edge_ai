@@ -240,26 +240,41 @@ void main() {
   });
 
   group('describe() routes on the file core opens', () {
-    test('a .litertlm bundle with declared audio gets the 1.14.0 refusal, '
-        'with or without images', () async {
+    test('a .litertlm bundle with declared audio hands the pass the audio '
+        '(whether the bundle has an audio encoder is the pass\'s question, '
+        'answered from the bundle at load), with or without images', () async {
       for (final image in [false, true]) {
-        await expectLater(
-          backend.describe(
-            _bundle(),
-            _config(
-              '/data/eg2.litertlm',
-              supportImage: image,
-              supportAudio: true,
-            ),
-          ),
-          _loadRefusal(
-            'LiteRT-LM',
-            'flutter_edge_ai_litertlm 1.15.0 embeds text and images; audio '
-                'arrives in 1.16.0',
+        final descriptor = await backend.describe(
+          _bundle(),
+          _config(
+            '/data/eg2.litertlm',
+            supportImage: image,
+            supportAudio: true,
           ),
         );
+        final config = descriptor.config as LiteRtLmEmbeddingConfig;
+        expect(config.declaredMedia, {
+          EmbeddingModality.audio,
+          if (image) EmbeddingModality.image,
+        });
+        expect(descriptor.activeBackend, PreferredBackend.cpu);
       }
       expect(tokenizers.asked, 0);
+    });
+
+    test('a .tflite model with declared audio is still a text-only '
+        'model', () async {
+      await expectLater(
+        backend.describe(
+          _tflite(),
+          _config(
+            '/data/gemma.tflite',
+            tokenizerPath: '/data/t.model',
+            supportAudio: true,
+          ),
+        ),
+        _loadRefusal('LiteRT', contains('text-only')),
+      );
     });
 
     test('the suffix is matched without regard to case', () async {

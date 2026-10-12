@@ -3,9 +3,10 @@
 // in its embedding worker, hosts it, checks every request and closes it.
 //
 // Routing is by the file core actually opens (`config.modelPath`): a
-// `.litertlm` bundle (EmbeddingGemma 2, text and images, through LiteRT-LM's
-// EmbeddingEngine) or a `.tflite` graph with a separate tokenizer
-// (EmbeddingGemma 1, Gecko, text, through the LiteRT C API).
+// `.litertlm` bundle (EmbeddingGemma 2 — text, images and audio, alone or
+// combined — through LiteRT-LM's EmbeddingEngine) or a `.tflite` graph with a
+// separate tokenizer (EmbeddingGemma 1, Gecko, text, through the LiteRT C
+// API).
 
 import 'dart:io' show Platform;
 
@@ -18,7 +19,8 @@ import 'vision_budget.dart';
 
 /// LiteRT embedding backend: `.tflite` embedders (EmbeddingGemma 1, Gecko)
 /// over the LiteRT C API, and `.litertlm` embedding bundles (EmbeddingGemma 2:
-/// text, and images on a bundle with a vision encoder) over LiteRT-LM's
+/// text, images on a bundle with a vision encoder, audio on a bundle with an
+/// audio encoder, and combinations of them in one vector) over LiteRT-LM's
 /// EmbeddingEngine.
 final class LiteRtEmbeddingBackend extends EmbeddingBackendProvider {
   /// [visionTokensPerImage] is how many vision tokens an EmbeddingGemma 2
@@ -77,20 +79,14 @@ const _liteRt = 'LiteRT';
 const _liteRtLm = liteRtLmEngineTag;
 
 /// A `.litertlm` embedding bundle (EmbeddingGemma 2) never asks the tokenizer
-/// registry: the bundle carries its own. Declared audio is refused here, before
-/// any isolate exists (it arrives in 1.16.0); whether the bundle has a vision
-/// tower for declared images is the pass's question, answered from the bundle
-/// itself at load (the 270m has none).
+/// registry: the bundle carries its own. Whether the bundle has a vision tower
+/// for declared images, or an audio tower for declared audio, is the pass's
+/// question, answered from the bundle itself at load (the 270m has neither,
+/// the 440m no audio).
 Future<EmbeddingPassDescriptor<LiteRtLmEmbeddingConfig>> _describeBundle(
   RuntimeConfig config,
   int visionTokensPerImage,
 ) async {
-  if (config.supportAudio) {
-    throw const EmbeddingLoadException(
-      liteRtLmNoAudioRefusal,
-      engine: _liteRtLm,
-    );
-  }
   // The platform CACHE directory, not application support: iOS backs that up
   // to iCloud and Android Auto Backup includes it under a 25 MB per-app quota,
   // which a 71-385 MB weight cache would break. If the OS purges the cache,
@@ -106,11 +102,15 @@ Future<EmbeddingPassDescriptor<LiteRtLmEmbeddingConfig>> _describeBundle(
       // Short on purpose: the engine's cache file name repeats the model's
       // name below it, and Windows paths must stay under MAX_PATH.
       cacheBase: '$cache${sep}flutter_edge_ai${sep}emb',
-      declaredMedia: {if (config.supportImage) EmbeddingModality.image},
+      declaredMedia: {
+        if (config.supportImage) EmbeddingModality.image,
+        if (config.supportAudio) EmbeddingModality.audio,
+      },
       visionTokensPerImage: visionTokensPerImage,
     ),
     // `settings_create(path, "cpu", NULL, NULL)`: the text tower on CPU, and
-    // the vision tower with it (NULL tower backends run on the main one, D26).
+    // the vision and audio towers with it (NULL tower backends run on the
+    // main one, D26).
     activeBackend: PreferredBackend.cpu,
   );
 }
