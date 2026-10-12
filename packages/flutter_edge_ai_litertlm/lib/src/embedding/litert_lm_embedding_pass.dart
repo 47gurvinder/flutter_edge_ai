@@ -57,18 +57,16 @@ import 'package:flutter_edge_ai/engine.dart';
 import '../ffi/litert_lm_embedding_bindings.dart';
 import '../ffi/litert_lm_library.dart';
 import 'embedding_parts.dart';
+import 'litert_lm_embedding_common.dart';
 import 'vision_budget.dart';
 
-/// The engine's name in messages and errors.
-const liteRtLmEngineTag = 'LiteRT-LM';
-
-/// 1.14.0's answer to declared audio, from `describe()` and from the pass.
-const liteRtLmNoAudioRefusal =
-    'flutter_edge_ai_litertlm 1.14.0 embeds text and images; audio arrives in '
-    '1.16.0';
-
-/// The explicit text input cap (D21). Never raised on mobile.
-const liteRtLmMaxInputLength = 1024;
+// Shared with the web pass; re-exported so this file's users keep one import.
+export 'litert_lm_embedding_common.dart'
+    show
+        liteRtLmEngineTag,
+        liteRtLmImageFormats,
+        liteRtLmMaxInputLength,
+        liteRtLmNoAudioRefusal;
 
 /// `kLiteRtLmStatusOk` / `kLiteRtLmStatusInvalidArgument` (`c/error_reporter.h`).
 const _statusOk = 0;
@@ -108,18 +106,6 @@ final class LiteRtLmEmbeddingConfig {
   /// Vision tokens per image (D25): 140 or 70, checked by `describe()`.
   final int visionTokensPerImage;
 }
-
-/// The image containers LiteRT-LM's stb decoder handles, as measured on our
-/// native-v0.18.0-d dylib (X3): PNG, JPEG, GIF and BMP decode; WebP, TIFF
-/// and garbage fail with code 3; stb has no HEIC decoder. Reported at load, so
-/// core refuses every other container on the caller's isolate, before the
-/// request is sent.
-final liteRtLmImageFormats = Set<EncodedMediaFormat>.unmodifiable({
-  EncodedMediaFormat.jpeg,
-  EncodedMediaFormat.png,
-  EncodedMediaFormat.gif,
-  EncodedMediaFormat.bmp,
-});
 
 /// The descriptor factory: a top-level tear-off, so it survives the trip into
 /// core's worker isolate.

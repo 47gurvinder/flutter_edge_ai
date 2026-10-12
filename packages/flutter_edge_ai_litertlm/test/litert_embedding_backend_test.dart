@@ -254,7 +254,7 @@ void main() {
           ),
           _loadRefusal(
             'LiteRT-LM',
-            'flutter_edge_ai_litertlm 1.14.0 embeds text and images; audio '
+            'flutter_edge_ai_litertlm 1.15.0 embeds text and images; audio '
                 'arrives in 1.16.0',
           ),
         );

@@ -458,7 +458,7 @@ void main() {
   );
 
   test(
-    '440m with audio declared: refused, 1.14.0 embeds text and images',
+    '440m with audio declared: refused, 1.15.0 embeds text and images',
     () async {
       final refused = pass(bundle440m!, media: {EmbeddingModality.audio});
       await expectLater(

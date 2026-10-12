@@ -24,7 +24,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 const _file = 'eg2.litertlm';
 const _noAudio =
-    'flutter_edge_ai_litertlm 1.14.0 embeds text and images; audio arrives in '
+    'flutter_edge_ai_litertlm 1.15.0 embeds text and images; audio arrives in '
     '1.16.0';
 const _allSignatures = [128, 256, 512, 1024, 2048, 8192];
 
@@ -362,7 +362,7 @@ void main() {
         );
       });
 
-      test('audio: 1.14.0 embeds text and images', () async {
+      test('audio: 1.15.0 embeds text and images', () async {
         native.visionSignatures = const [70, 140];
         await expectMediaRefusal({EmbeddingModality.audio}, _noAudio);
         await expectMediaRefusal({
