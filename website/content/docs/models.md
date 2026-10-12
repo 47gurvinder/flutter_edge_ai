@@ -483,7 +483,9 @@ the maximum is never truncated: it throws `EmbeddingInputTooLongException`.
 
 EmbeddingGemma 2 is one `.litertlm` file with its own tokenizer (no
 `tokenizerFrom…()`) and runs on CPU on Android, iOS, macOS, Linux and Windows,
-and in the browser (WebAssembly) since `flutter_edge_ai_litertlm` 1.15.0.
+and in the browser on WebGPU since `flutter_edge_ai_litertlm` 1.15.0 (the
+browser needs WebGPU: the CPU path of `@litert-lm/core` 0.18.0 cannot load
+these bundles).
 All three bundles embed text (`flutter_edge_ai_litertlm` 1.13.0, identical text
 vectors); the 440m and the 740m also embed JPEG, PNG, GIF and BMP images
 (1.14.0; per image about 0.35 s on an Apple-silicon Mac and about 2 s on an

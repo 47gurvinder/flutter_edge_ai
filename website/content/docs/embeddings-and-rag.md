@@ -92,8 +92,9 @@ final vector = await embedder.embed(
 - **Every platform**: Android, iOS, macOS, Linux and Windows
   (flutter_edge_ai_litertlm 1.13.0 for text, 1.14.0 for images), and the Web
   (1.15.0, text and images), where it runs through `@litert-lm/core`'s
-  EmbeddingEngine and needs **window.EmbeddingEngine = m.EmbeddingEngine;** in
-  `web/index.html` ([Installation](/docs/installation#web)).
+  EmbeddingEngine on WebGPU and needs **window.EmbeddingEngine =
+  m.EmbeddingEngine;** in `web/index.html`
+  ([Installation](/docs/installation#web)).
 - **Text on every bundle, images on the 440m and the 740m, audio on the 740m
   (native, litertlm 1.16.0).** On the 270m,
   **getActiveEmbedder(supportImage: true)** throws **EmbeddingLoadException**
@@ -105,10 +106,18 @@ final vector = await embedder.embed(
   grows with the input length — on an M4 Pro Mac about +170 MB at 128 tokens,
   +340 MB at 512 and +560 MB at 1024. A longer input throws
   **EmbeddingInputTooLongException** with the exact **actualTokens** (natively
-  from litertlm 1.16.0). The engine counts on a truncated run, so an
-  over-long input costs one full embedding before it is refused.
-- **CPU**, WebAssembly on the Web. **activeBackend** is
-  **PreferredBackend.cpu**.
+  from litertlm 1.16.0). The engine counts it by running the whole input, so
+  an over-long input costs one full embedding before it is refused.
+- **CPU natively, WebGPU on the Web.** **activeBackend** is
+  **PreferredBackend.cpu** natively and **PreferredBackend.gpu** on the Web.
+  The Web has no CPU path for these bundles — the CPU (WebAssembly) backend of
+  `@litert-lm/core` 0.18.0 cannot read their external weights — so a browser
+  without WebGPU (no **navigator.gpu**, or no GPU adapter) throws
+  **EmbeddingLoadException** saying so before anything loads. Web vectors come
+  from WebGPU and differ slightly from the native CPU ones (measured min cos
+  about 0.995 for text, 0.998 for images); retrieval across platforms holds —
+  web text queries find natively embedded images and native queries find
+  web-embedded images, top-1 10/10 on the example's ten scenes.
 - **Disk:** the 165 MB bundle plus a 71 MB weight cache the engine writes at
   its first load (the 440m bundle adds 218 MB for vision, the 740m bundle
   writes 385 MB in total, even for text-only use). The cache lives in the app's
@@ -208,6 +217,12 @@ the Web, where the browser decodes (CanvasKit or skwasm) on the page itself.
   fidelity (min cos 0.970). Any other value throws **EmbeddingLoadException**.
   Text vectors do not depend on it; image stores do, so their profile id names
   it (`-vis140`, `-vis70`).
+- **On the Web, not next to an LLM:** the page's `@litert-lm/core` module has
+  4 GB of WebAssembly memory, and the vision encoder does not fit in it next
+  to Gemma 4 E2B (measured) — **getActiveEmbedder(supportImage: true)** then
+  throws **EmbeddingLoadException** saying to close the LLM first. Text-only
+  embedding loads next to the LLM. On WebGPU an image takes about 0.33 s
+  (Tesla T4).
 - **Cost** (CPU, measured): a 388 MB bundle; a 218 MB vision weight cache
   written at every load, next to the 71 MB text cache in the app's cache
   directory, also when you embed only text. The first image adds about 385 MB
@@ -321,8 +336,9 @@ await FlutterEdgeAi.installEmbedder()
     .install();
 ```
 
-On native, current LiteRT and ONNX embedding paths run on CPU. On Web they try
-WebGPU and can fall back to WASM. **preferredBackend** is accepted by
+On native, current LiteRT and ONNX embedding paths run on CPU. On Web the
+`.tflite` and ONNX paths try WebGPU and can fall back to WASM; EmbeddingGemma 2
+runs on WebGPU only, with no fallback. **preferredBackend** is accepted by
 **getActiveEmbedder** for API symmetry but is not applied; inspect
 **EmbeddingModel.activeBackend** when the selected backend matters.
 

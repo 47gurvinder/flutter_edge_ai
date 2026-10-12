@@ -652,8 +652,7 @@ void main() {
               (e) => e.message,
               'message',
               '${_openedName(_eg2, _fileOverride)} has no vision encoder; '
-                  'install '
-                  'embeddinggemma-2-text-vision-440m',
+                  'install embeddinggemma-2-text-vision-440m',
             ),
       ),
     );

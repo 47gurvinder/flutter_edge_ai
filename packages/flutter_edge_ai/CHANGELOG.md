@@ -6,6 +6,7 @@
 - **Breaking:** over-long embedding inputs throw `EmbeddingInputTooLongException` instead of truncating.
 - **Breaking:** internals move to `lib/src`; engines import `package:flutter_edge_ai/engine.dart`.
 - **Breaking:** remove deprecated 1.x/2.0 members (listed in MIGRATION.md).
+- Web: streaming-storage (OPFS) models load from the stored file, not an in-memory copy.
 
 ## 2.2.1
 - `getActiveModel` waits for a closing model to finish, then builds the next one.

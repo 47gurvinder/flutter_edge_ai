@@ -2,8 +2,12 @@
 // example's ten generated scenes (example/assets/eg2_vision/<scene>.png, 140
 // vision tokens per image), computed by THIS package's native pass on the real
 // libLiteRtLm (native-v0.18.0-d, macOS arm64, CPU) — the image counterpart of
-// the text golden. The web drive suite (example/integration_test/
-// web_eg2_test.dart) holds the browser's CPU and WebGPU image vectors to it.
+// the text golden — and the same pass's text vectors of each scene's caption
+// (TaskType.none, as the example's text-to-image search sends them). The web
+// drive suite (example/integration_test/web_eg2_test.dart) holds the
+// browser's WebGPU image vectors to it, and searches across platforms: web
+// captions against these native images, these native captions against the
+// web images.
 //
 // Opt-in, skipped unless the host libLiteRtLm is in the download cache and
 // EG2_440M_LITERTLM points at the pinned 440m bundle (revision e301f74d,
@@ -31,6 +35,22 @@ const _goldenPath =
 /// The pinned 440m bundle.
 const _bundleSha256 =
     '92dcbea108899e5d6e30d919b0744f90d9967e80c67a4ab5503ac16d54f62eb0';
+
+/// The example's `eg2VisionSampleCaptions`, scene for scene (that file is the
+/// example app's; the web suite checks the golden's captions against it).
+const _captions = {
+  'circle': 'a red circle on a white background',
+  'square': 'a blue square on a white background',
+  'triangle': 'a green triangle on a white background',
+  'bar_chart': 'a bar chart of quarterly revenue',
+  'pie_chart': 'a pie chart showing market share',
+  'line_chart': 'a line chart of temperature by month',
+  'grocery_receipt':
+      'a grocery store receipt listing milk, bread, eggs and apples',
+  'taxi_receipt': 'a taxi receipt with an airport fee',
+  'stop_sign': 'a red stop sign',
+  'house_scene': 'a small house on green grass under a yellow sun',
+};
 
 /// The ten scenes, in the order of the example's `eg2VisionSampleCaptions`.
 const _scenes = [
@@ -100,7 +120,8 @@ void main() {
       ? 'EG2_440M_LITERTLM is not set'
       : null;
 
-  test('the 440m image golden: ten scenes at 140 tokens per image', () async {
+  test('the 440m image golden: ten scenes at 140 tokens per image, and their '
+      'captions', () async {
     final bundleDigest = sha256
         .convert(File(bundle!).readAsBytesSync())
         .toString();
@@ -116,12 +137,17 @@ void main() {
           bindLiteRtLmEmbeddings(DynamicLibrary.open(dylib!), label: dylib),
     );
     final vectors = <String, List<double>>{};
+    final captions = <String, List<double>>{};
     try {
       await pass.load();
       for (final scene in _scenes) {
         vectors[scene] = await pass.embed(
           EmbeddingInput.image(File('$_images/$scene.png').readAsBytesSync()),
           TaskType.retrievalDocument,
+        );
+        captions[scene] = await pass.embed(
+          EmbeddingInput.text(_captions[scene]!),
+          TaskType.none,
         );
       }
     } finally {
@@ -140,10 +166,12 @@ void main() {
         'description':
             'EmbeddingGemma 2 440m image vectors of the example\'s ten '
             'generated scenes (assets/eg2_vision/<scene>.png), 140 vision '
-            'tokens per image, from flutter_edge_ai_litertlm\'s native pass on '
-            'native-v0.18.0-d libLiteRtLm (macOS arm64, CPU). Written by '
-            'packages/flutter_edge_ai_litertlm/test/eg2_image_golden_test.dart '
-            '(UPDATE_GOLDENS=1). Vectors are base64 little-endian float32.',
+            'tokens per image, and the text vectors of their captions '
+            '(TaskType.none: no prefix), from flutter_edge_ai_litertlm\'s '
+            'native pass on native-v0.18.0-d libLiteRtLm (macOS arm64, CPU). '
+            'Written by packages/flutter_edge_ai_litertlm/test/'
+            'eg2_image_golden_test.dart (UPDATE_GOLDENS=1). Vectors are '
+            'base64 little-endian float32.',
         'bundle':
             'litert-community/embeddinggemma-2-text-vision-440m-litert-lm/'
             'embeddinggemma-2-text-vision-440m.litertlm',
@@ -162,6 +190,14 @@ void main() {
                   .convert(File('$_images/$scene.png').readAsBytesSync())
                   .toString(),
               'vector_f32le': _f32(vectors[scene]!),
+            },
+        },
+        'captions': {
+          for (final scene in _scenes)
+            scene: {
+              'text': _captions[scene],
+              'task_type': 'none',
+              'vector_f32le': _f32(captions[scene]!),
             },
         },
       });
@@ -196,6 +232,16 @@ void main() {
       worst = math.min(
         worst,
         _cos(vectors[scene]!, _fromF32(entry['vector_f32le'] as String)),
+      );
+    }
+    final goldenCaptions = (golden['captions'] as Map).cast<String, dynamic>();
+    expect(goldenCaptions.keys, _scenes);
+    for (final scene in _scenes) {
+      final entry = (goldenCaptions[scene] as Map).cast<String, dynamic>();
+      expect(entry['text'], _captions[scene]);
+      worst = math.min(
+        worst,
+        _cos(captions[scene]!, _fromF32(entry['vector_f32le'] as String)),
       );
     }
     // ignore: avoid_print

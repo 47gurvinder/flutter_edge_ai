@@ -2,14 +2,17 @@
 /// litert-community 270m (text) and 440m (text + vision) bundles through
 /// `installEmbedder()` → `getActiveEmbedder()` → core's inline host →
 /// flutter_edge_ai_litertlm's web `.litertlm` pass → `@litert-lm/core` 0.18.0's
-/// `EmbeddingEngine` on the CPU (WebAssembly), with `WebStorageMode.cacheApi`.
+/// `EmbeddingEngine` on WebGPU, with `WebStorageMode.cacheApi`. WebGPU because
+/// the runtime's CPU (WebAssembly) path cannot load these bundles ("Failed to
+/// get external weight for buffer id …"); there is no CPU fallback.
 ///
 /// What it holds the browser to:
-/// - 768 dimensions, unit norm, finite; `maxInputTokens` 1024; `{text}`; CPU;
+/// - 768 dimensions, unit norm, finite; `maxInputTokens` 1024; `{text}`; GPU;
 /// - the native golden (integration_test/goldens/eg2_text_golden.dart, from
-///   native-v0.18.0-d on macOS arm64, CPU): cos >= 0.998 against `vector`,
-///   >= 0.97 against Sentence Transformers fp32; every query ranks its
-///   document first;
+///   native-v0.18.0-d on macOS arm64, CPU): every vector finite and non-zero,
+///   cos >= 0.99 against `vector` (WebGPU drifts from the native CPU, measured
+///   about 0.995), >= 0.97 against Sentence Transformers fp32; every query
+///   ranks its document first;
 /// - the 9 TaskTypes give 9 different vectors; empty text embeds;
 /// - W2 and the exact overflow counts: a text of exactly 1024 tokens (prefix,
 ///   BOS and EOS included) embeds, 1025 and 3000 are
@@ -20,7 +23,11 @@
 ///   load with the EmbeddingLoadException that names the line;
 /// - supportImage on the 270m is refused naming the 440m;
 /// - the 440m: {text, image}; each scene's vector against the native CPU
-///   image golden (cos >= 0.998); text → image top-1 10/10 on the ten scenes;
+///   image golden (cos >= 0.99; measured about 0.998); text → image top-1
+///   10/10 on the ten scenes; across platforms (integration_test/goldens/
+///   eg2_image_golden.dart): the web captions find the native image vectors,
+///   and the native caption vectors find the web image vectors, top-1 10/10
+///   each — an index built on one platform answers queries from the other;
 ///   near-duplicate JPEG → its PNG 10/10; GIF/BMP decode; WebP/TIFF/HEIC are
 ///   refused before anything is sent; a truncated PNG is
 ///   EmbeddingEngineException and the model keeps working; 70 tokens per
@@ -30,13 +37,16 @@
 ///   a camera JPEG stored sideways (EXIF 6) comes out upright — its vector
 ///   matches its upright twin's (cos > 0.99);
 /// - the Image Search screen on the 440m, with a photo kept in OPFS;
-/// - close and recreate: the same vectors.
+/// - close and recreate: the same vectors;
+/// - a page without WebGPU (`navigator.gpu` hidden): the load is refused
+///   before `EmbeddingEngine.create`, with the EmbeddingLoadException that
+///   says EmbeddingGemma 2 on the web needs WebGPU and why;
+/// - last: the CPU path, asked for directly, still fails in
+///   `EmbeddingEngine.create` on both bundles, and the error says why — the
+///   day a newer `@litert-lm/core` loads them there, this test says so.
 /// Measured, never asserted (in the response file and the log):
-/// - M11: the longest main-thread stall while images and texts are embedded,
-///   CPU and WebGPU;
-/// - the WebGPU check: a WebGPU pass of the same bundle against the native
-///   CPU goldens (text and images), with NaN/zero
-///   counted; it decides whether WebGPU may become the default (it is not);
+/// - M11: the longest main-thread stall while images and texts are embedded
+///   on WebGPU;
 /// - short-text latency with the runtime's single 1024 signature vs
 ///   `minInputLength: 128`.
 ///
@@ -46,8 +56,10 @@
 ///     --driver=test_driver/web_embeddings_driver.dart \
 ///     --target=integration_test/web_eg2_test.dart \
 ///     -d web-server --browser-name=chrome --headless
-/// then the same with `-d chrome`. Both bundles are ungated (165 MB + 388 MB
-/// on the first run); `--dart-define=EG2_MODEL_URL=…` and
+/// then the same with `-d chrome`. The browser needs WebGPU with a GPU behind
+/// it (on the VM: `--enable-unsafe-webgpu`, Vulkan, a real display). Both
+/// bundles are ungated (165 MB + 388 MB on the first run);
+/// `--dart-define=EG2_MODEL_URL=…` and
 /// `--dart-define=EG2_440M_MODEL_URL=…` serve the same bytes from elsewhere
 /// (each is checked against its pinned SHA-256 before anything is compared).
 ///
@@ -78,7 +90,7 @@ import 'package:flutter_edge_ai_example/image_search/photo_preparation.dart';
 import 'package:flutter_edge_ai_example/image_search_screen.dart';
 import 'package:flutter_edge_ai_example/models/embedding_model.dart' as catalog;
 import 'package:flutter_edge_ai_litertlm/flutter_edge_ai_litertlm.dart';
-// ignore: implementation_imports — the WebGPU and minInputLength measurements build the web pass with a backend and a setting the public backend does not offer
+// ignore: implementation_imports — the CPU record and the minInputLength measurement build the web pass with a backend and a setting the public backend does not offer
 import 'package:flutter_edge_ai_litertlm/src/embedding/web/litert_lm_web_embedding_pass.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -99,16 +111,18 @@ const _tests = [
   'EG2 close and recreate',
   'EG2 440m load',
   'EG2 text to image',
+  'EG2 cross-platform retrieval',
   'EG2 image to image',
   'EG2 formats',
   'EG2 70 tokens',
   'photo preparation',
-  'M11 CPU',
+  'M11',
   'Image Search screen',
   'minInputLength',
-  // Last: a WebGPU failure that takes the page's WASM module down must not
-  // fail a CPU test after it.
-  'WebGPU check',
+  'no WebGPU',
+  // Last: a CPU failure that took the page's WASM module down must not fail
+  // a WebGPU test after it.
+  'CPU refused',
 ];
 
 const _eg2 = catalog.EmbeddingModel.embeddingGemma2Text270m;
@@ -242,16 +256,36 @@ final List<_GoldenItem> _golden = [
     ),
 ];
 
+final _imageGoldenJson = jsonDecode(eg2ImageGoldenJson) as Map;
+
 /// The 440m's native CPU vector for each scene (140 tokens per image):
 /// integration_test/goldens/eg2_image_golden.dart, written by
 /// flutter_edge_ai_litertlm's test/eg2_image_golden_test.dart.
 final Map<String, List<double>> _imageGolden = {
   for (final MapEntry(:key, :value)
-      in ((jsonDecode(eg2ImageGoldenJson) as Map)['images'] as Map)
+      in (_imageGoldenJson['images'] as Map)
           .cast<String, Map<String, dynamic>>()
           .entries)
     key: _f32(value['vector_f32le'] as String),
 };
+
+/// The same pass's native CPU text vector of each scene's caption
+/// (TaskType.none), and the caption it was computed from.
+final Map<String, ({String text, List<double> vector})> _captionGolden = {
+  for (final MapEntry(:key, :value)
+      in (_imageGoldenJson['captions'] as Map)
+          .cast<String, Map<String, dynamic>>()
+          .entries)
+    key: (
+      text: value['text'] as String,
+      vector: _f32(value['vector_f32le'] as String),
+    ),
+};
+
+/// The bar the web's WebGPU vectors are held to against the native CPU
+/// goldens: measured on a Tesla T4 (Chrome 155), text min cos 0.99486 and
+/// images 0.99766 — reduced-precision GPU arithmetic, not a different model.
+const _vsNativeCpu = 0.99;
 
 TaskType _taskFor(String role) =>
     role == 'query' ? TaskType.retrievalQuery : TaskType.retrievalDocument;
@@ -304,8 +338,9 @@ double _median(List<int> values) =>
   return (top1: top1, margin: margin / queries.length, misses: misses);
 }
 
-/// The web CPU vectors of the ten scenes, kept for the WebGPU comparison.
-final _cpuSceneVectors = <String, List<double>>{};
+/// The web (WebGPU) vectors of the ten scenes, kept for the comparisons
+/// after the test that makes them.
+final _webSceneVectors = <String, List<double>>{};
 
 // ── M11: main-thread stalls ─────────────────────────────────────────────────
 
@@ -360,11 +395,11 @@ Map<String, Object?> _page() => {
       ?.toDartInt,
 };
 
-/// A web pass of the installed bundle built directly — for the measurements
-/// the public backend does not offer (WebGPU, `minInputLength`).
+/// A web pass of the installed bundle built directly — for what the public
+/// backend does not offer (the CPU backend, `minInputLength`).
 Future<LiteRtLmWebEmbeddingPass> _directPass({
   required catalog.EmbeddingModel model,
-  LiteRtLmWebBackend backend = LiteRtLmWebBackend.cpu,
+  LiteRtLmWebBackend backend = LiteRtLmWebBackend.gpu,
   bool images = false,
   int? minInputLength,
 }) async {
@@ -398,7 +433,7 @@ void main() {
   reportTo('web_eg2_response');
 
   testWidgets('the 270m loads in getActiveEmbedder: 768 dims, 1024 tokens, '
-      'text, CPU', (tester) async {
+      'text, GPU', (tester) async {
     _start('EG2 load');
     report('page', _page());
     await _ensureEg2();
@@ -410,7 +445,7 @@ void main() {
     expect(model.dimension, 768);
     expect(model.maxInputTokens, 1024);
     expect(model.modalities, {EmbeddingModality.text});
-    expect(model.activeBackend, PreferredBackend.cpu);
+    expect(model.activeBackend, PreferredBackend.gpu);
 
     final first = Stopwatch()..start();
     final vector = await model.embed(
@@ -429,8 +464,8 @@ void main() {
     );
   }, timeout: const Timeout(Duration(minutes: 30)));
 
-  testWidgets('reproduces the native CPU golden (cos >= 0.998) and ranks every '
-      'query\'s document first', (tester) async {
+  testWidgets('WebGPU reproduces the native CPU golden (finite, non-zero, '
+      'cos >= 0.99) and ranks every query\'s document first', (tester) async {
     _start('EG2 golden');
     await _ensureEg2();
     final model = await _active();
@@ -444,6 +479,7 @@ void main() {
         taskType: _taskFor(item.role),
       );
       micros.add(watch.elapsedMicroseconds);
+      expectUnitVector(vector, 768, what: item.id);
       worstGolden = math.min(worstGolden, cosine(vector, item.vector));
       worstSt = math.min(worstSt, cosine(vector, item.stVector));
       vectors[item.id] = vector;
@@ -458,7 +494,7 @@ void main() {
       'golden: min cos vs native CPU $worstGolden, vs ST fp32 $worstSt; per '
       'embed median ${_median(micros)} ms',
     );
-    expect(worstGolden, greaterThanOrEqualTo(0.998));
+    expect(worstGolden, greaterThanOrEqualTo(_vsNativeCpu));
     expect(worstSt, greaterThanOrEqualTo(0.97));
     for (var i = 0; i < 6; i++) {
       final scores = [
@@ -622,7 +658,7 @@ void main() {
       load.stop();
       expect(model.dimension, 768);
       expect(model.maxInputTokens, 1024);
-      expect(model.activeBackend, PreferredBackend.cpu);
+      expect(model.activeBackend, PreferredBackend.gpu);
       expect(model.modalities, {
         EmbeddingModality.text,
         EmbeddingModality.image,
@@ -636,7 +672,7 @@ void main() {
           ),
           golden.vector,
         ),
-        greaterThanOrEqualTo(0.998),
+        greaterThanOrEqualTo(_vsNativeCpu),
         reason: 'the 440m carries the 270m\'s text tower, byte for byte',
       );
       final first = Stopwatch()..start();
@@ -667,8 +703,9 @@ void main() {
           taskType: TaskType.retrievalDocument,
         );
         micros.add(watch.elapsedMicroseconds);
+        expectUnitVector(vector, 768, what: scene);
         images.add(vector);
-        _cpuSceneVectors[scene] = vector;
+        _webSceneVectors[scene] = vector;
       }
       Future<List<List<double>>> captions(TaskType taskType) async => [
         for (final caption in eg2VisionSampleCaptions.values)
@@ -678,7 +715,7 @@ void main() {
       final query = _rank(await captions(TaskType.retrievalQuery), images);
       final vsNative = [
         for (final scene in _scenes)
-          cosine(_cpuSceneVectors[scene]!, _imageGolden[scene]!),
+          cosine(_webSceneVectors[scene]!, _imageGolden[scene]!),
       ].reduce(math.min);
       report('text_to_image', {
         'imageMinCosVsNativeCpu': vsNative,
@@ -690,17 +727,85 @@ void main() {
         'queryPrefixMargin': query.margin,
       });
       _log(
-        'text→image: per image median ${_median(micros)} ms; raw top-1 '
-        '${raw.top1}/10 margin ${raw.margin.toStringAsFixed(4)} '
-        '${raw.misses}; retrievalQuery ${query.top1}/10 margin '
-        '${query.margin.toStringAsFixed(4)}',
+        'text→image: image min cos vs native CPU $vsNative; per image median '
+        '${_median(micros)} ms; raw top-1 ${raw.top1}/10 margin '
+        '${raw.margin.toStringAsFixed(4)} ${raw.misses}; retrievalQuery '
+        '${query.top1}/10 margin ${query.margin.toStringAsFixed(4)}',
       );
       expect(raw.top1, 10, reason: '${raw.misses}');
       expect(
         vsNative,
-        greaterThanOrEqualTo(0.998),
-        reason: 'the web CPU image vectors against the native CPU golden',
+        greaterThanOrEqualTo(_vsNativeCpu),
+        reason: 'the web WebGPU image vectors against the native CPU golden',
       );
+    }, timeout: const Timeout(Duration(minutes: 30)));
+
+    testWidgets('across platforms: web captions find the native image vectors, '
+        'native captions find the web image vectors (top-1 10/10 each)', (
+      tester,
+    ) async {
+      _start('EG2 cross-platform retrieval');
+      await _ensureEg2Vision();
+      final model = await _active(images: true);
+      expect(
+        {
+          for (final MapEntry(:key, :value) in _captionGolden.entries)
+            key: value.text,
+        },
+        eg2VisionSampleCaptions,
+        reason: 'the golden\'s captions are not the example\'s',
+      );
+      final webImages = [
+        for (final scene in _scenes)
+          _webSceneVectors[scene] ??= await model.embed(
+            EmbeddingInput.image(await _asset(eg2VisionSampleAsset(scene))),
+            taskType: TaskType.retrievalDocument,
+          ),
+      ];
+      final webCaptions = <List<double>>[];
+      var captionVsNative = 1.0;
+      for (final scene in _scenes) {
+        final vector = await model.embed(
+          EmbeddingInput.text(eg2VisionSampleCaptions[scene]!),
+          taskType: TaskType.none,
+        );
+        webCaptions.add(vector);
+        captionVsNative = math.min(
+          captionVsNative,
+          cosine(vector, _captionGolden[scene]!.vector),
+        );
+      }
+      final nativeImages = [for (final scene in _scenes) _imageGolden[scene]!];
+      final nativeCaptions = [
+        for (final scene in _scenes) _captionGolden[scene]!.vector,
+      ];
+      // A web query against an index built natively, and the other way round.
+      final webToNative = _rank(webCaptions, nativeImages);
+      final nativeToWeb = _rank(nativeCaptions, webImages);
+      // The same search within each platform, for the margin it gives up.
+      final nativeToNative = _rank(nativeCaptions, nativeImages);
+      report('cross_platform', {
+        'captionMinCosVsNativeCpu': captionVsNative,
+        'webCaptionsToNativeImagesTop1': webToNative.top1,
+        'webCaptionsToNativeImagesMargin': webToNative.margin,
+        'nativeCaptionsToWebImagesTop1': nativeToWeb.top1,
+        'nativeCaptionsToWebImagesMargin': nativeToWeb.margin,
+        'nativeToNativeTop1': nativeToNative.top1,
+        'nativeToNativeMargin': nativeToNative.margin,
+      });
+      _log(
+        'cross-platform: web captions → native images ${webToNative.top1}/10 '
+        'margin ${webToNative.margin.toStringAsFixed(4)} '
+        '${webToNative.misses}; native captions → web images '
+        '${nativeToWeb.top1}/10 margin '
+        '${nativeToWeb.margin.toStringAsFixed(4)} ${nativeToWeb.misses}; '
+        'native → native ${nativeToNative.top1}/10 margin '
+        '${nativeToNative.margin.toStringAsFixed(4)}; caption min cos vs '
+        'native CPU $captionVsNative',
+      );
+      expect(captionVsNative, greaterThanOrEqualTo(_vsNativeCpu));
+      expect(webToNative.top1, 10, reason: '${webToNative.misses}');
+      expect(nativeToWeb.top1, 10, reason: '${nativeToWeb.misses}');
     }, timeout: const Timeout(Duration(minutes: 30)));
 
     testWidgets('image → image: each near-duplicate JPEG finds its PNG', (
@@ -711,7 +816,7 @@ void main() {
       final model = await _active(images: true);
       final originals = [
         for (final scene in _scenes)
-          _cpuSceneVectors[scene] ??= await model.embed(
+          _webSceneVectors[scene] ??= await model.embed(
             EmbeddingInput.image(await _asset(eg2VisionSampleAsset(scene))),
             taskType: TaskType.retrievalDocument,
           ),
@@ -865,8 +970,8 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 30)));
 
     testWidgets('M11 (measured): the longest main-thread stall while ten '
-        'images and ten texts are embedded on the CPU', (tester) async {
-      _start('M11 CPU');
+        'images and ten texts are embedded on WebGPU', (tester) async {
+      _start('M11');
       await _ensureEg2Vision();
       final model = await _active(images: true);
       final images = [
@@ -883,8 +988,8 @@ void main() {
       final (_, textStalls) = await _watchMainThread(
         () => model.embedAll(texts, taskType: TaskType.retrievalQuery),
       );
-      report('m11_cpu', {'images': imageStalls, 'texts': textStalls});
-      _log('M11 CPU: images $imageStalls; texts $textStalls');
+      report('m11_webgpu', {'images': imageStalls, 'texts': textStalls});
+      _log('M11 WebGPU: images $imageStalls; texts $textStalls');
     }, timeout: const Timeout(Duration(minutes: 30)));
 
     testWidgets('the Image Search screen on the 440m: the samples, a picked '
@@ -955,7 +1060,7 @@ void main() {
         find.byKey(const Key('image-search-add-samples')),
         'the image index to open',
       );
-      expect(find.textContaining('Backend: cpu · loaded in'), findsOneWidget);
+      expect(find.textContaining('Backend: gpu · loaded in'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('image-search-add-samples')));
       await tester.pump();
@@ -1051,88 +1156,108 @@ void main() {
     _log('minInputLength: $record');
   }, timeout: const Timeout(Duration(minutes: 30)));
 
-  testWidgets('WebGPU check (measured, never asserted): NaN/zero, cosine '
-      'against the native CPU text and image goldens, M11 on WebGPU', (
-    tester,
-  ) async {
-    _start('WebGPU check');
-    await _ensureEg2Vision();
-    await _releaseActive(); // one engine at a time on the page
-    final record = <String, Object?>{'webgpuOnPage': _page()['webgpu']};
-    final pass = await _directPass(
-      model: _eg2Vision,
-      backend: LiteRtLmWebBackend.gpu,
-      images: true,
+  testWidgets('a page without WebGPU: the load is refused before '
+      'EmbeddingEngine.create, saying EmbeddingGemma 2 on the web needs WebGPU '
+      'and why; with WebGPU back it loads', (tester) async {
+    _start('no WebGPU');
+    await _ensureEg2();
+    await _releaseActive();
+    final created = <String>[];
+    // Hide navigator.gpu (an own property shadows the prototype's getter),
+    // and count the engines the runtime is asked to create meanwhile.
+    final engine = globalContext['EmbeddingEngine']! as JSObject;
+    final create = engine['create'];
+    engine['create'] = ((JSAny settings) {
+      created.add('create');
+      return (create! as JSFunction).callAsFunction(engine, settings);
+    }).toJS;
+    globalContext.callMethod<JSAny?>(
+      'eval'.toJS,
+      "Object.defineProperty(navigator, 'gpu', "
+              '{configurable: true, value: undefined})'
+          .toJS,
     );
+    EmbeddingLoadException? refusal;
     try {
-      final load = Stopwatch()..start();
-      final info = await pass.load();
-      record['loadMs'] = load.elapsedMilliseconds;
-      record['dimension'] = info.dimension;
-      record['maxInputTokens'] = info.maxInputTokens;
-
-      var textNaNOrZero = 0;
-      var worstText = 1.0;
-      for (final item in _golden) {
-        try {
-          final vector = await pass.embed(
-            EmbeddingInput.text(item.text),
-            _taskFor(item.role),
-          );
-          worstText = math.min(worstText, cosine(vector, item.vector));
-        } on EmbeddingEngineException {
-          textNaNOrZero++;
-        }
-      }
-      record['textMinCosVsNativeCpu'] = worstText;
-      record['textNaNOrZero'] = textNaNOrZero;
-
-      var imageNaNOrZero = 0;
-      var worstImage = 1.0;
-      final micros = <int>[];
-      for (final scene in _scenes) {
-        try {
-          final watch = Stopwatch()..start();
-          final vector = await pass.embed(
-            EmbeddingInput.image(await _asset(eg2VisionSampleAsset(scene))),
-            TaskType.retrievalDocument,
-          );
-          micros.add(watch.elapsedMicroseconds);
-          worstImage = math.min(
-            worstImage,
-            cosine(vector, _imageGolden[scene]!),
-          );
-        } on EmbeddingEngineException {
-          imageNaNOrZero++;
-        }
-      }
-      record['imageMinCosVsNativeCpu'] = worstImage;
-      record['imageNaNOrZero'] = imageNaNOrZero;
-      if (micros.isNotEmpty) record['perImageMedianMs'] = _median(micros);
-
-      final (_, stalls) = await _watchMainThread(() async {
-        for (final scene in _scenes) {
-          await pass.embed(
-            EmbeddingInput.image(await _asset(eg2VisionSampleAsset(scene))),
-            TaskType.retrievalDocument,
-          );
-        }
-      });
-      record['m11_images'] = stalls;
+      await FlutterEdgeAi.getActiveEmbedder();
     } on EmbeddingLoadException catch (e) {
-      // A NaN/zero probe or no WebGPU device: that IS the answer.
-      record['loadFailed'] = e.message;
+      refusal = e;
     } finally {
-      await pass.close();
+      globalContext.callMethod<JSAny?>(
+        'eval'.toJS,
+        'delete navigator.gpu'.toJS,
+      );
+      engine['create'] = create;
     }
-    record['passesTheBar'] =
-        record['loadFailed'] == null &&
-        record['textNaNOrZero'] == 0 &&
-        record['imageNaNOrZero'] == 0 &&
-        (record['textMinCosVsNativeCpu'] as double? ?? 0) >= 0.998 &&
-        (record['imageMinCosVsNativeCpu'] as double? ?? 0) >= 0.998;
-    report('webgpu', record);
-    _log('WebGPU: $record');
+    report('no_webgpu_refusal', refusal?.message);
+    _log('no WebGPU: ${refusal?.message}');
+    expect(refusal, isNotNull, reason: 'loaded without navigator.gpu');
+    expect(refusal!.engine, 'LiteRT-LM');
+    expect(
+      refusal.message,
+      allOf(
+        startsWith('EmbeddingGemma 2 on the web needs WebGPU'),
+        contains('this browser has no WebGPU'),
+        contains('There is no CPU fallback'),
+        contains('cannot read the external weights'),
+      ),
+    );
+    expect(created, isEmpty, reason: 'EmbeddingEngine.create was called');
+    final model = await _active();
+    expect(model.activeBackend, PreferredBackend.gpu);
+    expectUnitVector(
+      await model.embed(EmbeddingInput.text('x'), taskType: TaskType.none),
+      768,
+      what: 'with WebGPU back',
+    );
+  }, timeout: const Timeout(Duration(minutes: 30)));
+
+  testWidgets('CPU, asked for directly: @litert-lm/core 0.18.0 still cannot '
+      'load either bundle there, and the error says why', (tester) async {
+    _start('CPU refused');
+    final record = <String, Object?>{};
+    for (final (model, ensure, images) in [
+      (_eg2, _ensureEg2, false),
+      (_eg2Vision, _ensureEg2Vision, true),
+    ]) {
+      await ensure();
+      await _releaseActive(); // one engine at a time on the page
+      final pass = await _directPass(
+        model: model,
+        backend: LiteRtLmWebBackend.cpu,
+        images: images,
+      );
+      EmbeddingLoadException? refusal;
+      try {
+        await pass.load();
+      } on EmbeddingLoadException catch (e) {
+        refusal = e;
+      } finally {
+        await pass.close();
+      }
+      record[model.filename] = refusal?.message;
+      expect(
+        refusal,
+        isNotNull,
+        reason:
+            '${model.filename} loaded on the CPU: @litert-lm/core now reads '
+            'its external weights there, and the WebGPU-only rule (and its '
+            'documentation) should be revisited',
+      );
+      expect(
+        refusal!.message,
+        allOf(
+          contains('could not create the embedding engine'),
+          contains('Failed to get external weight'),
+          contains(
+            'The CPU (WebAssembly) path of @litert-lm/core 0.18.0 cannot read '
+            'the external weights',
+          ),
+        ),
+      );
+    }
+    report('cpu_refusal', record);
+    _log('CPU: $record');
   }, timeout: const Timeout(Duration(minutes: 30)));
 
   testWidgets('every test above started (an absent test reads as a pass '

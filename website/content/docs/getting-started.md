@@ -55,8 +55,9 @@ only the engines, stores and features your app uses — see
   count. See
   [Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2-audio-and-combined-inputs).
 - **EmbeddingGemma 2 on the Web** (`flutter_edge_ai_litertlm` 1.15.0): text
-  and images in the browser through `@litert-lm/core`, on the CPU; add
-  `window.EmbeddingEngine = m.EmbeddingEngine;` to `web/index.html`. See
+  and images in the browser through `@litert-lm/core`, on WebGPU (the
+  browser needs it); add `window.EmbeddingEngine = m.EmbeddingEngine;` to
+  `web/index.html`. See
   [Installation → Web](/docs/installation#web).
 - **EmbeddingGemma 2 images** (`flutter_edge_ai_litertlm` 1.14.0): the 440m
   bundle embeds JPEG, PNG, GIF and BMP photos next to text, for text-to-image

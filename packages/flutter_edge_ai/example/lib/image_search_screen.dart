@@ -15,8 +15,8 @@ import 'image_search/photo_store.dart';
 /// The model is the ACTIVE embedder, chosen on the Embedding Models list —
 /// EmbeddingGemma 2 Text + Vision (440M); the 270M has no vision encoder and
 /// is refused with the reason. Every platform: on the web the model runs on
-/// the CPU (WebAssembly) through `@litert-lm/core`, so expect each photo to
-/// take longer than on a phone or desktop.
+/// WebGPU through `@litert-lm/core` (the browser needs WebGPU; there is no CPU
+/// path for these bundles there), about 0.33 s per photo on a Tesla T4.
 class ImageSearchScreen extends StatefulWidget {
   const ImageSearchScreen({super.key, this.dependencies, this.onChooseModel});
 
@@ -229,12 +229,13 @@ class _ModelCard extends StatelessWidget {
             for (final line in lines) Text(line, style: _muted),
             const SizedBox(height: 6),
             const Text(
-              'Cost of images (440M, CPU): natively the bundle writes a 218 MB '
-              'vision cache every time it loads, and the first image adds '
-              'about 400-500 MB of RAM. Per image at 140 vision tokens: about '
-              '0.35 s on an Apple-silicon Mac, about 2 s on an Android '
-              'flagship, more on mid-range phones and in a browser '
-              '(WebAssembly). For text alone the 270M is lighter.',
+              'Cost of images (440M): natively (CPU) the bundle writes a '
+              '218 MB vision cache every time it loads, and the first image '
+              'adds about 400-500 MB of RAM. Per image at 140 vision tokens: '
+              'about 0.35 s on an Apple-silicon Mac, about 2 s on an Android '
+              'flagship, more on mid-range phones; in a browser, on WebGPU, '
+              'about 0.33 s on a Tesla T4. For text alone the 270M is '
+              'lighter.',
               style: TextStyle(color: Colors.white54, fontSize: 12),
             ),
           ],

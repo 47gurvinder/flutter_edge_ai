@@ -4,7 +4,7 @@
 - Require `flutter_edge_ai` ^2.4.0.
 
 ## 1.15.0
-- Web: EmbeddingGemma 2 text and image embeddings via @litert-lm/core 0.18.0.
+- Web: EmbeddingGemma 2 text and image embeddings on WebGPU via @litert-lm/core 0.18.0.
 
 ## 1.14.0
 - EmbeddingGemma 2 image embeddings on native platforms.
