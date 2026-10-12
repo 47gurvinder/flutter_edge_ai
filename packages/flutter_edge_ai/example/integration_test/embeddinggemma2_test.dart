@@ -18,7 +18,8 @@
 //   model keeps working;
 // - the calling isolate stays live during a 50-text batch (#299);
 // - closing during a batch returns, fails the queued requests with
-//   EmbedderClosedException, and (Android, iOS) gives the memory back (M12);
+//   EmbedderClosedException, and gives the memory back (M12; measured on
+//   Android only: iOS reports no file-backed pages);
 // - an LLM .litertlm installed as an embedder is refused at load;
 // - supportImage on the 270m is refused from the bundle (no vision encoder,
 //   naming the 440m) before any engine or vision cache exists;
@@ -364,7 +365,9 @@ void main() {
     expect(
       caches.where((f) => f.lengthSync() > _mb),
       isNotEmpty,
-      reason: 'no .xnnpack_cache for ${_eg2.filename} under ${base.path}',
+      reason:
+          'no .xnnpack_cache for ${_openedName(_eg2, _fileOverride)} under '
+          '${base.path}',
     );
     if (Platform.isWindows) {
       // 232 for the example app with a 20-character user name.
@@ -537,7 +540,13 @@ void main() {
     Future<int?> resident() async {
       if (!measure) return null;
       final snapshot = await FlutterEdgeAiDiagnostics.memorySnapshot();
-      return (snapshot.anonymousBytes ?? 0) + (snapshot.fileBackedBytes ?? 0);
+      // iOS reports no file-backed pages (only phys_footprint, which leaves
+      // out clean file mappings): the 270m's weights and its 67 MiB XNNPack
+      // cache are invisible there, and loading EG2 added +1 MiB (iPhone 17
+      // Pro, 2026-10-12). Null skips the memory checks below.
+      final fileBacked = snapshot.fileBackedBytes;
+      if (fileBacked == null) return null;
+      return (snapshot.anonymousBytes ?? 0) + fileBacked;
     }
 
     await Future<void>.delayed(const Duration(seconds: 1));
@@ -614,6 +623,11 @@ void main() {
         reason:
             'after close ${(closed - baseline) ~/ _mb} MiB of the '
             '${added ~/ _mb} MiB the load added are still resident',
+      );
+    } else if (measure) {
+      _log(
+        'M12 memory: not measured here — phys_footprint leaves out the '
+        'file-mapped weights (fileBackedBytes is null)',
       );
     }
   });

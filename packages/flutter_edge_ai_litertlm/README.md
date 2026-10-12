@@ -49,11 +49,11 @@ Depend on both packages (`flutter_edge_ai: ^2.3.0`,
 
 > **Since 1.13.0 this package needs `flutter_edge_ai` 2.3.0, and 2.3.0 needs every
 > flutter_edge_ai package upgraded together:** `flutter_edge_ai_embeddings`
-> 2.3.0 · `flutter_edge_ai_onnx` 0.5.7 · `flutter_edge_ai_mediapipe` 1.2.1 ·
-> `flutter_edge_ai_builtin_ai` 0.3.4 · `flutter_edge_ai_speech` 0.5.6 ·
+> 2.3.0 · `flutter_edge_ai_onnx` 0.5.8 · `flutter_edge_ai_mediapipe` 1.2.2 ·
+> `flutter_edge_ai_builtin_ai` 0.3.5 · `flutter_edge_ai_speech` 0.5.6 ·
 > `flutter_edge_ai_agent` 0.2.9 · `flutter_edge_ai_rag` 1.1.0 ·
 > `flutter_edge_ai_sqlite` 2.1.0 · `flutter_edge_ai_qdrant` 2.1.0 ·
-> `genkit_flutter_edge_ai` 0.8.2. Run `flutter pub upgrade`, not
+> `genkit_flutter_edge_ai` 0.9.1. Run `flutter pub upgrade`, not
 > `flutter pub upgrade flutter_edge_ai_litertlm`. The
 > [migration guide](https://flutteredge.ai/docs/migration) lists the API
 > changes.

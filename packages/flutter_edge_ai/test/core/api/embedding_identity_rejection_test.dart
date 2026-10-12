@@ -13,6 +13,7 @@ import 'package:flutter_edge_ai/src/mobile/flutter_edge_ai_mobile.dart';
 import 'package:flutter_edge_ai/src/model_management/active_embedding_identity.dart';
 import 'package:flutter_edge_ai/src/model_management/active_identity_store.dart';
 import 'package:flutter_edge_ai/src/model_management/constants/preferences_keys.dart';
+import 'package:flutter_edge_ai/src/services/model_repository.dart' as repo;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -151,21 +152,33 @@ void main() {
 
   test('pre-2.3 keys the new rules refuse fail closed without skipping the '
       'restores after it (STT here)', () async {
-    // The pre-record keys of a .litertlm paired with a tokenizer — which 2.2
-    // could install — and an active STT model.
-    for (final name in [
-      'eg2.litertlm',
-      't.model',
-      'whisper.tflite',
-      'whisper__tokenizer.json',
-    ]) {
-      File('${dir.path}/$name').writeAsBytesSync(List.filled(4096, 0));
-    }
     SharedPreferences.setMockInitialValues({
       PreferencesKeys.activeEmbeddingFilename: 'eg2.litertlm',
       PreferencesKeys.activeEmbeddingTokenizerFilename: 't.model',
     });
     final prefs = await SharedPreferences.getInstance();
+    // The pre-record keys of a .litertlm paired with a tokenizer — which 2.2
+    // could install — and an active STT model. Each file as an install
+    // leaves it: in core's directory, with its record (restores find files
+    // through their records).
+    for (final (name, type) in [
+      ('eg2.litertlm', repo.ModelType.embedding),
+      ('t.model', repo.ModelType.embedding),
+      ('whisper.tflite', repo.ModelType.stt),
+      ('whisper__tokenizer.json', repo.ModelType.stt),
+    ]) {
+      File('${dir.path}/$name').writeAsBytesSync(List.filled(4096, 0));
+      await ServiceRegistry.instance.modelRepository.saveModel(
+        repo.ModelInfo(
+          id: name,
+          source: ModelSource.network('https://h/$name'),
+          installedAt: DateTime.now(),
+          sizeBytes: 4096,
+          type: type,
+          hasLoraWeights: false,
+        ),
+      );
+    }
     await ActiveIdentityStore.write(prefs, ActiveIdentityKind.stt, {
       PreferencesKeys.activeSttFilename: 'whisper.tflite',
       PreferencesKeys.activeSttTokenizerFilename: 'whisper__tokenizer.json',

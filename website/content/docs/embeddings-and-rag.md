@@ -33,7 +33,7 @@ dependencies:
 <Warning>
 
 Upgrade every flutter_edge_ai package together. With core 2.3.0 the minimum
-versions are litertlm 1.13.0, embeddings 2.3.0, onnx 0.5.7, rag 1.1.0, sqlite
+versions are litertlm 1.13.0, embeddings 2.3.0, onnx 0.5.8, rag 1.1.0, sqlite
 and qdrant 2.1.0 (the full list is in [Migration](/docs/migration)). An older
 engine or store fails to compile against 2.3.0.
 
