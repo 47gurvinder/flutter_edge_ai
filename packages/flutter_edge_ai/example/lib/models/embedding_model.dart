@@ -161,7 +161,7 @@ enum EmbeddingModel implements EmbeddingModelInterface {
   // an audio encoder, so it also embeds audio (WAV, MP3, FLAC; about 25
   // tokens per second, so a clip of up to about 40 s fits the 1024-token cap)
   // and combinations — a photo with its caption, a clip with a note — in one
-  // vector; both native-only (the web refuses supportAudio). Ungated. On top
+  // vector, natively and on the web (WebGPU, litertlm 1.13.2). Ungated. On top
   // of the 440M (macOS figures): 485 MB on disk, a further 95 MB audio weight
   // cache written at every load (385 MB of caches in all, even for text-only
   // use), and more RAM on the first clip. Audio vectors do not depend on the

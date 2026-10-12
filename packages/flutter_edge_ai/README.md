@@ -335,9 +335,9 @@ and why `.litertlm` keeps the first session's values:
 ² On Web: no audio input; Gemma 4 vision needs the `-web.task` build, while thinking and function calling need the `.litertlm` one; Gemma 3n vision is native-only.
 
 Embedding models: EmbeddingGemma 1 (`.tflite` plus a tokenizer, every
-platform) and EmbeddingGemma 2 (one `.litertlm` file: text and images, plus,
-on Android, iOS, macOS, Linux and Windows, audio and several parts in one
-vector with `EmbeddingInput(text:, images:, audio:)`), both through
+platform) and EmbeddingGemma 2 (one `.litertlm` file: text, images, audio and
+several parts in one vector with `EmbeddingInput(text:, images:, audio:)`,
+natively and on the Web), both through
 `flutter_edge_ai_litertlm`; MiniLM-class
 `.onnx` models through `flutter_edge_ai_onnx`. Download links, sizes, formats
 per platform, embedding and speech models:

@@ -17,8 +17,9 @@ there's no manual native setup.
 
 The same package also ships **`LiteRtEmbeddingBackend`**: EmbeddingGemma 2 from
 one `.litertlm` bundle (native: text since 1.13.0, images from the 440m bundle
-since 1.13.1, audio and combined inputs from the 740m bundle; Web:
-text and images, on WebGPU, also since 1.13.1) and EmbeddingGemma 1 / Gecko
+since 1.13.1, audio and combined inputs from the 740m bundle; Web, on WebGPU:
+text and images since 1.13.1, audio and combined inputs since 1.13.2) and
+EmbeddingGemma 1 / Gecko
 `.tflite` models through the LiteRT C API (and LiteRT.js on web) — see
 [Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2).
 
@@ -235,7 +236,8 @@ window.litertLmReady = (async () => {
 ```
 
 `window.EmbeddingEngine` (1.13.1) is what EmbeddingGemma 2 embedders run on in
-the browser — text and images, on WebGPU. A page without it fails the
+the browser, on WebGPU — text and images, and from 1.13.2 audio and combined
+inputs. A page without it fails the
 embedder's load with an `EmbeddingLoadException` naming the line, and so does a
 browser without WebGPU: there is no CPU fallback, because the CPU (WebAssembly)
 path of `@litert-lm/core` 0.18.0 cannot read these bundles' external weights.

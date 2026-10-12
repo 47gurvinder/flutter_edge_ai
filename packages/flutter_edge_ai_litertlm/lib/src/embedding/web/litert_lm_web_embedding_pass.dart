@@ -329,8 +329,19 @@ EmbeddingPass buildLiteRtLmWebEmbeddingPass(
 ) => LiteRtLmWebEmbeddingPass(config);
 
 /// The backend of the audio tower on the web: WebGPU, as the text and vision
-/// towers.
-// MEASUREMENT-PLACEHOLDER
+/// towers. Both work; WebGPU is about 65 times faster. Measured on the 740m,
+/// Chrome 155, Tesla T4 (2.6-3.6 s clips of speech):
+///
+/// | audio tower | per clip | first clip | cos to the native CPU vector |
+/// |---|---|---|---|
+/// | WebGPU | 0.27-0.34 s | 3.7-3.9 s (shader compile) | 0.974-0.991 |
+/// | CPU (WebAssembly) | 17.8-18.0 s, every clip | the same | 0.988-0.995 |
+///
+/// On the CPU the clip also runs on the page's main thread: the page would
+/// freeze for those 18 s. WebGPU's vectors are as far from the native ones as
+/// another native CPU kernel's (int8 activations; the native suite measures up
+/// to cos 0.05 between builds), deterministic run to run, and retrieval holds:
+/// text → audio top-1 6/6 on the example's clips.
 const liteRtLmWebAudioBackend = LiteRtLmWebBackend.gpu;
 
 /// Throws [EmbeddingLoadException] unless the `.litertlm` bundle at [url]

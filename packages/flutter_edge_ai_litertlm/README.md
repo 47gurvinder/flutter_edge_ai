@@ -140,7 +140,7 @@ on every install, because the variant's filename is only known after the fetch.
 
 | Model file | Platforms | Tokenizer | Longest input |
 |---|---|---|---|
-| EmbeddingGemma 2 text, images and audio, one `.litertlm` | Android, iOS, macOS, Linux, Windows; Web via `@litert-lm/core` (text and images); per-SoC bundles on Qualcomm NPUs (Android, Linux arm64) | inside the bundle | 1024 tokens |
+| EmbeddingGemma 2 text, images and audio, one `.litertlm` | Android, iOS, macOS, Linux, Windows; Web via `@litert-lm/core` (WebGPU); per-SoC bundles on Qualcomm NPUs (Android, Linux arm64) | inside the bundle | 1024 tokens |
 | EmbeddingGemma 1, Gecko: `.tflite` + a tokenizer file | Android, iOS, macOS, Linux, Windows; Web via LiteRT.js | `flutter_edge_ai_embeddings` | the model's sequence length (256 for a `seq256` file) |
 
 ```dart
@@ -212,12 +212,13 @@ final vector = await embedder.embed(
   the bundle runs through `@litert-lm/core`'s `EmbeddingEngine` on WebGPU,
   which needs one more line in `web/index.html` — see
   [Web setup](#web-setup-early-preview) — and a browser with WebGPU.
-- **Text on every bundle; images on the 440m and the 740m (native and
-  web); audio on the 740m, natively (all 1.13.1).** On the 270m,
+- **Text on every bundle; images on the 440m and the 740m; audio on the
+  740m.** Natively all from 1.13.1; on the web text and images from 1.13.1,
+  audio and combined inputs from 1.13.2. On the 270m,
   `getActiveEmbedder(supportImage: true)` fails with `EmbeddingLoadException`
   naming the 440m bundle, and on the 270m and the 440m `supportAudio: true`
-  fails naming the 740m — natively before any engine or cache is made. On the
-  web `supportAudio: true` fails on every bundle.
+  fails naming the 740m — read from the bundle's own header before any engine
+  or cache is made, on the web too (a few KB of the installed file).
 - **At most 1024 tokens per input**, task prefix, BOS and EOS included
   (`maxInputTokens == 1024`). Keep chunks at 512 tokens or fewer: memory grows
   with the input length (on an M4 Pro Mac about +170 MB at 128 tokens, +340 MB
@@ -361,9 +362,8 @@ page.
 The 740m bundle carries the 440m's text and vision towers (the same text and
 image vectors) plus an audio encoder, so a text can find a spoken sentence or a
 sound, and one vector can hold several parts — a photo with its caption, a clip
-with a note. Audio and combined inputs are native-only: on the web
-`supportAudio: true` is refused. Declare what you send when you get the
-embedder:
+with a note. Natively from 1.13.1, on the web (WebGPU) from 1.13.2. Declare
+what you send when you get the embedder:
 
 ```dart
 const audioRevision = '24d962e906c7d332c6428e71c9676855024569e2';
@@ -396,25 +396,30 @@ final note = await embedder.embed(
   channel count — the engine mixes down to mono and resamples to 16 kHz. Ogg
   and M4A fail with `EmbeddingFormatNotSupportedException` before anything is
   sent; a corrupt file of an accepted type fails with
-  `EmbeddingEngineException` (`nativeCode` 2) and the embedder keeps working.
-  One clip per vector.
+  `EmbeddingEngineException` (natively `nativeCode` 2; on the web it carries
+  the runtime's message, "Failed to initialize miniaudio decoder") and the
+  embedder keeps working. The web decodes with the same miniaudio, compiled to
+  WebAssembly. One clip per vector.
 - **Length:** about 25 tokens per second of audio, so a clip of up to about
   40 seconds fits the 1024-token cap; a 60-second clip fails with
-  `EmbeddingInputTooLongException(maxInputTokens: 1024, actualTokens: 1504)`.
-  Split long recordings.
+  `EmbeddingInputTooLongException(maxInputTokens: 1024, actualTokens: 1504)`,
+  natively and on the web alike. Split long recordings.
 - **Combined inputs:** `EmbeddingInput(text:, images:, audio:)` puts the text
   (with its task prefix), then the images in order, then the audio into one
   vector — that order whatever order you write the arguments in. Several
   images in one input are a combined input too. Declare every medium you send
   (`supportImage: true, supportAudio: true`); the cap counts all parts
-  together (about 140 tokens per image). On the web, where each vector holds
-  one part, any input with more than one part fails with
-  `UnsupportedEmbeddingCombinationException` before anything is sent.
+  together (about 140 tokens per image), on the web too.
 - **Cost** (CPU, measured on an M4 Pro Mac): a 485 MB bundle; at every load the
   engine writes 385 MB of weight caches (text 71 MB, vision 218 MB, audio
   95 MB) in the app's cache directory, also when you only embed text; about
-  0.2–0.3 s per 3-second clip. For text use the 270m, for text and images the
-  440m.
+  0.2–0.3 s per 3-second clip. On the web (WebGPU, Tesla T4, Chrome 155) the
+  740m loads in about 5 s with audio and 9 s with images and audio (no weight
+  cache there); a 3-second clip takes about 0.3 s, the first one about 4 s
+  while WebGPU compiles. The audio tower runs on WebGPU: on the CPU
+  (WebAssembly) it takes about 18 s per clip, on the page's main thread. Not
+  measured next to a `.litertlm` LLM on the same page. For text use the 270m,
+  for text and images the 440m.
 - **Index ids:** audio vectors do not depend on the vision budget, so an audio
   store keeps the text profile id (rag tells the stores apart by their
   `documents` modality).
@@ -424,9 +429,10 @@ final note = await embedder.embed(
   vector by up to cos 0.05. Text and image vectors do not move that way. Our
   native build and Google's `litert-lm` Python wheel give identical text
   vectors and audio vectors within cos 0.97 (the wheel even varies by thread
-  scheduling run to run); one build is deterministic on one platform. What
-  holds across builds is retrieval: a text finds its clip on every build we
-  measured.
+  scheduling run to run); one build is deterministic on one platform. The web
+  (WebGPU) is within cos 0.97 of both. What holds across builds is retrieval:
+  a text finds its clip on every build we measured, the web included, and a
+  web query finds the clips embedded natively.
 
 `EmbeddingModel.activeBackend` is `cpu` on native and `gpu` for EmbeddingGemma
 2 on the web, and `npu` for an EmbeddingGemma 2 per-SoC bundle on a Qualcomm
@@ -610,7 +616,8 @@ window.litertLmReady = (async () => {
 ```
 
 `window.EmbeddingEngine` (1.13.1) is what EmbeddingGemma 2 `.litertlm`
-embedders run on, text and images, on WebGPU. A page without that line fails
+embedders run on, on WebGPU: text and images, and from 1.13.2 audio and
+combined inputs (no further line). A page without that line fails
 the embedder's load with an `EmbeddingLoadException` that names it; so does a
 browser without WebGPU, which has no fallback here (the CPU path of
 `@litert-lm/core` 0.18.0 cannot read these bundles' external weights). The LLM
@@ -637,7 +644,7 @@ Native platforms need no web setup.
 | iOS      | ✅ FFI (GPU via Metal on device; CPU on simulator) |
 | macOS / Linux | ✅ FFI (GPU via Metal / Vulkan; NPU on Qualcomm Linux arm64 — opt-in, below) |
 | Windows  | ✅ FFI (CPU + GPU via DirectX 12 + Intel NPU) |
-| Web      | ⚠️ early preview via `@litert-lm/core` (CDN; LLMs text-only; EmbeddingGemma 2 text and images on WebGPU) |
+| Web      | ⚠️ early preview via `@litert-lm/core` (CDN; LLMs text-only; EmbeddingGemma 2 text, images and audio on WebGPU) |
 
 The native library (`native-v0.18.0-e`, LiteRT-LM v0.18.0) is fetched at build
 time by `hook/build.dart` from a SHA256-verified GitHub release. The app still
