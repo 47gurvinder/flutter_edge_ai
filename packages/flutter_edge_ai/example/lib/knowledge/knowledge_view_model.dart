@@ -257,7 +257,7 @@ final class KnowledgeViewModel extends ChangeNotifier {
         lastRunTook = run.elapsed;
       });
     }
-    _startWarmUp();
+    if (!_disposed) _startWarmUp();
   }
 
   /// "indexed 21 of 21 items in 6123 ms: 8 notes embed 412 ms, …", for the

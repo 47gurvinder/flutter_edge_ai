@@ -339,20 +339,29 @@ final class _LlmAnswerer implements KnowledgeAnswerer {
 final class _JustAudioPlayer implements KnowledgeMemoPlayer {
   final _player = AudioPlayer();
 
+  /// Bumped by every play and stop: a play that was overtaken leaves the
+  /// player to the one that overtook it.
+  int _generation = 0;
+
   @override
   Future<void> play(String reference) async {
+    final generation = ++_generation;
     if (assetKeyOf(reference) case final key?) {
       await _player.setAsset(key);
     } else {
       await _player.setFilePath(reference);
     }
+    if (generation != _generation) return;
     // Completes when the memo has played to its end or was stopped.
     await _player.play();
-    await _player.stop();
+    if (generation == _generation) await _player.stop();
   }
 
   @override
-  Future<void> stop() => _player.stop();
+  Future<void> stop() {
+    _generation++;
+    return _player.stop();
+  }
 
   @override
   Future<void> dispose() => _player.dispose();
