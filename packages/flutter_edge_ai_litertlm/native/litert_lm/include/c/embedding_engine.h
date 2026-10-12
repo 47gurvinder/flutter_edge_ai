@@ -352,6 +352,29 @@ LITERT_LM_C_API_EXPORT
 const float* litert_lm_embedding_response_get_values(
     const LiteRtLmEmbeddingResponse* response);
 
+// Returns the number of tokens of the input that produced `response`, as the
+// engine tokenized it and before any truncation.
+//
+// @param response The response to inspect.
+// @return The input length in tokens, or -1 if `response` is NULL.
+//
+// Added by flutter_gemma patch section 14.
+LITERT_LM_C_API_EXPORT
+int litert_lm_embedding_response_get_input_length(
+    const LiteRtLmEmbeddingResponse* response);
+
+// Returns the length the input was truncated to, when the input overflow
+// strategy truncated it.
+//
+// @param response The response to inspect.
+// @return The truncated length in tokens, 0 if the whole input was embedded,
+//   or -1 if `response` is NULL.
+//
+// Added by flutter_gemma patch section 14.
+LITERT_LM_C_API_EXPORT
+int litert_lm_embedding_response_get_truncated_length(
+    const LiteRtLmEmbeddingResponse* response);
+
 // Destroys a collection of LiteRT LM Embedding Responses.
 //
 // @param responses The responses collection to destroy.
