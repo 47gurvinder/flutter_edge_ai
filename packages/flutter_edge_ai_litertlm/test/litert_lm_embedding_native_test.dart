@@ -1,4 +1,4 @@
-// The EmbeddingGemma 2 pass on the REAL libLiteRtLm (native-v0.18.0-d) and
+// The EmbeddingGemma 2 pass on the REAL libLiteRtLm (native-v0.18.0-e) and
 // the real bundles, in the VM — the X1 check of R5 §10.1 at the FFI level:
 // text through these Dart bindings reproduces the golden `vector`, which came
 // from the same macOS arm64 dylib through Python ctypes.
