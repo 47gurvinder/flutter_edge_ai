@@ -2,9 +2,11 @@
 // shared by the LLM sampler reader (`litertlm_bundle_sampler.dart`) and the
 // embedding container reader (`embedding/litertlm_container.dart`) — and the
 // 32-byte preamble in front of it. Package-private: nothing exports it.
-// Web-safe, dart2js included: no dart:io, and no 64-bit ByteData access
-// (`getUint64` throws UnsupportedError under dart2js), so the web
-// EmbeddingGemma 2 pass reads the same header with the same code.
+// Web-safe, dart2js included: no dart:io, and the path the web EmbeddingGemma 2
+// pass takes (`litertlmHeaderEnd`, tables, vectors, strings, uint8) reads no
+// 64-bit value — `getUint64` throws UnsupportedError under dart2js. Only
+// [LitertlmFlatBuffer.uint64] does, and only native readers call it (section
+// offsets in the sampler and the NPU-target reader).
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -89,6 +91,7 @@ final class LitertlmFlatBuffer {
     return at == null ? 0 : _data.getUint8(at);
   }
 
+  /// Native only: dart2js has no `ByteData.getUint64`.
   int uint64(int table, int index) {
     final at = _field(table, index);
     return at == null ? 0 : _data.getUint64(at, Endian.little);

@@ -253,6 +253,30 @@ void main() {
       ),
     );
 
+    // A header whose root offset points past its end — under dart2js the
+    // DataView's own RangeError, which must still read as a corrupt header.
+    final corrupt = Uint8List.fromList(eg2Header740m)
+      ..setAll(32, [0xF0, 0xFF, 0x00, 0x00]);
+    await expectLater(
+      backend.describe(
+        _eg2,
+        _bundleConfig(supportAudio: true, modelPath: blobUrl(corrupt)),
+      ),
+      throwsA(
+        isA<EmbeddingLoadException>().having(
+          (e) => e.message,
+          'message',
+          allOf(
+            startsWith(
+              'could not read the container of eg2.litertlm to find its '
+              'audio encoder',
+            ),
+            contains('header flatbuffer is truncated'),
+          ),
+        ),
+      ),
+    );
+
     // opfs:// without streaming storage set up: the resolver refuses.
     await expectLater(
       backend.describe(_eg2, _bundleConfig(supportAudio: true)),
