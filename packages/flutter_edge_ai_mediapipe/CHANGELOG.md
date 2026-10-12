@@ -1,3 +1,6 @@
+## 1.2.1
+- Require `flutter_edge_ai` ^2.3.0 (imports its engine library).
+
 ## 1.2.0
 - Unset sampling uses the model family defaults, top-k at most 40, instead of greedy (#572).
 - Require `flutter_edge_ai` ^2.2.0.
