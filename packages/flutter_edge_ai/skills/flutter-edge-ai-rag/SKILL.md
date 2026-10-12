@@ -1,6 +1,6 @@
 ---
 name: flutter-edge-ai-rag
-description: Use when adding or debugging on-device RAG, semantic search, text embeddings, metadata filters, embedding profiles, or pluggable sqlite-vec/qdrant-edge storage in a flutter_edge_ai app with flutter_edge_ai_rag, flutter_edge_ai_sqlite or flutter_edge_ai_qdrant. Also use when moving RAG code to flutter_edge_ai 2.0 — FlutterEdgeAi.rag is undefined, initialize(vectorStore:) was removed, or open() throws "No vector-store provider can handle providerId" — and when QdrantLegacyStoreException or an embedding-profile mismatch is thrown.
+description: Use when adding or debugging on-device RAG, semantic search, text embeddings (EmbeddingGemma 1 .tflite, EmbeddingGemma 2 .litertlm), metadata filters, embedding profiles, or pluggable sqlite-vec/qdrant-edge storage in a flutter_edge_ai app with flutter_edge_ai_rag, flutter_edge_ai_sqlite or flutter_edge_ai_qdrant. Also use when moving RAG code to flutter_edge_ai 2.0 — FlutterEdgeAi.rag is undefined, initialize(vectorStore:) was removed, or open() throws "No vector-store provider can handle providerId" — and when QdrantLegacyStoreException or an embedding-profile mismatch is thrown.
 ---
 
 # On-device RAG with Flutter Edge AI
@@ -109,6 +109,64 @@ should download from a repo that needs none.
 `open()` pins the embedder that is active at that moment: install the embedder
 before opening the index, and after switching embedders open a new index at a
 new location.
+
+## EmbeddingGemma 2 (one `.litertlm` file, native)
+
+EmbeddingGemma 2 text ships as one `.litertlm` bundle that carries its own
+tokenizer: install the model alone — no `tokenizerFrom…()` call, and no
+`flutter_edge_ai_embeddings` or `embeddingTokenizers:` needed. The repo is not
+gated:
+
+```dart
+const eg2Revision = '9be6e8b90982095dc05c2bd162e4b954ee4dbac7';
+// One id for the 270m, 440m and 740m bundles: their text towers are identical.
+const eg2ProfileId = 'embeddinggemma2-litertlm-text-4410a540ce75-prefix-v1';
+
+await FlutterEdgeAi.initialize(
+  embeddingBackends: const [LiteRtEmbeddingBackend()],
+);
+await FlutterEdgeAi.installEmbedder()
+    .modelFromNetwork(
+      'https://huggingface.co/litert-community/'
+      'embeddinggemma-2-text-270m-litert-lm/resolve/$eg2Revision/'
+      'embeddinggemma-2-text-270m.litertlm',
+    )
+    .install();
+final embedder = await FlutterEdgeAi.getActiveEmbedder();
+final limit = embedder.maxInputTokens; // 1024
+
+final rag = FlutterEdgeAiRag(
+  providers: const [SqliteVectorStoreProvider()],
+);
+final eg2Index = await rag.open(
+  spec: VectorStoreSpec(
+    providerId: SqliteVectorStoreProvider.providerId,
+    location: p.join(
+      (await getApplicationDocumentsDirectory()).path,
+      'knowledge-embeddinggemma2-text-v1.db',
+    ),
+  ),
+  activeEmbedderProfileId: eg2ProfileId,
+);
+```
+
+- Native only with `flutter_edge_ai_litertlm` 1.13.0: Android, iOS, macOS,
+  Linux, Windows. On Web `install()` refuses the `.litertlm` embedder with an
+  `UnsupportedError` before downloading anything.
+- Text only for now: `getActiveEmbedder(supportImage: true)` or
+  `supportAudio: true` throws `EmbeddingLoadException` (images arrive in
+  1.14.0, audio in 1.16.0).
+- `maxInputTokens` is 1024 — task prefix, BOS and EOS included. Keep chunks at
+  512 tokens or fewer: memory grows with the input length. A longer text throws
+  `EmbeddingInputTooLongException` whose `actualTokens` is null — LiteRT-LM
+  reports the overflow without a count.
+- It runs on CPU (`activeBackend` is `PreferredBackend.cpu`) and keeps a weight
+  cache of about 71 MB, on top of the 165 MB bundle, in the app's cache
+  directory: never backed up, and rebuilt at the next load if the OS clears
+  it.
+- EmbeddingGemma 1 and 2 both produce 768-d vectors but are different spaces:
+  give each its own location and profile ID — the dimension check alone cannot
+  tell them apart.
 
 ## Index and search
 
@@ -385,7 +443,8 @@ location.
   cannot identify their embedding space.
 - `EmbeddingInputTooLongException` from `addText` or `searchText`: the text is
   longer than the embedder's `maxInputTokens`. Split it into smaller chunks;
-  older releases truncated it silently.
+  older releases truncated it silently. With EmbeddingGemma 2 its
+  `actualTokens` is null.
 - A text operation using the default embedder needs `activeEmbedderProfileId`
   on `open()`. `open()` pins the embedder that is active at that moment:
   install the embedder before opening the index, and after switching embedders

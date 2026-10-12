@@ -44,7 +44,7 @@ const _eg1TokenizerUrlOverride = String.fromEnvironment('EG1_TOKENIZER_URL');
 String get eg1ModelUrl =>
     _eg1ModelUrlOverride.isEmpty ? eg1.url : _eg1ModelUrlOverride;
 String get eg1TokenizerUrl => _eg1TokenizerUrlOverride.isEmpty
-    ? eg1.tokenizerUrl
+    ? eg1.tokenizerUrl!
     : _eg1TokenizerUrlOverride;
 
 /// The token for a URL that needs one; fails the test, by name, when a gated

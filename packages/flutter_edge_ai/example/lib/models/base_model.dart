@@ -75,18 +75,21 @@ abstract class InferenceModelInterface extends BaseModel {
 
 /// Interface for embedding models
 abstract class EmbeddingModelInterface extends BaseModel {
-  /// Tokenizer download URL
-  String get tokenizerUrl;
+  /// Tokenizer download URL; null for a self-contained `.litertlm` bundle
+  /// (EmbeddingGemma 2), which carries its own tokenizer.
+  String? get tokenizerUrl;
 
-  /// Tokenizer filename for local storage
-  String get tokenizerFilename;
+  /// Tokenizer filename for local storage; null exactly when [tokenizerUrl]
+  /// is.
+  String? get tokenizerFilename;
 
   /// Embedding vector dimension (e.g., 768)
   /// This is the fixed output size of the embedding model
   int get dimension;
 
-  /// Maximum sequence length (context window) in tokens
-  /// This determines how long input text can be before truncation
+  /// Maximum input length in tokens, task prefix included — display metadata
+  /// only. The loaded model's real limit is `EmbeddingModel.maxInputTokens`;
+  /// a longer input throws `EmbeddingInputTooLongException`.
   int get maxSeqLen;
 
   /// Type of source for model and tokenizer files

@@ -3,9 +3,11 @@
 // is pure, so every test inspects a descriptor and nothing spawns a worker or
 // opens a native library.
 
+import 'package:flutter/services.dart';
 import 'package:flutter_edge_ai/engine.dart';
 import 'package:flutter_edge_ai_litertlm/flutter_edge_ai_litertlm.dart';
 import 'package:flutter_edge_ai_litertlm/src/embedding/litert_embedding_pass.dart';
+import 'package:flutter_edge_ai_litertlm/src/embedding/litert_lm_embedding_pass.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 EmbeddingModelSpec _tflite({String model = 'gemma.tflite'}) =>
@@ -40,15 +42,33 @@ Matcher _loadRefusal(String engine, Object message) => throwsA(
       .having((e) => e.message, 'message', message),
 );
 
+/// path_provider's channel, as `flutter test` reaches it (no plugin
+/// registration in a host test).
+const _pathProvider = MethodChannel('plugins.flutter.io/path_provider');
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   const backend = LiteRtEmbeddingBackend();
   late _CountingTokenizers tokenizers;
 
   setUp(() {
     tokenizers = _CountingTokenizers();
     EmbeddingTokenizerRegistry.instance.registerAll([tokenizers]);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          _pathProvider,
+          (call) async => switch (call.method) {
+            'getApplicationCacheDirectory' => '/cache',
+            'getApplicationSupportDirectory' => '/support',
+            _ => null,
+          },
+        );
   });
-  tearDown(EmbeddingTokenizerRegistry.instance.reset);
+  tearDown(() {
+    EmbeddingTokenizerRegistry.instance.reset();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_pathProvider, null);
+  });
 
   test('identity', () {
     expect(backend.name, 'LiteRT Embedding');
@@ -111,15 +131,46 @@ void main() {
     });
   });
 
-  group('describe() routes on the file core opens', () {
-    test('a .litertlm bundle never asks the tokenizer registry', () async {
-      await expectLater(
-        backend.describe(_bundle(), _config('/data/eg2.litertlm')),
-        _loadRefusal('LiteRT-LM', contains('eg2.litertlm')),
-      );
+  group('describe() on a .litertlm bundle', () {
+    test(
+      'hands core the EmbeddingGemma 2 pass: the opened file, the '
+      'engine-owned cache base in the platform cache directory, CPU',
+      () async {
+        final descriptor = await backend.describe(
+          _bundle(),
+          _config('/data/eg2.litertlm'),
+        );
+        expect(descriptor.engineTag, 'LiteRT-LM');
+        expect(descriptor.activeBackend, PreferredBackend.cpu);
+        final config = descriptor.config as LiteRtLmEmbeddingConfig;
+        expect(config.modelPath, '/data/eg2.litertlm');
+        // The platform cache directory, never application support: iOS backs
+        // that up to iCloud and Android Auto Backup caps it at 25 MB per app,
+        // while a purged cache is rebuilt at the next engine create.
+        expect(config.cacheBase, '/cache/flutter_edge_ai/emb');
+        expect(config.declaredMedia, isEmpty);
+        expect(config.numThreads, isNull);
+        expect(descriptor.build(), isA<LiteRtLmEmbeddingPass>());
+      },
+    );
+
+    test('never asks the tokenizer registry', () async {
+      await backend.describe(_bundle(), _config('/data/eg2.litertlm'));
       expect(tokenizers.asked, 0);
     });
 
+    test('needs no tokenizer provider at all: an EG2-only app registers '
+        'none', () async {
+      EmbeddingTokenizerRegistry.instance.reset();
+      final descriptor = await backend.describe(
+        _bundle(),
+        _config('/data/eg2.litertlm'),
+      );
+      expect(descriptor.config, isA<LiteRtLmEmbeddingConfig>());
+    });
+  });
+
+  group('describe() routes on the file core opens', () {
     test(
       'a .litertlm bundle with declared media gets the 1.13.0 refusal',
       () async {
@@ -145,13 +196,11 @@ void main() {
     );
 
     test('the suffix is matched without regard to case', () async {
-      await expectLater(
-        backend.describe(
-          _bundle(model: 'EG2.LITERTLM'),
-          _config('/data/EG2.LITERTLM'),
-        ),
-        _loadRefusal('LiteRT-LM', contains('EG2.LITERTLM')),
+      final descriptor = await backend.describe(
+        _bundle(model: 'EG2.LITERTLM'),
+        _config('/data/EG2.LITERTLM'),
       );
+      expect(descriptor.config, isA<LiteRtLmEmbeddingConfig>());
       expect(tokenizers.asked, 0);
     });
 
