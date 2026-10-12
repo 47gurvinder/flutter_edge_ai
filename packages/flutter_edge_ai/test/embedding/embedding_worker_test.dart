@@ -18,15 +18,16 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+// ignore: implementation_imports — a real Gemma SentencePiece tokenizer for the worker round trip (native-only, not exported)
 import 'package:flutter_edge_ai_embeddings/src/embedding_tokenizer.dart';
-import 'package:flutter_edge_ai/core/embedding/common_embedding_model.dart';
-import 'package:flutter_edge_ai/core/embedding/embedder_cache.dart';
-import 'package:flutter_edge_ai/core/embedding/embedding_worker.dart';
-import 'package:flutter_edge_ai/core/registry/runtime_config.dart'
+import 'package:flutter_edge_ai/src/embedding/common_embedding_model.dart';
+import 'package:flutter_edge_ai/src/embedding/embedder_cache.dart';
+import 'package:flutter_edge_ai/src/embedding/embedding_worker.dart';
+import 'package:flutter_edge_ai/src/registry/runtime_config.dart'
     show ActiveEmbedderParams;
-import 'package:flutter_edge_ai/core/embedding/forward_pass.dart';
-import 'package:flutter_edge_ai/core/embedding/tokenizer_adapter.dart';
-import 'package:flutter_edge_ai/core/domain/platform_types.dart';
+import 'package:flutter_edge_ai/src/embedding/forward_pass.dart';
+import 'package:flutter_edge_ai/src/embedding/tokenizer_adapter.dart';
+import 'package:flutter_edge_ai/src/domain/platform_types.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Fake forward pass: behavior selected by [_FakeMode] (encoded into the

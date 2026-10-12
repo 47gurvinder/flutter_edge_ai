@@ -1,9 +1,13 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_edge_ai/core/model_management/constants/preferences_keys.dart';
-import 'package:flutter_edge_ai/core/model_management/active_embedding_identity.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+// ignore: implementation_imports — example app cross-checks core's persisted embedder identity (no public API)
+import 'package:flutter_edge_ai/src/model_management/active_embedding_identity.dart'
+    show ActiveEmbeddingIdentityRecord;
+// ignore: implementation_imports — example app reads core's persisted identity keys (no public API)
+import 'package:flutter_edge_ai/src/model_management/constants/preferences_keys.dart'
+    show PreferencesKeys;
 import 'package:flutter_edge_ai_example/models/base_model.dart';
 import 'package:flutter_edge_ai_example/models/embedding_model.dart' as catalog;
 import 'package:shared_preferences/shared_preferences.dart';

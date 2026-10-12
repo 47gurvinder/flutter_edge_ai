@@ -2,14 +2,7 @@
 // (embedder decoupling plan Task 4/5 — LiteRtEmbeddingBackend now lives in
 // this package).
 
-import 'package:flutter_edge_ai/core/domain/model_source.dart';
-import 'package:flutter_edge_ai/core/domain/platform_types.dart';
-import 'package:flutter_edge_ai/core/embedding/forward_pass.dart';
-import 'package:flutter_edge_ai/core/embedding/tokenizer_adapter.dart';
-import 'package:flutter_edge_ai/core/model_management/model_specs.dart';
-import 'package:flutter_edge_ai/core/registry/embedding_tokenizer_provider.dart';
-import 'package:flutter_edge_ai/core/registry/embedding_tokenizer_registry.dart';
-import 'package:flutter_edge_ai/core/registry/runtime_config.dart';
+import 'package:flutter_edge_ai/engine.dart';
 import 'package:flutter_edge_ai_litertlm/flutter_edge_ai_litertlm.dart';
 import 'package:flutter_edge_ai_litertlm/src/embedding/litert_embedding_backend.dart'
     show liteRtEmbeddingDescriptor;

@@ -17,9 +17,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+// ignore: implementation_imports — reads core's file-system service to check install paths
+import 'package:flutter_edge_ai/src/di/service_registry.dart'
+    show ServiceRegistry;
 import 'inference_test_helpers.dart' show registerTestEngines;
-import 'package:flutter_edge_ai/core/di/service_registry.dart';
-import 'package:flutter_edge_ai/core/model.dart';
 
 // ── Model URLs (for iOS download, macOS/Android use local files) ──
 const _gemma4Url =
@@ -670,7 +671,8 @@ void main() {
   //
   // LiteRT-LM NPU executor only supports internal greedy sampling. As of
   // 0.15.1 we skip the sampler-params setter chain when backend == 'npu'
-  // (lib/core/ffi/litert_lm_client.dart::createConversation). These tests
+  // (flutter_edge_ai_litertlm lib/src/ffi/litert_lm_client.dart,
+  // `_createRawConversation`). These tests
   // verify the path end-to-end: engine creates successfully with NPU
   // backend even when caller passes non-default temperature/topK/topP, and
   // generation is deterministic (same prompt → identical output across

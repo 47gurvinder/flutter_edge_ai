@@ -17,16 +17,16 @@ import 'dart:async';
 // Run: flutter test test/core/embedding/embedder_notice_wiring_test.dart
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_edge_ai/core/embedding/embedder_backend_notice.dart';
-import 'package:flutter_edge_ai/core/lifecycle/close_notifier.dart';
-import 'package:flutter_edge_ai/core/domain/model_source.dart';
-import 'package:flutter_edge_ai/core/registry/embedding_backend_provider.dart';
-import 'package:flutter_edge_ai/core/registry/embedding_registry.dart';
-import 'package:flutter_edge_ai/core/registry/runtime_config.dart';
-import 'package:flutter_edge_ai/core/domain/platform_types.dart';
-import 'package:flutter_edge_ai/desktop/flutter_edge_ai_desktop.dart';
-import 'package:flutter_edge_ai/flutter_edge_ai_interface.dart';
-import 'package:flutter_edge_ai/mobile/flutter_edge_ai_mobile.dart';
+import 'package:flutter_edge_ai/src/embedding/embedder_backend_notice.dart';
+import 'package:flutter_edge_ai/src/lifecycle/close_notifier.dart';
+import 'package:flutter_edge_ai/src/domain/model_source.dart';
+import 'package:flutter_edge_ai/src/registry/embedding_backend_provider.dart';
+import 'package:flutter_edge_ai/src/registry/embedding_registry.dart';
+import 'package:flutter_edge_ai/src/registry/runtime_config.dart';
+import 'package:flutter_edge_ai/src/domain/platform_types.dart';
+import 'package:flutter_edge_ai/src/desktop/flutter_edge_ai_desktop.dart';
+import 'package:flutter_edge_ai/src/interface.dart';
+import 'package:flutter_edge_ai/src/mobile/flutter_edge_ai_mobile.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

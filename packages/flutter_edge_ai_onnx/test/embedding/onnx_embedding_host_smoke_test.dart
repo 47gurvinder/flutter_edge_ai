@@ -27,6 +27,7 @@ import 'dart:math' as math;
 
 import 'package:flutter_edge_ai_embeddings/flutter_edge_ai_embeddings.dart';
 import 'package:flutter_edge_ai_onnx/src/embedding/onnx_embedding_forward_pass.dart';
+// ignore: implementation_imports — the embeddings tokenizer router is not exported; the smoke test builds tokenizers through it
 import 'package:flutter_edge_ai_embeddings/src/tokenizer_router.dart';
 import 'package:flutter_edge_ai_onnx/src/embedding/ort_ffi_client.dart';
 import 'package:flutter_test/flutter_test.dart';

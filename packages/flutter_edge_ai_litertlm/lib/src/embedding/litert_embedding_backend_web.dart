@@ -3,11 +3,7 @@
 // never asks core's tokenizer registry: tokenization happens inside
 // `sentencepiece.js`, not in Dart.
 
-import 'package:flutter_edge_ai/core/registry/embedding_backend_provider.dart';
-import 'package:flutter_edge_ai/core/registry/runtime_config.dart';
-import 'package:flutter_edge_ai/flutter_edge_ai_interface.dart' show EmbeddingModel;
-import 'package:flutter_edge_ai/core/model_management/model_specs.dart'
-    show EmbeddingModelSpec;
+import 'package:flutter_edge_ai/engine.dart';
 import 'web/web_embedding_model.dart';
 
 /// Web LiteRT embedding backend — builds [WebEmbeddingModel] (LiteRT.js).

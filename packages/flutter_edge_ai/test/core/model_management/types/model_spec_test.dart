@@ -1,7 +1,7 @@
 @TestOn('!vm')
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_edge_ai/mobile/flutter_edge_ai_mobile.dart';
-import 'package:flutter_edge_ai/core/domain/model_source.dart';
+import 'package:flutter_edge_ai/src/mobile/flutter_edge_ai_mobile.dart';
+import 'package:flutter_edge_ai/src/domain/model_source.dart';
 
 void main() {
   group('ModelSpec Tests', () {
@@ -138,45 +138,39 @@ void main() {
       );
     });
 
-    group(
-      'Namespacing distinctness (embedding, the per-broad-type-would-fail case)',
-      () {
-        test('embeddinggemma and Gecko tokenizers stay distinct despite the SAME '
-            'basename AND the same ModelManagementType.embedding', () {
-          final embeddingGemma = EmbeddingModelSpec(
-            name: 'embeddingGemma1024',
-            modelSource: NetworkSource(
-              'https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/embeddinggemma-300M_seq1024_mixed-precision.tflite',
-            ),
-            tokenizerSource: NetworkSource(
-              'https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/sentencepiece.model',
-            ),
-          );
-          final gecko = EmbeddingModelSpec(
-            name: 'Gecko_64_quant',
-            modelSource: NetworkSource(
-              'https://huggingface.co/litert-community/Gecko-110m-en/resolve/main/Gecko_64_quant.tflite',
-            ),
-            tokenizerSource: NetworkSource(
-              'https://huggingface.co/litert-community/Gecko-110m-en/resolve/main/sentencepiece.model',
-            ),
-          );
+    group('Namespacing distinctness (embedding, the per-broad-type-would-fail case)', () {
+      test('embeddinggemma and Gecko tokenizers stay distinct despite the SAME '
+          'basename AND the same ModelManagementType.embedding', () {
+        final embeddingGemma = EmbeddingModelSpec(
+          name: 'embeddingGemma1024',
+          modelSource: NetworkSource(
+            'https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/embeddinggemma-300M_seq1024_mixed-precision.tflite',
+          ),
+          tokenizerSource: NetworkSource(
+            'https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/sentencepiece.model',
+          ),
+        );
+        final gecko = EmbeddingModelSpec(
+          name: 'Gecko_64_quant',
+          modelSource: NetworkSource(
+            'https://huggingface.co/litert-community/Gecko-110m-en/resolve/main/Gecko_64_quant.tflite',
+          ),
+          tokenizerSource: NetworkSource(
+            'https://huggingface.co/litert-community/Gecko-110m-en/resolve/main/sentencepiece.model',
+          ),
+        );
 
-          expect(
-            embeddingGemma.files[1].filename,
-            isNot(equals(gecko.files[1].filename)),
-          );
-          expect(
-            embeddingGemma.files[1].filename,
-            'embeddinggemma-300M_seq1024_mixed-precision__sentencepiece.model',
-          );
-          expect(
-            gecko.files[1].filename,
-            'Gecko_64_quant__sentencepiece.model',
-          );
-        });
-      },
-    );
+        expect(
+          embeddingGemma.files[1].filename,
+          isNot(equals(gecko.files[1].filename)),
+        );
+        expect(
+          embeddingGemma.files[1].filename,
+          'embeddinggemma-300M_seq1024_mixed-precision__sentencepiece.model',
+        );
+        expect(gecko.files[1].filename, 'Gecko_64_quant__sentencepiece.model');
+      });
+    });
 
     group('DownloadProgress', () {
       test('calculates overall progress correctly', () {

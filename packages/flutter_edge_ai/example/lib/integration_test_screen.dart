@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart' show rootBundle;
-import 'package:flutter_edge_ai/mobile/smart_downloader.dart';
-import 'package:flutter_edge_ai/core/api/flutter_edge_ai.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+// ignore: implementation_imports — in-app download test screen drives core's downloader
+import 'package:flutter_edge_ai/src/mobile/smart_downloader.dart'
+    show SmartDownloader;
 import 'package:flutter_edge_ai/flutter_edge_ai.dart' as legacy;
-import 'package:flutter_edge_ai/mobile/flutter_edge_ai_mobile.dart'
-    as legacy_mobile;
+import 'package:flutter_edge_ai/flutter_edge_ai.dart' as legacy_mobile;
+// ignore: implementation_imports — in-app test screen builds bundled specs through core's manager
+import 'package:flutter_edge_ai/src/mobile/flutter_edge_ai_mobile.dart'
+    as legacy_mobile
+    show MobileModelManager;
 import 'package:path_provider/path_provider.dart';
 import 'package:background_downloader/background_downloader.dart';
 import 'package:flutter_edge_ai_example/utils/test_preferences.dart';
@@ -1750,10 +1755,8 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
     _log('📋 Using Modern API with active inference model...');
 
     final startInit = DateTime.now();
-    final inferenceModel = await legacy.FlutterEdgeAiPlugin.instance.createModel(
-      modelType: legacy.ModelType.gemmaIt,
-      maxTokens: 512,
-    );
+    final inferenceModel = await legacy.FlutterEdgeAiPlugin.instance
+        .createModel(modelType: legacy.ModelType.gemmaIt, maxTokens: 512);
     final initDuration = DateTime.now().difference(startInit);
     _log('✅ Model initialized in ${initDuration.inMilliseconds}ms');
 
@@ -2258,7 +2261,9 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
       _currentTestIndex++;
       _log('▶️  [$_currentTestIndex/$_totalTests]   ▶️ Run Inference');
       _log('  🔧 Getting active model with Modern API...');
-      final inferenceModel2 = await FlutterEdgeAi.getActiveModel(maxTokens: 512);
+      final inferenceModel2 = await FlutterEdgeAi.getActiveModel(
+        maxTokens: 512,
+      );
       _log('  ✅ Model ready');
       _log('  🔧 Creating session...');
       final session2 = await inferenceModel2.createSession();
@@ -2640,7 +2645,9 @@ class _IntegrationTestScreenState extends State<IntegrationTestScreen> {
       _currentTestIndex++;
       _log('▶️  [$_currentTestIndex/$_totalTests]   ▶️ Run Inference');
       _log('  🔧 Getting active model with Modern API...');
-      final inferenceModel6 = await FlutterEdgeAi.getActiveModel(maxTokens: 512);
+      final inferenceModel6 = await FlutterEdgeAi.getActiveModel(
+        maxTokens: 512,
+      );
       _log('  ✅ Model ready');
       _log('  🔧 Creating session...');
       final session6 = await inferenceModel6.createSession();

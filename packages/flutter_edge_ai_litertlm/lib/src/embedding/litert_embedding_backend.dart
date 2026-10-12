@@ -5,20 +5,9 @@
 // `CommonEmbeddingModel`.
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
-import 'package:flutter_edge_ai/core/registry/embedding_backend_provider.dart';
-import 'package:flutter_edge_ai/core/registry/runtime_config.dart';
-import 'package:flutter_edge_ai/flutter_edge_ai_interface.dart' show EmbeddingModel;
-import 'package:flutter_edge_ai/core/model_management/model_specs.dart'
-    show EmbeddingModelSpec;
-import 'package:flutter_edge_ai/core/embedding/common_embedding_model.dart'
-    show CommonEmbeddingModel;
-import 'package:flutter_edge_ai/core/embedding/forward_pass.dart'
-    show EmbeddingOutputContract, ForwardPassDescriptor;
-import 'package:flutter_edge_ai/core/registry/embedding_tokenizer_registry.dart';
+import 'package:flutter_edge_ai/engine.dart';
 
 import 'litert_embedding_forward_pass.dart';
-import 'package:flutter_edge_ai/core/domain/platform_types.dart'
-    show PreferredBackend;
 
 /// LiteRT C API embedding backend (Gecko / EmbeddingGemma `.tflite`). Pure
 /// factory; core owns the singleton lifecycle via [EmbeddingModel.addCloseListener].

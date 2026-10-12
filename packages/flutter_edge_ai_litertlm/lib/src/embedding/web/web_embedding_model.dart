@@ -1,14 +1,10 @@
 import 'dart:async';
-import 'package:flutter_edge_ai/core/utils/edge_ai_log.dart';
+import 'package:flutter_edge_ai/engine.dart';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_edge_ai/core/lifecycle/close_notifier.dart';
-import 'package:flutter_edge_ai/flutter_edge_ai_interface.dart';
 
 import 'web_runtime.dart';
 import 'litert_web_embeddings.dart';
-import 'package:flutter_edge_ai/core/domain/platform_types.dart'
-    show PreferredBackend;
 
 class WebEmbeddingModel extends EmbeddingModel with CloseNotifier {
   WebEmbeddingModel({

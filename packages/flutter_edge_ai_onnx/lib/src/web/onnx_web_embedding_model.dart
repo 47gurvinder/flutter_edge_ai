@@ -16,22 +16,11 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show VoidCallback;
-import 'package:flutter_edge_ai/core/lifecycle/close_notifier.dart';
-import 'package:flutter_edge_ai/core/utils/edge_ai_log.dart' show edgeAiLog;
-import 'package:flutter_edge_ai/flutter_edge_ai_interface.dart'
-    show EmbeddingModel, TaskType;
-import 'package:flutter_edge_ai/core/embedding/forward_pass.dart'
-    show EmbeddingOutputContract, ForwardResult;
-import 'package:flutter_edge_ai/core/embedding/pooling.dart'
-    show meanPoolAndNormalize;
-import 'package:flutter_edge_ai/core/embedding/tokenizer_adapter.dart'
-    show EmbeddingTokenizer, EmbeddingTokenizerFactory;
+import 'package:flutter_edge_ai/engine.dart';
+import 'package:flutter_edge_ai/engine_web.dart' show resolveWebModelUrl;
 
 import 'onnx_web_embedding_forward_pass.dart';
-import 'opfs_web_resolver.dart';
 import 'ort_web_client.dart';
-import 'package:flutter_edge_ai/core/domain/platform_types.dart'
-    show PreferredBackend;
 
 /// ONNX Runtime Web embedding model — `onnxruntime-web` over a WordPiece
 /// (MiniLM-family) `.onnx`/`.ort` export. The tokenizer arrives as a
@@ -79,12 +68,13 @@ class OnnxWebEmbeddingModel extends EmbeddingModel with CloseNotifier {
 
   Future<void> _doInitialize() async {
     // `opfs://` paths (WebStorageMode.streaming) aren't readable by fetch()
-    // or ort.InferenceSession.create() directly — resolve to a blob: URL
-    // first. No-op for the cacheApi/none paths (already blob:/https:).
-    final resolvedTokenizerPath = await resolveOnnxWebPath(_tokenizerPath);
+    // or ort.InferenceSession.create() directly — core resolves them to a
+    // blob: URL first. No-op for the cacheApi/none paths (already
+    // blob:/https:).
+    final resolvedTokenizerPath = await resolveWebModelUrl(_tokenizerPath);
     _tokenizer = await tokenizerFactory(resolvedTokenizerPath);
 
-    final resolvedModelPath = await resolveOnnxWebPath(_modelPath);
+    final resolvedModelPath = await resolveWebModelUrl(_modelPath);
     final pass = OnnxWebEmbeddingForwardPass(resolvedModelPath, OrtWebClient());
     // Retain the pass BEFORE awaiting load() so close() can release its ORT
     // session even if load() throws after the session is already created

@@ -27,8 +27,11 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter_edge_ai_embeddings/flutter_edge_ai_embeddings.dart';
+// ignore: implementation_imports — runs the ONNX embedding forward pass directly on a device
 import 'package:flutter_edge_ai_onnx/src/embedding/onnx_embedding_forward_pass.dart';
+// ignore: implementation_imports — runs the ONNX embedding forward pass directly on a device
 import 'package:flutter_edge_ai_embeddings/src/tokenizer_router.dart';
+// ignore: implementation_imports — runs the ONNX embedding forward pass directly on a device
 import 'package:flutter_edge_ai_onnx/src/embedding/ort_ffi_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';

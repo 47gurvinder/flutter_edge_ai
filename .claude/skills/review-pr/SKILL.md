@@ -65,7 +65,7 @@ From the diff, detect which package(s)/area(s) are affected:
 
 **Native (per package):** `packages/<pkg>/android/`, `ios/`, `windows/`, `native/`, `hook/build.dart`
 **Web:** `packages/*/lib/src/web/`, `packages/*/web/` (JS interop, WASM)
-**Desktop:** `packages/*/lib/desktop/` + FFI in `flutter_edge_ai_litertlm`
+**Desktop:** `packages/flutter_edge_ai/lib/src/desktop/` + FFI in `flutter_edge_ai_litertlm`
 **Site:** `website/` — Jaspr landing + docs (deployed to flutteredge.ai; CI `.github/workflows/firebase-hosting-merge.yml`)
 **Repo-level:** `.github/workflows/`, `.claude/skills/`, root `pubspec.yaml` (workspace + melos)
 
@@ -282,7 +282,7 @@ web arms, plus embeddings and RAG:
 - packages/flutter_edge_ai_litertlm/ web embedding arm — LiteRT.js bundle in its own web/
 - packages/flutter_edge_ai_sqlite/ — package:sqlite3/wasm.dart + a custom
   sqlite3.wasm with vec0 linked in, which the APP copies into its own web/ dir
-- packages/flutter_edge_ai/lib/web/ — the shared web shells and model source
+- packages/flutter_edge_ai/lib/src/web/ — the shared web shells and model source
 
 CHECKLIST
 1. CONDITIONAL IMPORT / STUB DRIFT — the highest-value check here. FFI clients
@@ -325,7 +325,7 @@ task description mentions any of those, it predates 0.14.0.
 - packages/flutter_edge_ai_litertlm/native/litert_lm/ — build_*.sh, patch_c_api.sh,
   stream_proxy.c
 - packages/flutter_edge_ai/{linux,windows}/ — thin plugin registration C++
-- packages/flutter_edge_ai/lib/desktop/ — the registry-dispatch shell
+- packages/flutter_edge_ai/lib/src/desktop/ — the registry-dispatch shell
 
 CHECKLIST
 1. HOOK CHECKSUMS: a bundle `version:` bump requires all seven per-platform

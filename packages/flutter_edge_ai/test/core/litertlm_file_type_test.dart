@@ -3,11 +3,11 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_edge_ai/core/chat.dart';
-import 'package:flutter_edge_ai/core/extensions.dart';
-import 'package:flutter_edge_ai/core/message.dart';
-import 'package:flutter_edge_ai/core/model.dart';
-import 'package:flutter_edge_ai/core/model_response.dart';
+import 'package:flutter_edge_ai/src/chat.dart';
+import 'package:flutter_edge_ai/src/extensions.dart';
+import 'package:flutter_edge_ai/src/message.dart';
+import 'package:flutter_edge_ai/src/model.dart';
+import 'package:flutter_edge_ai/src/model_response.dart';
 
 void main() {
   group('ModelFileType.litertlm - transformToChatPrompt', () {

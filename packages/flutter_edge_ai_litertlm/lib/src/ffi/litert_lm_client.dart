@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter_edge_ai/core/utils/edge_ai_log.dart';
+import 'package:flutter_edge_ai/engine.dart';
 
 import 'dart:convert';
 import 'dart:ffi';
@@ -11,10 +11,6 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:mutex/mutex.dart';
-
-import 'package:flutter_edge_ai/flutter_edge_ai_interface.dart';
-import 'package:flutter_edge_ai/core/sampling.dart';
-import 'package:flutter_edge_ai/core/parsing/sdk_text_extractor.dart';
 
 import '../npu_stacks.dart';
 import 'litert_default_scope.dart';

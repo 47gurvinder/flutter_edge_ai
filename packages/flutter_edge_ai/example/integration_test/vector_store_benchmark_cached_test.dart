@@ -23,8 +23,11 @@ import 'dart:math' as math;
 
 // ignore_for_file: deprecated_member_use
 import 'package:flutter_edge_ai_sqlite/flutter_edge_ai_sqlite.dart';
+// ignore: implementation_imports — benchmarks qdrant's client, filter codec and id hasher directly
 import 'package:flutter_edge_ai_qdrant/src/filter_codec.dart';
+// ignore: implementation_imports — benchmarks qdrant's client, filter codec and id hasher directly
 import 'package:flutter_edge_ai_qdrant/src/point_id_hasher.dart';
+// ignore: implementation_imports — benchmarks qdrant's client, filter codec and id hasher directly
 import 'package:flutter_edge_ai_qdrant/src/qdrant_edge_client.dart';
 import 'package:flutter_edge_ai_rag/flutter_edge_ai_rag.dart' as rag;
 import 'package:flutter_test/flutter_test.dart';

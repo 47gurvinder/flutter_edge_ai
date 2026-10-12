@@ -23,15 +23,13 @@
 // `meanPoolAndNormalize` a second time.
 
 import 'dart:ffi';
-import 'package:flutter_edge_ai/core/utils/edge_ai_log.dart';
+import 'package:flutter_edge_ai/engine.dart';
 
 import 'package:ffi/ffi.dart';
 // Imported by file rather than through core's barrel: the seam is plain,
 // platform-agnostic Dart with no conditional split, while the barrel also
 // carries `CommonEmbeddingModel` behind an `if (dart.library.js_interop)` —
 // the same analyzer quirk `litert_bindings.dart` below works around.
-import 'package:flutter_edge_ai/core/embedding/forward_pass.dart'
-    show EmbeddingForwardPass, EmbeddingOutputContract, ForwardResult;
 // Public, native-only bindings library (not the package barrel): this file
 // is native-only — never reached on web — so it always needs the real FFI
 // bindings. Going through this package's own top-level barrel
