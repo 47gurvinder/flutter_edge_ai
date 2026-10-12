@@ -40,13 +40,24 @@ void main() {
       expectLookupWorks();
       await registerTestEngines();
 
-      // Prove the ORDER, do not assume it.
+      // Prove the ORDER, do not assume it. The maps check is the one the
+      // .tflite #447 suite uses; it only sees a library extracted to the lib
+      // dir (see mappedInProcess). The control symbol adds what it misses: an
+      // earlier opener that already put libLiteRtLm in the default scope
+      // would make this run test nothing.
       expect(
         mappedInProcess('libLiteRtLm.so'),
         isFalse,
         reason:
             'libLiteRtLm was already mapped before the embedder ran, so this '
             'is not the embeddings-first permutation',
+      );
+      expect(
+        globallyVisible(controlSymbol),
+        isFalse,
+        reason:
+            'libLiteRtLm was already in the default scope before the embedder '
+            'ran, so this is not the embeddings-first permutation',
       );
 
       // ── STEP 1: the .litertlm embedder FIRST.
@@ -64,10 +75,20 @@ void main() {
         taskType: TaskType.retrievalQuery,
       );
       expect(vector, hasLength(768), reason: 'the EG2 path itself must work');
+      // The EG2 pass loaded libLiteRtLm, into the default scope. Not asked of
+      // /proc/self/maps: this APK stores the .so uncompressed and bionic maps
+      // it straight out of base.apk, so the maps name base.apk, never
+      // libLiteRtLm.so (FTL, Pixel 8a / 8 Pro: the pass had embedded, and
+      // the maps check said "not mapped"). dlsym(RTLD_DEFAULT) answers only
+      // for an export of a library that is loaded AND global, and
+      // litert_lm_engine_create exists only in libLiteRtLm — so this says
+      // more than "mapped", whatever the packaging.
       expect(
-        mappedInProcess('libLiteRtLm.so'),
+        globallyVisible(controlSymbol),
         isTrue,
-        reason: 'the EG2 pass ran without mapping libLiteRtLm',
+        reason:
+            'after the EG2 pass ran, libLiteRtLm is not loaded into the '
+            'default scope',
       );
       expect(
         globallyVisible(probeSymbol),
