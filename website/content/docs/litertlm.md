@@ -166,6 +166,9 @@ x64 build ignores the flag.
 **EmbeddingGemma 2 on the NPU** uses the same flag on Qualcomm Android and
 Linux arm64, with the per-SoC bundles, and never falls back: see
 [Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2-on-a-qualcomm-npu).
+On Windows x64 the Intel Panther Lake bundles need no flag (from 1.13.2, not
+yet verified on device): see
+[EmbeddingGemma 2 on an Intel NPU](/docs/embeddings-and-rag#embeddinggemma-2-on-an-intel-npu).
 
 **For LLMs, NPU is a Gemma 4 story today.** Our NPU verification runs Gemma 4 bundles, and
 those work on both vendors. The **Gemma 3** family does not, and it fails

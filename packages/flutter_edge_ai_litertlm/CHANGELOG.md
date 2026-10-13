@@ -1,5 +1,6 @@
 ## 1.13.2
 - Web: EmbeddingGemma 2 audio and combined-input embeddings on WebGPU.
+- EmbeddingGemma 2 on the Intel Panther Lake NPU (Windows), not yet verified on device.
 
 ## 1.13.1
 - EmbeddingGemma 2 image embeddings on native platforms.

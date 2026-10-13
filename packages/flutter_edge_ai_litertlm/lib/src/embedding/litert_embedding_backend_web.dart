@@ -121,8 +121,8 @@ Future<EmbeddingPassDescriptor<LiteRtLmWebEmbeddingConfig>> _describeBundle(
   String fileName,
   int visionTokensPerImage,
 ) async {
-  // An EmbeddingGemma 2 NPU bundle needs the native Qualcomm dispatch; asked
-  // for here it is refused, never run elsewhere.
+  // An EmbeddingGemma 2 NPU bundle needs a native dispatch (Qualcomm,
+  // Intel); asked for here it is refused, never run elsewhere.
   if (config.preferredBackend == PreferredBackend.npu) {
     throw const EmbeddingLoadException(
       liteRtLmWebNpuRefusal,

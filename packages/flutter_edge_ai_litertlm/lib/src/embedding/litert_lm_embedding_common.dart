@@ -75,7 +75,8 @@ final liteRtLmAudioFormats = Set<EncodedMediaFormat>.unmodifiable({
 });
 
 /// What the web arm says to `npu` for a `.litertlm` bundle: the NPU runs
-/// EmbeddingGemma 2 only through the native Qualcomm dispatch.
+/// EmbeddingGemma 2 only through a native dispatch (Qualcomm, Intel).
 const liteRtLmWebNpuRefusal =
     'EmbeddingGemma 2 runs on the NPU on Qualcomm Android and Qualcomm Linux '
-    'arm64 only, not on the web. Omit preferredBackend here.';
+    'arm64, and on Intel NPUs with Windows x64, only, not on the web. Omit '
+    'preferredBackend here.';

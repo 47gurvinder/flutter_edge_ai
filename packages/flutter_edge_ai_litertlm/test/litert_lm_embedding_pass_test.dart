@@ -31,6 +31,7 @@ const _allSignatures = [128, 256, 512, 1024, 2048, 8192];
 /// What a per-SoC bundle declares (measured: 128-1024, no 2048/8192).
 const _npuSignatures = [128, 256, 512, 1024];
 const _sm8850 = LiteRtLmNpuTarget(vendor: 'Qualcomm', soc: 'SM8850');
+const _ptl = LiteRtLmNpuTarget(vendor: 'IntelOpenVINO', soc: 'PTL');
 const _dispatchDir = '/data/app/code_cache/litert_npu';
 
 /// What LiteRT-LM's stb decoder handles (X3, measured on our dylib).
@@ -97,6 +98,7 @@ void main() {
     LiteRtLmEmbeddingBindings Function()? openBindings,
     DateTime Function()? clock,
     LiteRtLmNpuTarget? npuTarget,
+    String npuDispatchDir = _dispatchDir,
   }) => LiteRtLmEmbeddingPass(
     LiteRtLmEmbeddingConfig(
       modelPath: modelPath,
@@ -105,7 +107,7 @@ void main() {
       numThreads: numThreads,
       visionTokensPerImage: visionTokensPerImage,
       npuTarget: npuTarget,
-      npuDispatchDir: npuTarget == null ? null : _dispatchDir,
+      npuDispatchDir: npuTarget == null ? null : npuDispatchDir,
     ),
     openBindings: openBindings ?? () => native,
     allocator: allocator,
@@ -1532,6 +1534,7 @@ void main() {
                   contains('could not run $_file on the NPU'),
                   contains('Failed to invoke the compiled model'),
                   contains('compiled for Qualcomm SM8850'),
+                  contains('with a QNN runtime that has no Skel'),
                 ),
               )
               .having((e) => e.nativeCode, 'nativeCode', 2),
@@ -1604,6 +1607,52 @@ void main() {
           ),
         ),
       );
+      expectNothingLeaked();
+    });
+
+    test('an Intel bundle loads the same way, with the directory beside the '
+        'executable as every executor\'s dispatch directory', () async {
+      native.visionSignatures = const [70, 140];
+      const exeDir = r'C:\Apps\demo';
+      final p = pass(
+        npuTarget: _ptl,
+        npuDispatchDir: exeDir,
+        declaredMedia: {EmbeddingModality.image},
+      );
+      await p.load();
+      expect(native.settingsBackend, 'npu');
+      expect(native.towerBackendsNull, isTrue);
+      expect(native.dispatchDirs, {
+        'main': exeDir,
+        'vision': exeDir,
+        'audio': exeDir,
+      });
+      expect(native.lastTexts, ['task: search result | query: probe']);
+      await p.close();
+      expectNothingLeaked();
+    });
+
+    test('a probe an Intel NPU cannot run names a PC without one, not a QNN '
+        'Skel', () async {
+      native.failCompute = (code: 2, message: 'dispatch failed');
+      final p = pass(npuTarget: _ptl, npuDispatchDir: r'C:\Apps\demo');
+      await expectLater(
+        p.load(),
+        throwsA(
+          isA<EmbeddingLoadException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains(
+                'compiled for IntelOpenVINO PTL; on another SoC, or on '
+                'a PC without an Intel NPU or its driver, it fails this way',
+              ),
+              isNot(contains('QNN')),
+            ),
+          ),
+        ),
+      );
+      await p.close();
       expectNothingLeaked();
     });
 

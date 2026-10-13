@@ -52,9 +52,11 @@
 //   the failing call, before any other native call.
 // - NPU (an EmbeddingGemma 2 per-SoC bundle, placed by `describe()`, see
 //   litert_lm_npu.dart): the main backend is "npu", the tower backends stay
-//   NULL so present towers run on it too (D26), and the Qualcomm dispatch
-//   directory is handed to every executor (main, vision, audio; upstream
-//   ignores a tower the bundle lacks). `engine_create` succeeds even when the
+//   NULL so present towers run on it too (D26), and the vendor's dispatch
+//   directory (Qualcomm's prepared libraries, or on Windows the executable's
+//   directory with the Intel stack) is handed to every executor (main,
+//   vision, audio; upstream ignores a tower the bundle lacks).
+//   `engine_create` succeeds even when the
 //   NPU graph cannot run (measured: it only logs a failed warm-up), so the load
 //   embeds one probe text and refuses unless it gets a finite, non-zero
 //   vector of the right size. On Linux every NPU call runs with SIGPROF
@@ -162,9 +164,11 @@ final class LiteRtLmEmbeddingConfig {
   /// the NPU; null runs the bundle on CPU.
   final LiteRtLmNpuTarget? npuTarget;
 
-  /// Where LiteRT loads the Qualcomm dispatch and QNN libraries from, prepared
-  /// by `describe()` on the caller's isolate (Android extracts them through a
-  /// platform channel, which this worker has none of). Set with [npuTarget].
+  /// Where LiteRT loads the vendor's dispatch from — the Qualcomm dispatch and
+  /// QNN libraries, or on Windows the Intel stack beside the executable —
+  /// resolved by `describe()` on the caller's isolate (Android extracts the
+  /// Qualcomm libraries through a platform channel, which this worker has
+  /// none of). Set with [npuTarget].
   final String? npuDispatchDir;
 
   /// The backend the engine is created on.
@@ -176,6 +180,16 @@ final class LiteRtLmEmbeddingConfig {
 /// core's worker isolate.
 EmbeddingPass buildLiteRtLmEmbeddingPass(LiteRtLmEmbeddingConfig config) =>
     LiteRtLmEmbeddingPass(config);
+
+/// Why a bundle compiled for [target] fails the NPU probe embed, for the
+/// refusal: another SoC's bundle, or a stack that cannot reach this device's
+/// NPU — a QNN runtime without this Hexagon version's Skel, or on Windows a PC
+/// without an Intel NPU or its driver.
+@visibleForTesting
+String liteRtLmNpuProbeFailureCauses(LiteRtLmNpuTarget target) => target.isIntel
+    ? 'on another SoC, or on a PC without an Intel NPU or its driver'
+    : 'on another SoC, or with a QNN runtime that has no Skel for this '
+          "device's Hexagon version";
 
 /// Every C function the pass calls. A `libLiteRtLm` that exports fewer is
 /// refused at load by [checkLiteRtLmEmbeddingSymbols], by name, instead of
@@ -328,7 +342,9 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
         visionTokensPerImage: images ? _config.visionTokensPerImage : null,
       );
       _options = _createOptions(b);
-      if (_onNpu) _probeNpu(b, info.dimension);
+      if (_config.npuTarget case final target?) {
+        _probeNpu(b, info.dimension, target);
+      }
     } catch (_) {
       _free();
       rethrow;
@@ -602,7 +618,11 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
   /// vision tower of a per-SoC bundle is compiled for the same SoC and loaded
   /// by the same dispatch, and probing it would cost an image embedding
   /// (about 0.3 s on an SM8650) at every load.
-  void _probeNpu(LiteRtLmEmbeddingBindings b, int dimension) {
+  void _probeNpu(
+    LiteRtLmEmbeddingBindings b,
+    int dimension,
+    LiteRtLmNpuTarget target,
+  ) {
     final bytes = utf8.encode(_probeText);
     final buffer = _alloc<Uint8>(bytes.length);
     final Pointer<LiteRtLmInputData> part;
@@ -629,9 +649,8 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
       if (response == nullptr) {
         throw EmbeddingLoadException(
           'LiteRT-LM could not run $_file on the NPU of this device: '
-          '$message. The bundle is compiled for ${_config.npuTarget}; on '
-          'another SoC, or with a QNN runtime that has no Skel for this '
-          "device's Hexagon version, it fails this way.",
+          '$message. The bundle is compiled for $target; '
+          '${liteRtLmNpuProbeFailureCauses(target)}, it fails this way.',
           engine: liteRtLmEngineTag,
           nativeCode: code == _statusOk ? null : code,
         );
@@ -644,7 +663,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
             : _vectorFault(values, size);
         if (fault != null) {
           throw EmbeddingLoadException(
-            '$_file on the ${_config.npuTarget} NPU returned $fault for a '
+            '$_file on the $target NPU returned $fault for a '
             'test input; it is not used.',
             engine: liteRtLmEngineTag,
           );
@@ -965,6 +984,12 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
       if (_onNpu && dispatchDir != null) {
         // Every executor: the towers run on the main backend, and each has
         // its own settings. Upstream skips a tower the bundle lacks.
+        //
+        // Intel (Windows): the LLM path also sets `use_hw_masking_for_npu`
+        // false there, because the kWH mask method failed a CFG check
+        // (0xc0000409) on Intel's NPU. The embedding settings have no such
+        // setter, and whether the EmbeddingEngine needs it is not established
+        // on Intel NPU hardware.
         final dir = dispatchDir.toNativeUtf8(allocator: _alloc);
         try {
           b

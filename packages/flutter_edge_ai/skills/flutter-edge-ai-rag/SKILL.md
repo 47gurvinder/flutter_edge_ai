@@ -269,20 +269,30 @@ final npuIndex = await rag.open(
 ```
 
 - Verified SoCs: SM8850, SM8650 and QCS8275. Google also publishes SM8550,
-  SM8750 (load, not verified by us), Tensor G5/G6, MediaTek MT6991/MT6993 and
-  Intel PTL (refused). What a bundle targets is read from the bundle.
+  SM8750 (load, not verified by us), Intel PTL (Windows, below), Tensor G5/G6
+  and MediaTek MT6991/MT6993 (refused). What a bundle targets is read from the
+  bundle.
 - Its vectors are close to the CPU bundle's, not equal (SM8650: cosine
   0.79–0.86 for a few words, 0.99 from about 200 words; images 0.86–0.88), so
   never compare NPU vectors with CPU ones; within the NPU space retrieval
   holds (text → image 10/10).
 - Nothing falls back: a per-SoC bundle without `npu`, the generic bundle with
-  `npu`, `npu` on iOS/macOS/Windows/Linux x64/Web, a build without
-  `qualcomm_npu`, a device without a reachable Qualcomm NPU, and a bundle the
-  NPU cannot run (another SoC's) each throw `EmbeddingLoadException` with the
-  fix. A loaded embedder is never reused for the other backend.
+  `npu`, `npu` on iOS/macOS/Linux x64/Web, a Qualcomm bundle on Windows, a
+  build without `qualcomm_npu`, a device without a reachable Qualcomm NPU, and
+  a bundle the NPU cannot run (another SoC's) each throw
+  `EmbeddingLoadException` with the fix. A loaded embedder is never reused for
+  the other backend.
 - Give an NPU index its own profile id (above); never open a CPU index with an
   NPU embedder or the reverse. `FlutterEdgeAiActiveEmbedder.forActiveModel`
   keys on the file name, so it separates them by itself.
+- **Intel Panther Lake (Windows x64, `flutter_edge_ai_litertlm` 1.13.2, NOT
+  yet verified on device).** `…_Intel_PTL.litertlm` (270m, 440m) loads the
+  same way with `preferredBackend: PreferredBackend.npu`, with no opt-in flag:
+  every Windows x64 build carries the Intel stack (LiteRtDispatch.dll,
+  OpenVINO, TBB) beside the executable, and its absence is refused by name.
+  Profile id: the CPU text id plus `-npu-ptl`, shared by the 270m and the 440m.
+  An Intel bundle on Android or Linux is refused. Tell users it has not run on
+  Panther Lake hardware yet.
 
 ### EmbeddingGemma 2 images (440m; `flutter_edge_ai_litertlm` 1.13.1 native, 1.13.1 Web)
 
