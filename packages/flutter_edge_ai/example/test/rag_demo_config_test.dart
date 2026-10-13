@@ -207,7 +207,8 @@ void main() {
   });
 
   test('the per-SoC NPU bundles: pinned like the generic ones, loaded with '
-      'npu, and an id of their own per SoC, shared by its 270m and 440m', () {
+      'npu, and an id of their own per SoC, shared by its 270m, 440m and '
+      '740m', () {
     final npu = [
       for (final model in catalog.EmbeddingModel.values)
         if (model.npuSoc != null) model,
@@ -215,6 +216,7 @@ void main() {
     expect(npu.map((m) => m.name), [
       'embeddingGemma2Text270mSm8850',
       'embeddingGemma2TextVision440mSm8850',
+      'embeddingGemma2TextVisionAudio740mSm8850',
       'embeddingGemma2Text270mSm8650',
       'embeddingGemma2TextVision440mSm8650',
       'embeddingGemma2Text270mQcs8275',
@@ -230,7 +232,11 @@ void main() {
         catalog.EmbeddingNpuVendor.intel => 'Intel',
       };
       expect(vendor, soc == 'PTL' ? 'Intel' : 'Qualcomm', reason: model.name);
-      final repo = model.embedsImages
+      final repo = model.embedsAudio
+          ? 'embeddinggemma-2-740m-litert-lm/resolve/'
+                '24d962e906c7d332c6428e71c9676855024569e2/'
+                'embeddinggemma-2-740m'
+          : model.embedsImages
           ? 'embeddinggemma-2-text-vision-440m-litert-lm/resolve/'
                 'e301f74d5551b0c2641bd5cb4652a76239d5c5f8/'
                 'embeddinggemma-2-text-vision-440m'
@@ -285,6 +291,16 @@ void main() {
       catalog.EmbeddingModel.embeddingGemma2TextVision440mSm8850.ragProfileId,
     );
     expect(
+      catalog
+          .EmbeddingModel
+          .embeddingGemma2TextVisionAudio740mSm8850
+          .imageRagProfileId,
+      catalog
+          .EmbeddingModel
+          .embeddingGemma2TextVision440mSm8850
+          .imageRagProfileId,
+    );
+    expect(
       catalog.EmbeddingModel.embeddingGemma2Text270mSm8850.ragProfileId,
       isNot(catalog.EmbeddingModel.embeddingGemma2Text270mQcs8275.ragProfileId),
     );
@@ -320,7 +336,7 @@ void main() {
       final intel = platform == TargetPlatform.windows;
       expect(
         listed.where((m) => m.npuVendor == catalog.EmbeddingNpuVendor.qualcomm),
-        hasLength(qualcomm ? 6 : 0),
+        hasLength(qualcomm ? 7 : 0),
         reason: '$platform',
       );
       expect(

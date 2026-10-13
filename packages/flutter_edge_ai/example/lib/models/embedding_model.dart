@@ -227,6 +227,28 @@ enum EmbeddingModel implements EmbeddingModelInterface {
     npuSoc: 'SM8850',
   ),
 
+  // The 740M for SM8850 carries the 440M SM8850's text and vision towers
+  // (the same bytes: text aaae57a31475, vision 231495aaa9a3) and the generic
+  // bundle's audio encoder, so it shares their ids. Not yet run on an SM8850.
+  embeddingGemma2TextVisionAudio740mSm8850(
+    url:
+        'https://huggingface.co/litert-community/embeddinggemma-2-740m-litert-lm/resolve/24d962e906c7d332c6428e71c9676855024569e2/embeddinggemma-2-740m_Qualcomm_SM8850.litertlm',
+    filename:
+        'embeddinggemma-2-740m_Qualcomm_SM8850__rev-24d962e906c7.litertlm',
+    displayName:
+        'EmbeddingGemma 2 Text + Vision + Audio (740M) · Qualcomm SM8850 NPU',
+    size: '559MB',
+    dimension: 768,
+    maxSeqLen: 1024,
+    needsAuth: false,
+    sha256: '19f6e8db6aa74b116d1c558c862ee131f60ce093576d3c8dd1898f656ca8080b',
+    ragProfileId:
+        'embeddinggemma2-litertlm-text-4410a540ce75-prefix-v1-npu-sm8850',
+    embedsImages: true,
+    embedsAudio: true,
+    npuSoc: 'SM8850',
+  ),
+
   embeddingGemma2Text270mSm8650(
     url:
         'https://huggingface.co/litert-community/embeddinggemma-2-text-270m-litert-lm/resolve/9be6e8b90982095dc05c2bd162e4b954ee4dbac7/embeddinggemma-2-text-270m_Qualcomm_SM8650.litertlm',
