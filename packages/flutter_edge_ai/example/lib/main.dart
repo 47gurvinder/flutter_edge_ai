@@ -16,7 +16,7 @@ void main() async {
 class ChatApp extends StatelessWidget {
   const ChatApp({super.key, this.debugBanner = true});
 
-  /// Whether the DEBUG ribbon shows in debug builds; the Knowledge demo
+  /// Whether the DEBUG ribbon shows in debug builds; the Multimodal RAG demo
   /// recording turns it off.
   final bool debugBanner;
 
