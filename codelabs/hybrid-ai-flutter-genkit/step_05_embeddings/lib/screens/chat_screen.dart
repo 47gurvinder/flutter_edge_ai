@@ -67,7 +67,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     if (_engine.localReady) {
-      // Web takes the same path as native now: flutter_gemma_litertlm 1.8.0
+      // Web takes the same path as native: flutter_edge_ai_litertlm
       // ships the LiteRT.js bundle this app copies into web/, and the tokenizer
       // comes from the `embeddingTokenizers:` AiEngine registers. A real
       // failure still surfaces through the banner below rather than leaving
@@ -211,6 +211,16 @@ class _ChatScreenState extends State<ChatScreen> {
           });
           _scrollToBottom();
         }
+      }
+      // genkit 1.0 ends the stream normally when the model fails or the
+      // reply is blocked, and reports it in the result, so surface it as an error here.
+      final result = await stream.onResult;
+      final reason = result.finishReason;
+      if (reason != FinishReason.stop &&
+          reason != FinishReason.length &&
+          reason != FinishReason.unknown) {
+        throw result.cause ??
+            StateError(result.finishMessage ?? 'The model stopped: $reason');
       }
       generationSucceeded = true;
 

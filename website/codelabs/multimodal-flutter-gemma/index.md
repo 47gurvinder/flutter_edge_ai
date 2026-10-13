@@ -47,11 +47,12 @@ download after you made it.
 Which turns the interesting question around. It stops being *"which model do I
 need?"* and becomes *"what does this platform let me switch on?"* — because
 that answer is not yours to set. The web runtime has no vision or audio
-executor at all, and it does not refuse: it **drops the bytes** and lets the
-model answer confidently about something it never received. Step 4 is about
-asking, and about saying which side said no — a model that cannot, or a
-platform that will not. Two different failures with two different fixes, and
-this codelab hands you one of each.
+executor at all, and it says so late: the chat opens with both flags set, and
+the refusal comes as an `UnsupportedError` when the picture is sent — after
+the user has already picked it. Step 4 is about asking first, and about saying
+which side said no — a model that cannot, or a platform that will not. Two
+different failures with two different fixes, and this codelab hands you one of
+each.
 
 ### What you'll learn
 
@@ -82,10 +83,10 @@ this codelab hands you one of each.
   — plus the memory to open the larger one, roughly 6 GB of RAM. A 4 GB phone
   is killed by the OS rather than told no. On the **web**, Step 2 already
   needs Gemma 4 E2B's **2.0 GB** web build (SmolVLM2 has none), so leave about
-  3 GB free for it — a browser close to its storage quota refuses the write
-  rather than slowing down; Step 3 needs nothing further there — same file,
-  already installed
-* Android (an **arm64** device or emulator — `flutter_gemma_litertlm` ships an
+  3 GB free for it per step you run in the browser — a browser close to its
+  storage quota refuses the write rather than slowing down. Step 3 uses the
+  same file, but each step app downloads it again on the web; Step 3 says why
+* Android (an **arm64** device or emulator — `flutter_edge_ai_litertlm` ships an
   arm64 library and nothing else, so a 32-bit or x86_64 image has no runtime to
   load), a real iPhone or iPad, macOS, Windows or Linux for the full thing.
   The web and the iOS Simulator both run this app; Step 4 covers what they do
@@ -94,8 +95,8 @@ this codelab hands you one of each.
 ### Get the code
 
 ```bash
-git clone --depth 1 https://github.com/DenisovAV/flutter_gemma.git
-cd flutter_gemma/codelabs/multimodal-flutter-gemma
+git clone --depth 1 https://github.com/DenisovAV/flutter_edge_ai.git
+cd flutter_edge_ai/codelabs/multimodal-flutter-gemma
 ls
 ```
 
@@ -145,15 +146,20 @@ means different weights, and different weights mean a download, not a boolean.
 
 The flags are yours to set. Whether the platform honours them is not.
 
-`flutter_gemma_litertlm`'s browser arm runs the upstream `@litert-lm/core`
+`flutter_edge_ai_litertlm`'s browser arm runs the upstream `@litert-lm/core`
 package, and that JS API exposes **no vision executor and no audio executor**.
-Setting `supportImage: true` there does not throw. It opens a session that will
-never be fed: the image bytes are dropped with a debug warning, and the model
-answers — fluently, confidently — about a picture it never received.
+Setting `supportImage: true` there does not throw. The model loads, the chat
+opens, and a debug build prints one warning. The refusal comes at the message:
+`addQueryChunk` with an image in it throws `UnsupportedError`, and the turn
+never reaches the model. (Before `flutter_edge_ai_litertlm` 1.11.3 it did not
+throw — the bytes were dropped, and the model answered about a picture it
+never received.)
 
-An exception you can catch. A dropped input you cannot, and neither can your
-user. So by the end of this codelab the app asks first, and when the answer is
-no it says **which** no it got:
+An exception you can catch, and Step 2's `catch` does: the error lands where
+the reply would have been. But it lands after the user has picked the photo
+and typed the question. So by the end of this codelab the app asks first,
+before it offers the button, and when the answer is no it says **which** no it
+got:
 
 ```dart
   bool get available => byModel && byPlatform;
@@ -221,7 +227,7 @@ that can see:
   ///
   /// It cannot hear, and that is not a gap in this step: it is a
   /// vision-language model, and the plugin lists audio input for Gemma 4 and
-  /// Gemma 3n only (`flutter_gemma/README.md`). A session flag cannot switch
+  /// Gemma 3n only (`flutter_edge_ai/README.md`). A session flag cannot switch
   /// on an encoder the checkpoint does not carry. It is why Step 3
   /// changes models, and it is the model half of the question `complete` asks
   /// at the end — a half that says no here while the device, happily holding
@@ -275,22 +281,27 @@ talks, it just cannot see — vision is a native feature in this codelab, not
 because of anything Step 2 does differently on the web, but because the
 browser runtime has no vision executor for *any* checkpoint. The picture
 button stays live all the same, here and in Step 3 — and so does Step 3's
-microphone: press either in a browser and the attachment is dropped, and the
-model answers as though you had sent text alone. The only warning is a single
-line at `createChat`, printed once per session and only in a debug build,
-saying vision and audio are being forced off; after that every turn drops the
-pixels or the samples with nothing logged at all. In a release build even that
-one line is gone — `gemmaLog` compiles out of release entirely. That silent
-drop is exactly what Step 4 closes, by asking the platform what it supports
-instead of assuming. For now the point is narrower: SmolVLM2 never installs in
-a browser, and it fails loudly rather than quietly when you try.
+microphone. Press either in a browser, pick the photo or record the clip, send
+it, and the turn fails: `addQueryChunk` throws `UnsupportedError`, and the
+`catch` in `_send` puts it in the reply bubble — *"⚠️ Unsupported operation:
+Web LiteRT-LM does not support image input for LLMs yet…"*, or *audio input*
+for a clip. Nothing reaches the model, and the next text-only turn works as
+before. A debug build also prints one line at `createChat`, saying the
+modalities were requested and an image or audio message will throw; a release
+build does not, because `edgeAiLog` compiles out of release entirely. The error
+in the bubble is there either way. It is an honest failure, and a late one: the
+user did the work before anything said no. Step 4 moves the answer ahead of the
+button, by asking the platform what it supports instead of assuming. For now
+the point is narrower: SmolVLM2 never installs in a browser, and it fails
+loudly rather than quietly when you try.
 
 `ModelType.general` and not `gemmaIt` is still the right call for the native
 build, but not for the reason it would be on an older format. On `.litertlm`
 the prompt never gets a hand-built wrapper: the engine applies the chat
 template baked into the file itself, on every platform this codelab targets,
 so naming the wrong family here does not double the turn markers. (It used to,
-on iOS — before flutter_gemma 1.8.3 the SDK still wrapped `.litertlm` prompts
+on iOS — before the legacy `flutter_gemma` 1.8.3 release the SDK still wrapped
+`.litertlm` prompts
 by hand there, a leftover from when iOS ran the format through MediaPipe, so
 the markers reached the model twice. Fixed now, everywhere.)
 
@@ -313,7 +324,7 @@ it inherited from Getting Started. It gains a `try` in exchange:
 
 ```dart
   try {
-    await FlutterGemma.initialize(
+    await FlutterEdgeAi.initialize(
       inferenceEngines: [LiteRtLmEngine()],
       // OPFS streaming, not the Cache API default: the web build is 2.0 GB,
       // right on the ~2 GB blob ceiling, so it is not worth buffering.
@@ -327,9 +338,10 @@ it inherited from Getting Started. It gains a `try` in exchange:
 
 `webStorageMode` is the web half of this step, and it earns its own sentence.
 It is not something the format demands: the browser engine takes either
-storage mode — `flutter_gemma_litertlm`'s web arm accepts a Cache API blob URL
+storage mode — `flutter_edge_ai_litertlm`'s web arm accepts a Cache API blob URL
 and an OPFS stream alike, and its own doc reserves streaming for models past
-2 GB. What changed in flutter_gemma 0.16.2 was that web `.litertlm` inference
+2 GB. What changed in the legacy `flutter_gemma` 0.16.2 release was that web
+`.litertlm` inference
 arrived at all, not that streaming became compulsory. The reason to set it
 here is size. The default `WebStorageMode.cacheApi` buffers the whole download
 in memory as one blob, and browsers cap a single blob at roughly 2 GB — Chrome
@@ -381,7 +393,7 @@ described:
       // is told to. Set it on the chat alone and everything looks fine until
       // the first image, when native fails the turn with
       // `INVALID_ARGUMENT: Vision executor should not be null`.
-      final inference = await FlutterGemma.getActiveModel(
+      final inference = await FlutterEdgeAi.getActiveModel(
         maxTokens: 4096,
         supportImage: true,
       );
@@ -466,11 +478,11 @@ encoder in it at all, and a session flag cannot wire up a part that is not
 there. So this step does the thing the rest of the codelab spends its time
 telling you that you rarely need to do: it changes models.
 
-**This step downloads 2.59 GB** on Android, iOS and desktop. On the web it
-downloads **nothing new** — Step 2 already installed this checkpoint's web
-build there, because SmolVLM2 has no web build of its own (see Step 2).
-Gemma 4 E2B is seven times the size of SmolVLM2 on native, and there is no
-honest way to shrink that number: audio needs weights that were trained
+**This step downloads 2.59 GB** on Android, iOS and desktop. On the web the
+model is the 2.0 GB build Step 2 already used, because SmolVLM2 has no web
+build of its own (see Step 2) — but this step app downloads it again; see
+below. Gemma 4 E2B is seven times the size of SmolVLM2 on native, and there is
+no honest way to shrink that number: audio needs weights that were trained
 with it.
 
 What you get for the seven times is the reason to stop here rather than keep
@@ -524,12 +536,20 @@ application identity, so SmolVLM2 is still sitting exactly where it was. Press
 the delete button in `step_02_vision` before you move on if you want that
 0.36 GB back.
 
-On the **web**, nothing changes. Step 2's own `ModelChoice` already resolves
-to `gemma-4-E2B-it-web.litertlm` in the browser (see Step 2), so this gate's
-`isModelInstalled` check finds it already there, and the app opens straight
-into chat — no second download, no download screen, no id to change. Step 3's
-only contribution on the web is the `supportAudio` flag below, applied to a
-model that was already installed a step ago.
+On the **web**, the model does not change. Step 2's own `ModelChoice` already
+resolves to `gemma-4-E2B-it-web.litertlm` in the browser (see Step 2), so there
+is no id to change, and Step 3's only contribution is the `supportAudio` flag
+below. The download screen comes back all the same. Browser storage belongs to
+one origin in one browser profile, and `flutter run -d chrome` runs each step
+folder in a Chrome profile of its own (kept in that folder's
+`.dart_tool/chrome-device`) and, unless you pass `--web-port`, on a random
+port — a new origin, with no install record and no bytes. So
+`isModelInstalled` answers no and the 2.0 GB comes down again. To share one
+install record across the steps, serve every one of them from the same origin
+— `flutter run -d web-server --web-port=8080`, then open
+`http://localhost:8080` in the same Chrome window each time. The download
+screen is then skipped, though a fresh page load still fetches the model over
+the network, for the reason Getting Started gives in its Step 2.
 
 ### Add the package
 
@@ -539,7 +559,7 @@ flutter pub add record
 
 `record` is for capture, not for the model — the microphone, not the weights.
 
-### Two platform changes
+### The platform changes
 
 Android needs nothing declared: `record` ships `RECORD_AUDIO` in its own
 manifest, the manifest merger adds it to yours, and `record` asks the user for
@@ -553,7 +573,15 @@ as if a reviewer will read it, because one will:
 	<string>Recordings are sent to a language model running on this device. Nothing leaves the phone.</string>
 ```
 
-macOS, in **both** entitlements files again:
+macOS asks through the same key, so add it to `macos/Runner/Info.plist` as
+well:
+
+```xml
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Recordings are sent to a language model running on this Mac. Nothing leaves the machine.</string>
+```
+
+…and, in **both** entitlements files again:
 
 ```xml
 	<key>com.apple.security.device.audio-input</key>
@@ -585,7 +613,7 @@ and — for exactly the reason Step 2 gave — on the call above it that builds 
 engine, because that is where the audio executor is loaded or not loaded:
 
 ```dart
-      final inference = await FlutterGemma.getActiveModel(
+      final inference = await FlutterEdgeAi.getActiveModel(
         maxTokens: 4096,
         supportImage: true,
         supportAudio: true,
@@ -735,11 +763,13 @@ that is what the 2.59 GB was for.
 Duration: 9
 
 `step_03_audio` sets both flags to `true` unconditionally. On Android, iOS,
-macOS, Windows and Linux that is correct. Run it in Chrome and it is a lie the
-app tells itself: attach a photo, ask about it, and Gemma answers in confident
-detail about an image the runtime dropped before it ever reached the weights.
+macOS, Windows and Linux that is correct. Run it in Chrome and it is a promise
+the app cannot keep: both buttons are live, the user attaches a photo or
+records a question, and only on send does the runtime refuse it — an
+`UnsupportedError` where the answer should be. Better not to offer a button
+whose result the runtime will refuse than to let the user attach and then fail.
 
-`complete` fixes that by asking, and it asks two things.
+`complete` fixes that by asking first, and it asks two things.
 
 ### Two questions, and a name for the answer
 
@@ -764,12 +794,12 @@ The **platform half** is not:
   /// Image input reaches the model on all five native platforms — Android,
   /// iOS, macOS, Windows and Linux.
   ///
-  /// Not on the web: `flutter_gemma_litertlm`'s browser arm runs the upstream
-  /// `@litert-lm/core` package, whose JS API exposes no vision executor, so
-  /// image bytes are **dropped with a debug warning** rather than refused.
-  /// That is the worst failure mode a modality can have — the model answers,
-  /// fluently and confidently, about a picture it never received — which is
-  /// exactly why the app asks this before it sends anything.
+  /// Not on the web: `flutter_edge_ai_litertlm`'s browser arm runs the upstream
+  /// `@litert-lm/core` package, whose JS API exposes no vision executor, so a
+  /// message carrying an image **throws `UnsupportedError`** when it is sent.
+  /// The refusal is honest, but it comes late — after the user has picked the
+  /// photo and typed the question — which is exactly why the app asks this
+  /// before it offers the button.
   static bool get image => !kIsWeb;
 ```
 
@@ -793,8 +823,8 @@ room that knows which.
         // Still two session flags on one model — but no longer hard-coded
         // `true`. Each is the AND of both answers: what the weights accept
         // and what this platform will carry to them. Asking for a modality
-        // the platform cannot deliver opens a session nothing will ever
-        // feed, and on the web that failure is silent.
+        // the platform cannot deliver buys nothing: on the web the session
+        // still opens, and the first picture or clip sent to it throws.
         supportImage: _imageCapability.available,
         supportAudio: _audioCapability.available,
         maxOutputTokens: 256,
@@ -805,7 +835,7 @@ Both places again — the engine has to be built with the same answer, or the
 executor the session asks for was never loaded:
 
 ```dart
-      final inference = await FlutterGemma.getActiveModel(
+      final inference = await FlutterEdgeAi.getActiveModel(
         maxTokens: 4096,
         supportImage: _imageCapability.available,
         supportAudio: _audioCapability.available,
@@ -908,15 +938,15 @@ is text-only. What a learner should expect there: the app loads, the model
 downloads, text chat works, and both attachment buttons are disabled with a
 line naming the runtime that refused. That is the app working correctly. (Full
 vision on the web today means MediaPipe `.task` models and the
-`flutter_gemma_mediapipe` package — a different engine, documented in
+`flutter_edge_ai_mediapipe` package — a different engine, documented in
 [MediaPipe](/docs/mediapipe); the Inference Engines codelab pairs LiteRT-LM with
 built-in AI instead, so it is not the place to look for this one.)
 
 That "the model downloads" is not automatic, and it is worth naming what makes
 it true, because none of it is specific to this codelab. Every step's
 `web/index.html` loads `cache_api.js` and `opfs_helper.js` after the
-`litertLmReady` handshake — copied byte-for-byte from `flutter_gemma`'s own
-`web/` directory (`grep -A1 '"name": "flutter_gemma"'
+`litertLmReady` handshake — copied byte-for-byte from `flutter_edge_ai`'s own
+`web/` directory (`grep -A1 '"name": "flutter_edge_ai"'
 .dart_tool/package_config.json` finds it in your own project) — because core's
 web storage reaches OPFS through `window.flutterGemmaOPFS` in `opfs_helper.js`
 and the Cache API through `window.cacheHas` and friends in `cache_api.js`, and
@@ -927,7 +957,7 @@ lookup for an installed model finds nothing and asks the Cache API to restore
 a URL before it gives up. Ship only `opfs_helper.js` and that restore call
 hits an undefined global, the `catch` around it swallows the error, and an app
 that still reads "installed" silently re-downloads the whole model.
-`FlutterGemma.initialize` passes `webStorageMode: WebStorageMode.streaming`
+`FlutterEdgeAi.initialize` passes `webStorageMode: WebStorageMode.streaming`
 from Step 2 on, which is what routes those bytes through OPFS rather than the
 Cache API default; see
 Step 2 for why a 2 GB model is streamed rather than buffered. And `model.dart`
@@ -973,16 +1003,16 @@ where it can use them.
 
 * **Function calling** turns the model's answer into an action, and the same
   `createChat` grows a `tools:` argument for it
-* **Speech-to-text** (`flutter_gemma_speech`) is the other way to use a
+* **Speech-to-text** (`flutter_edge_ai_speech`) is the other way to use a
   microphone: transcribe first, then send text — which works on models with no
   audio encoder at all, Step 2's SmolVLM2 among them, and is often the cheaper
   design
-* **MediaPipe** (`flutter_gemma_mediapipe`) opens `.task` models and is the
+* **MediaPipe** (`flutter_edge_ai_mediapipe`) opens `.task` models and is the
   engine to reach for when vision on the **web** is a requirement
 
 ### Reference
 
-* [flutter_gemma on pub.dev](https://pub.dev/packages/flutter_gemma) — the full
+* [flutter_edge_ai on pub.dev](https://pub.dev/packages/flutter_edge_ai) — the full
   platform support matrix, including the web `.litertlm` limitations
 * [Multimodal documentation](/docs/multimodal)
-* [Source and this codelab's code](https://github.com/DenisovAV/flutter_gemma)
+* [Source and this codelab's code](https://github.com/DenisovAV/flutter_edge_ai)

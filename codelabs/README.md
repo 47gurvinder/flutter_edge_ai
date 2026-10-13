@@ -1,7 +1,7 @@
 # Codelabs
 
 The runnable code for the codelabs published at
-[fluttergemma.dev/codelabs](https://fluttergemma.dev/codelabs).
+[flutteredge.ai/codelabs](https://flutteredge.ai/codelabs).
 
 ## Layout
 
@@ -27,7 +27,7 @@ working app to resume from.
 **Almost every step directory is an app.** The exception today is
 `function-calling-flutter-gemma/step_04_finetune/`, whose step produces a model
 rather than code: it holds the training data and the commands for a
-[litetune](https://github.com/DenisovAV/litetune) run and has no
+[litetune](https://litetune.dev) run and has no
 `pubspec.yaml`, so `tool/check_codelabs.sh` — which discovers apps by their
 `pubspec.yaml` — does not see it. A step that ships something other than a
 Flutter app belongs in the codelab's own directory all the same; a learner
@@ -57,6 +57,10 @@ own gate:
 ```bash
 tool/check_codelabs.sh     # pub get + analyze + format + test, every step
 ```
+
+`tool/check_core_surface.sh` (part of `tool/test_all.sh`) reads them too, and
+the ```` ```dart ```` fences of the codelab texts under `website/codelabs/`:
+codelab code imports only the packages' public libraries, never a `src/` path.
 
 The same script also enforces the cross-codelab invariants declared in its
 `MIRRORS` table: a later codelab's starter is an earlier codelab's finished app,
@@ -88,8 +92,9 @@ without anyone touching this repo, and the nightly run is what notices.
 ## Integration tests
 
 Some codelabs carry an `integration_test/` suite that downloads a real model
-and runs inference. Those need a device and several hundred MB, so they are
-**not** part of the CI gate. Run one by hand:
+and runs inference. Those need a device and a download of several hundred MB
+to a few GB (the agent suite's Gemma 4 E2B is 2.59 GB), so they are **not**
+part of the CI gate. Run one by hand:
 
 ```bash
 cd codelabs/getting-started-flutter-gemma/complete
@@ -103,6 +108,9 @@ flutter test integration_test/multimodal_test.dart -d <device-id>
 
 cd codelabs/function-calling-flutter-gemma/complete
 flutter test integration_test/function_calling_test.dart -d <device-id>
+
+cd codelabs/on-device-agent-flutter-gemma/complete
+flutter test integration_test/agent_test.dart -d <device-id>
 
 cd codelabs/hybrid-ai-flutter-genkit/complete
 flutter test integration_test/smoke_test.dart -d <device-id> \

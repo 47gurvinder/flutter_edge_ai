@@ -51,7 +51,10 @@ between them:
 * About 2.8 GB free: Gemma 4 E2B is 2.59 GB, speech recognition 109 MB and the
   voice about 36 MB. On a phone, **6 GB of RAM or more** — the language model
   alone takes about 2.4 GB of it
-* No Hugging Face account: all three models are ungated
+* No Hugging Face account from Step 2 on: all three models this codelab adds
+  are ungated. Step 1 is Getting Started's finished app unchanged, and it still
+  downloads that codelab's licence-gated Gemma 3 1B — Step 1 shows how to run
+  it with a token, or without one
 
 **Watch out:** This codelab starts from the finished app of [Getting Started with On-Device LLMs](/codelabs/getting-started-flutter-gemma) — byte for byte, a CI check enforces it. If you have not done that codelab, `step_01_starter` still runs on its own; you will just be meeting the download-and-chat code for the first time.
 
@@ -61,8 +64,8 @@ Every step of this codelab exists as a complete, runnable app, so you can join
 at any point or check your work against the next one.
 
 ```bash
-git clone --depth 1 https://github.com/DenisovAV/flutter_gemma.git
-cd flutter_gemma/codelabs/voice-assistant-flutter-gemma
+git clone --depth 1 https://github.com/DenisovAV/flutter_edge_ai.git
+cd flutter_edge_ai/codelabs/voice-assistant-flutter-gemma
 ls
 ```
 
@@ -83,11 +86,20 @@ Open `step_01_starter` and run it.
 
 ```bash
 cd step_01_starter
-flutter run
+flutter run --dart-define=HF_TOKEN=hf_your_token
 ```
 
 It is the finished app from Getting Started: it downloads a model once, then
 chats with it offline, streaming the reply as it is generated.
+
+The token is for that download. The starter is Getting Started's app byte for
+byte, so its model is still Gemma 3 1B, whose Hugging Face repository is
+behind a licence gate: accept the terms on the
+[model page](https://huggingface.co/litert-community/Gemma3-1B-IT) once and
+pass a read token as above. No Hugging Face account? Point the `_model` line in
+`main.dart` at `Models.gemma4` instead and run a plain `flutter run` — it is
+ungated, and it is the model every later step uses anyway. From Step 2 on,
+nothing in this codelab needs a token.
 
 A voice assistant is that chat with two more models wrapped around it:
 
@@ -122,17 +134,17 @@ the browser does not have, so from here on the app is Android, iOS and macOS.
 ### Add the packages
 
 ```bash
-flutter pub add flutter_gemma_speech record
+flutter pub add flutter_edge_ai_speech record
 ```
 
-`flutter_gemma_speech` runs the speech models; the API it implements —
+`flutter_edge_ai_speech` runs the speech models; the API it implements —
 `installStt`, `getActiveStt` — is in core, the same split as the engine.
 `record` is the microphone.
 
 ### Register the backend
 
 ```dart
-await FlutterGemma.initialize(
+await FlutterEdgeAi.initialize(
   inferenceEngines: [LiteRtLmEngine()],
   sttBackends: [const LiteRtSttBackend()],
   // huggingFaceToken and webStorageMode, as in the starter
@@ -169,7 +181,7 @@ token ids, and `tokenizer.json` turns those ids back into words.
 `DownloadPage` installs the language model, then the recognizer:
 
 ```dart
-await FlutterGemma.installStt()
+await FlutterEdgeAi.installStt()
     .modelFromNetwork(Moonshine.modelUrl)
     .tokenizerFromNetwork(Moonshine.tokenizerUrl)
     .ofType(SttModelType.moonshine)
@@ -185,8 +197,8 @@ files before it lets the chat open:
 
 ```dart
 Future<bool> _check() async =>
-    await FlutterGemma.isModelInstalled(widget.model.fileName) &&
-    await FlutterGemma.isModelInstalled(Moonshine.fileName);
+    await FlutterEdgeAi.isModelInstalled(widget.model.fileName) &&
+    await FlutterEdgeAi.isModelInstalled(Moonshine.fileName);
 ```
 
 ### Install it again — every launch
@@ -195,12 +207,12 @@ This is the line that looks like a mistake. In `ChatPage._load`, after the chat
 opens:
 
 ```dart
-await FlutterGemma.installStt()
+await FlutterEdgeAi.installStt()
     .modelFromNetwork(Moonshine.modelUrl)
     .tokenizerFromNetwork(Moonshine.tokenizerUrl)
     .ofType(SttModelType.moonshine)
     .install();
-final stt = await FlutterGemma.getActiveStt();
+final stt = await FlutterEdgeAi.getActiveStt();
 ```
 
 The gate already made sure the files are here, so this downloads nothing.
@@ -278,7 +290,7 @@ Duration: 10
 flutter pub add just_audio path_provider
 ```
 
-`flutter_gemma_speech` already contains text-to-speech. What you need is
+`flutter_edge_ai_speech` already contains text-to-speech. What you need is
 something to play its output, and a place to put the file the player reads.
 
 ### Register the backend and pick a voice
@@ -301,11 +313,11 @@ abstract final class Inflect {
 ```
 
 ```dart
-await FlutterGemma.installTts()
+await FlutterEdgeAi.installTts()
     .fromNetwork(Inflect.baseUrl)
     .ofType(TtsModelType.inflect)
     .install();
-final tts = await FlutterGemma.getActiveTts();
+final tts = await FlutterEdgeAi.getActiveTts();
 ```
 
 The same install-on-every-launch as Step 2, for the same reason.
@@ -578,7 +590,13 @@ And the chat keeps it. After interrupting "Tell me three facts about the moon",
 the history holds the question and the half-written answer, so the model knows
 what it had already said. Your next question is answered on top of that.
 
-**Good to know:** This needs `flutter_gemma_litertlm` **1.8.1** or newer. Before it, a `.litertlm` chat that was stopped mid-reply answered every later message with nothing. The package now rebuilds the conversation from the chat's history on the first turn after a stop. That history is replayed as text: an image or a recording sent in an earlier turn is not part of it, so ask about it again with the image attached.
+**Good to know:** The interrupted-chat fix shipped in the legacy
+`flutter_gemma_litertlm` **1.8.1** package and is present in the current
+`flutter_edge_ai_litertlm`. Before that fix, a `.litertlm` chat stopped
+mid-reply answered every later message with nothing. The package now rebuilds
+the conversation from the chat's history on the first turn after a stop. That
+history is replayed as text: an image or a recording sent in an earlier turn is
+not part of it, so ask about it again with the image attached.
 
 ### Run it
 
@@ -715,9 +733,10 @@ Duration: 3
 Everything above runs on the device. Prove it: switch on airplane mode and
 restart the app.
 
-* The gate finds all three models already installed and goes straight to the
-  chat.
-* The launch-time `install()` calls download nothing — they only re-activate.
+* The gate checks the language model and the speech recognizer, finds both
+  installed, and goes straight to the chat.
+* The launch-time `install()` calls for the recognizer and the voice download
+  nothing — the first run fetched their files, so they only re-activate.
 * Listening, answering, speaking, interrupting and both tools work as before.
 
 What needs the network is the first run's download, and nothing else.

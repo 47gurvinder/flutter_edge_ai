@@ -30,7 +30,7 @@ By the end you will have an app that:
 The mechanics are only a few dozen lines. What takes the time is the handful
 of decisions the API asks you to make, and this codelab is built around them:
 
-* why `flutter_gemma` refuses to run until you hand it an **engine**
+* why `flutter_edge_ai` refuses to run until you hand it an **engine**
 * how a model's **file type** decides which runtime opens it
 * why `maxTokens` is not the reply length, and what to use instead
 * why the model's **file name is its id**, and what breaks when you forget
@@ -58,8 +58,8 @@ Every step of this codelab exists as a complete, runnable app, so you can
 join at any point or check your work against the next one.
 
 ```bash
-git clone --depth 1 https://github.com/DenisovAV/flutter_gemma.git
-cd flutter_gemma/codelabs/getting-started-flutter-gemma
+git clone --depth 1 https://github.com/DenisovAV/flutter_edge_ai.git
+cd flutter_edge_ai/codelabs/getting-started-flutter-gemma
 ls
 ```
 
@@ -106,13 +106,13 @@ This is the longest step, and the only one with platform configuration in it.
 ### Add the two packages
 
 ```bash
-flutter pub add flutter_gemma flutter_gemma_litertlm
+flutter pub add flutter_edge_ai flutter_edge_ai_litertlm
 ```
 
 Two packages, not one, and the reason matters.
 
-`flutter_gemma` is the **core**: the install and runtime API, the chat loop,
-the registry. It ships no inference runtime at all. `flutter_gemma_litertlm`
+`flutter_edge_ai` is the **core**: the install and runtime API, the chat loop,
+the registry. It ships no inference runtime at all. `flutter_edge_ai_litertlm`
 is one such runtime — the LiteRT-LM engine, which reads `.litertlm` files on
 Android, iOS, desktop and the web. There are others (MediaPipe for `.task`, ONNX
 Runtime, the OS built-in models), and you take only the one you need, because
@@ -222,29 +222,25 @@ model this size does not need them. macOS support is Apple Silicon only.
 The build phase is the part unique to macOS. Every step app from this one on
 ships a `macos/Podfile`, and its `post_install` block stages the runtime's
 companion libraries into the built `.app` and repoints LiteRT-LM at them. It is
-not cosmetic, and how it bites depends on how much of the staging is missing.
-With a Podfile that installs pods but carries no such block, LiteRT-LM itself
-loads and only its Metal companion is absent: `engine_create` returns null on
-the GPU backend and the model silently falls back to CPU. With nothing staged at
-all — the SPM case below — `LiteRtLm.framework` is the only thing in
-`Contents/Frameworks`, the dynamic loader cannot resolve the companions it
-links against, and the first model load fails outright. Copy the block from any
-step app's `macos/Podfile` — or
-from the [desktop docs](/docs/desktop), which quote it in full with the
-reasoning for each line — and run `pod install`.
+not cosmetic. Without the block — whether the Podfile lacks it or there is no
+Podfile at all — nothing is staged, `LiteRtLm.framework` is the only thing in
+`Contents/Frameworks`, the dynamic loader cannot resolve the companion it links
+against, and the first model load fails on every backend, CPU included. Copy the
+block from any step app's `macos/Podfile` — or from the
+[desktop docs](/docs/desktop), which quote it in full with the reasoning for
+each line; the next build runs `pod install` itself.
 
-One trap, measured on these very apps. With Swift Package Manager enabled
-(`flutter config --enable-swift-package-manager`) and no other CocoaPods plugin
-in the app, Flutter resolves every plugin through SPM and prints **Removing
-CocoaPods integration** — which is exactly what it does. The Podfile stops being
-part of the build, the `post_install` block never runs, nothing is staged, and
-the model fails to load with nothing in the error mentioning CocoaPods. A macOS
-build that succeeds proves nothing here: the app compiles, links, signs and
-launches either way, and the failure —
-`Failed to load dynamic library 'LiteRtLm.framework/LiteRtLm'` — arrives at the
-first model load, which no build log will ever warn you about. For this project,
-either turn SPM off with `flutter config --no-enable-swift-package-manager`, or
-keep one CocoaPods plugin in the app.
+One trap, measured. Flutter 3.44+ uses Swift Package Manager by default, and
+an app whose plugins all ship a `Package.swift` — core does, and
+`flutter_edge_ai_litertlm` is not a plugin at all — gets no `macos/Podfile`, so
+nothing runs the block. That is why every step app's `pubspec.yaml` carries
+`flutter: config: enable-swift-package-manager: false`. For an app of your own,
+add the same lines, run `flutter pub get` (it writes `macos/Podfile`), and paste
+the block. A macOS build that succeeds proves nothing here: the app compiles,
+links, signs and launches either way, and the failure —
+`Failed to load dynamic library 'LiteRtLm.framework/LiteRtLm'` … `Library not loaded: @rpath/libGemmaModelConstraintProvider.dylib` — arrives at the first model load, which no build log warns you about.
+Prefer the pubspec setting to `flutter config --no-enable-swift-package-manager`:
+that one changes only your machine, not your teammates' or CI.
 
 **Windows** — nothing in the app, and x86_64 only: there is no Windows arm64
 build of the runtime, so a Snapdragon-X machine is out. Nothing needs installing:
@@ -268,31 +264,31 @@ the two scripts the plugin's own web storage needs:
 ```html
 <script type="module">
 window.litertLmReady = (async () => {
-  const m = await import('https://cdn.jsdelivr.net/npm/@litert-lm/core@0.17.1/+esm');
+  const m = await import('https://cdn.jsdelivr.net/npm/@litert-lm/core@0.18.0/+esm');
   window.Engine = m.Engine;
   return m.Engine;
 })();
 </script>
 
-  <!-- Cache API + OPFS helper: FlutterGemma.initialize's
+  <!-- Cache API + OPFS helper: FlutterEdgeAi.initialize's
        webStorageMode: WebStorageMode.streaming needs both to install
-       .litertlm models on web. Copied verbatim from flutter_gemma's own web/. -->
+       .litertlm models on web. Copied verbatim from flutter_edge_ai's own web/. -->
   <script src="cache_api.js"></script>
   <script src="opfs_helper.js"></script>
 ```
 
 `cache_api.js` and `opfs_helper.js` are not a pub.dev asset — copy them out of
-the `flutter_gemma` package pub already resolved on your machine. Find where
+the `flutter_edge_ai` package pub already resolved on your machine. Find where
 that is:
 
 ```bash
-grep -A1 '"name": "flutter_gemma"' .dart_tool/package_config.json
+grep -A1 '"name": "flutter_edge_ai"' .dart_tool/package_config.json
 ```
 
 ...and copy the two files out of `web/` at that path into your own app's
 `web/`, next to `index.html`.
 
-The last piece is one argument on `FlutterGemma.initialize`, back in
+The last piece is one argument on `FlutterEdgeAi.initialize`, back in
 `main.dart`:
 
 ```dart
@@ -351,7 +347,7 @@ Future<void> main() async {
   // Engines are fully opt-in: the core package registers none by itself.
   // Without LiteRtLmEngine here, the first model call throws a StateError
   // that tells you to add an engine package.
-  await FlutterGemma.initialize(
+  await FlutterEdgeAi.initialize(
     inferenceEngines: [LiteRtLmEngine()],
     huggingFaceToken: _hfToken.isEmpty ? null : _hfToken,
     // OPFS streaming. On web the model is 2.0 GB, right on the ~2 GB blob
@@ -435,7 +431,7 @@ A token belongs on the command line, never in source control. `String.fromEnviro
 ### Download it
 
 ```dart
-await FlutterGemma.installModel(
+await FlutterEdgeAi.installModel(
       modelType: widget.model.modelType,
       fileType: ModelFileType.litertlm,
     )
@@ -501,7 +497,7 @@ Run it. You should watch the bar fill and land on the placeholder screen.
 Compare against `step_02_download` if it doesn't.
 
 Which screen you land on is not luck: `main.dart` asks
-`FlutterGemma.isModelInstalled` before it decides what to show. That gate is
+`FlutterEdgeAi.isModelInstalled` before it decides what to show. That gate is
 already doing its job — Step 5 comes back to it, because that one question is
 the difference between an app that opens on the chat and one that can never get
 past the download screen.
@@ -512,7 +508,7 @@ Duration: 7
 Two objects stand between you and an answer.
 
 ```dart
-final inference = await FlutterGemma.getActiveModel(maxTokens: 1024);
+final inference = await FlutterEdgeAi.getActiveModel(maxTokens: 1024);
 // ... hand `inference` to the State here, before anything else can throw
 final chat = await inference.createChat(
   modelType: widget.model.modelType,
@@ -686,7 +682,7 @@ screen has been there since Step 2 — one question, asked before deciding what
 to show:
 
 ```dart
-Future<bool> _check() => FlutterGemma.isModelInstalled(widget.model.fileName);
+Future<bool> _check() => FlutterEdgeAi.isModelInstalled(widget.model.fileName);
 ```
 
 What `complete` adds is a delete button, so you can make that question answer
@@ -753,7 +749,7 @@ Future<void> _removeModel() async {
         _chat = null;
       });
     }
-    await FlutterGemma.uninstallModel(widget.model.fileName);
+    await FlutterEdgeAi.uninstallModel(widget.model.fileName);
     if (mounted) widget.onModelRemoved();
   } catch (error) {
     // Deleting can fail too — a missing install record, a file the OS still
@@ -796,7 +792,7 @@ Duration: 2
 You have an app that runs a language model with the network off. The same
 core API is the entry point to everything else the plugin does:
 
-* **let your coding assistant write the next feature** — `flutter_gemma` ships
+* **let your coding assistant write the next feature** — `flutter_edge_ai` ships
   skills your assistant reads; the
   [Package Skills codelab](/codelabs/package-skills-flutter-gemma) installs
   them and shows how to check what it writes
@@ -805,18 +801,27 @@ core API is the entry point to everything else the plugin does:
   way on native platforms — on the web, only a file exported for the browser
   engine does
 * **run a different engine** — the OS built-in model (Gemini Nano, Apple
-  Foundation Models) needs no download at all
+  Foundation Models) needs no download at all:
+  [Inference Engines](/codelabs/inference-engines-flutter-gemma)
 * **send images and audio** — `Message.withImages` / `Message.withAudio`, on
-  models that accept them
-* **let the model call your Dart functions** — tools and the call/response loop
-* **ground answers in your own documents** — embeddings and on-device vector search
-* **run it as a voice loop** — speech-to-text in, text-to-speech out
+  models that accept them: [Multimodal Inference](/codelabs/multimodal-flutter-gemma)
+* **let the model call your Dart functions** — tools and the call/response loop:
+  [Function Calling](/codelabs/function-calling-flutter-gemma)
+* **give it skills that act on the device** — `SKILL.md` skills that read the
+  clock, open the calendar or run your JavaScript:
+  [On-Device Agents](/codelabs/on-device-agent-flutter-gemma)
+* **ground answers in your own documents** — embeddings and on-device vector
+  search: [On-Device RAG](/codelabs/on-device-rag-flutter-gemma)
+* **run it as a voice loop** — speech-to-text in, text-to-speech out:
+  [Voice Assistant](/codelabs/voice-assistant-flutter-gemma)
+* **route between the cloud and the device** — Gemini and the on-device model
+  behind one Genkit call: [Hybrid AI with Genkit](/codelabs/hybrid-ai-flutter-genkit)
 
-Most of these have a codelab in the [catalogue](/codelabs) — some published,
-some still being written.
+Every one of those codelabs is published; the [catalogue](/codelabs) lists
+them all.
 
 ### Reference
 
-* [flutter_gemma on pub.dev](https://pub.dev/packages/flutter_gemma)
+* [flutter_edge_ai on pub.dev](https://pub.dev/packages/flutter_edge_ai)
 * [Documentation](/docs/getting-started)
-* [Source and this codelab's code](https://github.com/DenisovAV/flutter_gemma)
+* [Source and this codelab's code](https://github.com/DenisovAV/flutter_edge_ai)

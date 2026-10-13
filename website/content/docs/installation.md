@@ -1,113 +1,121 @@
 ---
 title: Installation
 description: Add the packages, register engines, and complete per-platform setup for iOS, Android, Web, and Desktop.
-image: https://fluttergemma.dev/images/og-image.png
+meta:
+  - property: og:image
+    content: https://flutteredge.ai/images/og-image.png
 ---
 
-As of **1.0**, `flutter_gemma` is split into a small **core** package plus
-**opt-in** packages for each engine / backend, so your app only pulls the native
-weight it actually uses. Add the core package, then the packages for the model
+Flutter Edge AI is a small **core** package plus **opt-in** packages for each
+engine / backend (split since 1.0, then `flutter_gemma`), so your app only pulls
+the native weight it actually uses. Add the core package, then the packages for the model
 formats and features you need.
 
 ## 1. Add packages to `pubspec.yaml`
 
 ```
 dependencies:
-  flutter_gemma: latest_version              # Core — always required (no engine on its own)
+  flutter_edge_ai: latest_version              # Core — always required (no engine on its own)
 
   # Inference engines — add at least one:
-  flutter_gemma_litertlm: latest_version     # .litertlm models (FFI; mobile + desktop + web) + LiteRtEmbeddingBackend
-  flutter_gemma_mediapipe: latest_version    # .task / .bin models (MediaPipe; mobile + web)
-  flutter_gemma_builtin_ai: latest_version   # OS system models — Gemini Nano (Android) / Apple FM (iOS 26+/macOS) / Windows AI Foundry / Chrome Prompt API (Web)
-  flutter_gemma_onnx: latest_version         # ONNX models — ORT-GenAI (FFI, native) / Transformers.js (web) + OnnxEmbeddingBackend
+  flutter_edge_ai_litertlm: latest_version     # .litertlm models (FFI; mobile + desktop + web) + LiteRtEmbeddingBackend
+  flutter_edge_ai_mediapipe: latest_version    # .task / .bin models (MediaPipe; mobile + web)
+  flutter_edge_ai_builtin_ai: latest_version   # OS system models — Gemini Nano (Android) / Apple FM (iOS 26+/macOS 26+) / Windows AI Foundry / Chrome Prompt API (Web)
+  flutter_edge_ai_onnx: latest_version         # ONNX models — ORT-GenAI (FFI, native) / Transformers.js (web) + OnnxEmbeddingBackend
 
-  # Optional — text embeddings + on-device RAG:
-  flutter_gemma_embeddings: latest_version   # text-embedding pipeline (needs a backend, e.g. LiteRtEmbeddingBackend above)
-  flutter_gemma_rag_qdrant: latest_version   # RAG vector store (qdrant-edge; fastest on native)
-  flutter_gemma_rag_sqlite: latest_version   # RAG vector store (sqlite-vec / vec0; all platforms, incl. web)
+  # Optional — text-embedding tokenizer implementations (.tflite / .onnx models; an EmbeddingGemma 2 .litertlm needs none):
+  flutter_edge_ai_embeddings: latest_version   # embedding tokenizer implementations (Gemma SentencePiece, BERT WordPiece), registered via embeddingTokenizers: (needs a backend, e.g. LiteRtEmbeddingBackend above)
+
+  # Optional — independent RAG orchestration plus one storage provider:
+  flutter_edge_ai_rag: latest_version       # RagIndex, profiles, filters
+  flutter_edge_ai_qdrant: latest_version    # qdrant-edge; fastest on native
+  flutter_edge_ai_sqlite: latest_version    # sqlite-vec / vec0; all platforms incl. web — needs Flutter 3.47
 
   # Optional — on-device speech (STT + TTS):
-  flutter_gemma_speech: latest_version       # transcribe audio + synthesize speech (on-device STT + TTS; native only) + voice loop
+  flutter_edge_ai_speech: latest_version       # transcribe audio + synthesize speech (on-device STT + TTS; native only) + voice loop
 
   # Optional — on-device agent skills:
-  flutter_gemma_agent: latest_version        # agent skills the model runs itself (text / JS / native-intent / MCP)
+  flutter_edge_ai_agent: latest_version        # agent skills the model runs itself (text / JS / native-intent / MCP)
 
   # Optional — memory diagnostics (Android + iOS):
-  flutter_gemma_diagnostics: latest_version  # what a model costs in memory the OS cannot reclaim, read from the OS
+  flutter_edge_ai_diagnostics: latest_version  # what a model costs in memory the OS cannot reclaim, read from the OS
 ```
 
 **Pick by need:**
 
 | You want to… | Add |
 |---|---|
-| Run `.litertlm` models (Gemma 4, Qwen3, FastVLM, + all desktop) | `flutter_gemma_litertlm` |
-| Run `.task` / `.bin` models (Gemma3n, Gemma 3, DeepSeek, Qwen 2.5, Phi-4) | `flutter_gemma_mediapipe` |
-| Run the OS system model with no download (Gemini Nano / Apple FM / Windows AI Foundry) | `flutter_gemma_builtin_ai` |
-| Run ONNX models — ORT-GenAI (native) or Transformers.js (Web) | `flutter_gemma_onnx` |
-| Generate text embeddings | `flutter_gemma_embeddings` + `flutter_gemma_litertlm` (`LiteRtEmbeddingBackend`) |
-| Generate text embeddings from ONNX/ORT models | `flutter_gemma_embeddings` + `flutter_gemma_onnx` (`OnnxEmbeddingBackend`) |
-| On-device RAG on native, fastest (Android/iOS/desktop) | `flutter_gemma_rag_qdrant` |
-| On-device RAG on web, or a portable/exact store on any platform | `flutter_gemma_rag_sqlite` |
-| Transcribe audio, synthesize speech, or run a voice loop on-device (STT + TTS + voice) | `flutter_gemma_speech` |
-| Run on-device agent skills the model executes itself (text / JS / native-intent / MCP) | `flutter_gemma_agent` |
-| Measure what a model costs in memory the OS cannot reclaim (Android + iOS) | [`flutter_gemma_diagnostics`](/docs/diagnostics) |
+| Run `.litertlm` models (Gemma 4, Qwen3, FastVLM, + all desktop) | `flutter_edge_ai_litertlm` |
+| Run `.task` / `.bin` models (Gemma3n, Gemma 3, DeepSeek, Qwen 2.5, Phi-4) | `flutter_edge_ai_mediapipe` |
+| Run the OS system model with no download (Gemini Nano / Apple FM / Windows AI Foundry) | `flutter_edge_ai_builtin_ai` |
+| Run ONNX models — ORT-GenAI (native) or Transformers.js (Web) | `flutter_edge_ai_onnx` |
+| Generate text embeddings with EmbeddingGemma 2 (`.litertlm`) | `flutter_edge_ai_litertlm` (`LiteRtEmbeddingBackend`) alone; 1.13.1 on Web |
+| Embed images with EmbeddingGemma 2 (the 440m `.litertlm`) | `flutter_edge_ai_litertlm` 1.13.1 (`LiteRtEmbeddingBackend`) alone; 1.13.1 on Web |
+| Embed audio, or several parts in one vector, with EmbeddingGemma 2 (the 740m `.litertlm`) | `flutter_edge_ai_litertlm` 1.13.1 (`LiteRtEmbeddingBackend`) with `flutter_edge_ai` 2.3.1; native platforms |
+| Generate text embeddings with EmbeddingGemma 1 / Gecko (`.tflite`) | `flutter_edge_ai_embeddings` + `flutter_edge_ai_litertlm` (`LiteRtEmbeddingBackend`) |
+| Generate text embeddings from ONNX/ORT models | `flutter_edge_ai_embeddings` + `flutter_edge_ai_onnx` (`OnnxEmbeddingBackend`) |
+| On-device RAG on native, fastest (Android/iOS/desktop) | `flutter_edge_ai_rag` + `flutter_edge_ai_qdrant` |
+| On-device RAG on web, or a portable/exact store on any platform | `flutter_edge_ai_rag` + `flutter_edge_ai_sqlite` (Flutter 3.47+) |
+| Transcribe audio, synthesize speech, or run a voice loop on-device (STT + TTS + voice) | `flutter_edge_ai_speech` |
+| Run on-device agent skills the model executes itself (text / JS / native-intent / MCP) | `flutter_edge_ai_agent` |
+| Measure what a model costs in memory the OS cannot reclaim (Android + iOS) | [`flutter_edge_ai_diagnostics`](/docs/diagnostics) |
 
-Core registers **no** engine by itself — you wire the packages you added in
-`await FlutterGemma.initialize(...)` (below). Run `flutter pub get` to install.
+Core registers **no** AI runtime by itself — wire inference, embedding, and
+speech packages in `FlutterEdgeAi.initialize(...)` below. RAG is independent:
+construct `FlutterEdgeAiRag` with a storage provider. Run `flutter pub get` to
+install.
 
 <Info>
-**Migrating from 0.16.x (monolith)?** See the [Migration guide](/docs/migration) —
-the only breaking change is adding the opt-in packages and the `initialize(...)`
-call; every model / session / RAG API is unchanged.
+
+**Migrating from `flutter_gemma` or Flutter Edge AI 1.x?** See the
+[Migration guide](/docs/migration). Version 2.0 moves RAG out of core and adds
+durable embedding profiles.
+
 </Info>
 
-## 2. Initialize Flutter Gemma
+## 2. Initialize Flutter Edge AI
 
-Call `await FlutterGemma.initialize(...)` once in `main()` and **register the opt-in
+Call `await FlutterEdgeAi.initialize(...)` once in `main()` and **register the opt-in
 packages you added** to `pubspec.yaml`. Core registers no engine on its own, so
-without this step `getActiveModel()` / `createEmbeddingModel()` throw a clear
+without this step `getActiveModel()` / `getActiveEmbedder()` throw a clear
 "add the engine package" error.
 
 ```dart
 import 'package:flutter/widgets.dart';
-import 'package:flutter_gemma/flutter_gemma.dart';
-import 'package:flutter_gemma_embeddings/flutter_gemma_embeddings.dart';
-import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
-import 'package:flutter_gemma_mediapipe/flutter_gemma_mediapipe.dart';
-import 'package:flutter_gemma_builtin_ai/flutter_gemma_builtin_ai.dart';
-import 'package:flutter_gemma_speech/flutter_gemma_speech.dart';
-import 'package:flutter_gemma_rag_qdrant/flutter_gemma_rag_qdrant.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+import 'package:flutter_edge_ai_embeddings/flutter_edge_ai_embeddings.dart';
+import 'package:flutter_edge_ai_litertlm/flutter_edge_ai_litertlm.dart';
+import 'package:flutter_edge_ai_mediapipe/flutter_edge_ai_mediapipe.dart';
+import 'package:flutter_edge_ai_builtin_ai/flutter_edge_ai_builtin_ai.dart';
+import 'package:flutter_edge_ai_speech/flutter_edge_ai_speech.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await FlutterGemma.initialize(
+  await FlutterEdgeAi.initialize(
     // Inference engines — add the ones whose packages you depend on:
     inferenceEngines: const [
-      LiteRtLmEngine(),     // flutter_gemma_litertlm  — .litertlm models
-      MediaPipeEngine(),    // flutter_gemma_mediapipe — .task / .bin models
-      BuiltInAiEngine(),    // flutter_gemma_builtin_ai — Gemini Nano / Apple FM
+      LiteRtLmEngine(),     // flutter_edge_ai_litertlm  — .litertlm models
+      MediaPipeEngine(),    // flutter_edge_ai_mediapipe — .task / .bin models
+      BuiltInAiEngine(),    // flutter_edge_ai_builtin_ai — Gemini Nano / Apple FM
     ],
-    // Optional — embeddings (needed for RAG / generateEmbedding):
+    // Optional — embeddings (also usable by an independent RAG index):
     embeddingBackends: const [
-      LiteRtEmbeddingBackend(), // flutter_gemma_litertlm
+      LiteRtEmbeddingBackend(), // flutter_edge_ai_litertlm
     ],
     // The tokenizer is registered separately — which family a model needs is a
     // property of the model, not of the engine that runs it.
     embeddingTokenizers: const [
-      GemmaEmbeddingTokenizers(), // flutter_gemma_embeddings
+      GemmaEmbeddingTokenizers(), // flutter_edge_ai_embeddings
     ],
     // Optional — on-device speech-to-text:
     sttBackends: const [
-      LiteRtSttBackend(), // flutter_gemma_speech
+      LiteRtSttBackend(), // flutter_edge_ai_speech
     ],
     // Optional — on-device text-to-speech:
     ttsBackends: const [
-      LiteRtTtsBackend(), // flutter_gemma_speech
+      LiteRtTtsBackend(), // flutter_edge_ai_speech
     ],
-    // Optional — RAG vector store (pick one; native here):
-    vectorStore: QdrantVectorStore(), // flutter_gemma_rag_qdrant
-
     // Common settings:
     // String.fromEnvironment yields '' when the define is absent, and an
     // empty token still sends a bare `Authorization: Bearer` header. Pass
@@ -126,27 +134,24 @@ void main() async {
 
 | Parameter | Provided by | Notes |
 |---|---|---|
-| `inferenceEngines: [LiteRtLmEngine()]` | `flutter_gemma_litertlm` | `.litertlm` (mobile + desktop + web) |
-| `inferenceEngines: [MediaPipeEngine()]` | `flutter_gemma_mediapipe` | `.task` / `.bin` (mobile + web) |
-| `inferenceEngines: [OnnxEngine()]` | `flutter_gemma_onnx` | ONNX models — ORT-GenAI (FFI, macOS/Linux/Windows/Android/iOS arm64) or Transformers.js (Web) |
-| `embeddingBackends: [LiteRtEmbeddingBackend()]` | `flutter_gemma_litertlm` | text embeddings |
-| `embeddingBackends: [OnnxEmbeddingBackend()]` | `flutter_gemma_onnx` | text embeddings from ONNX/ORT models |
-| `embeddingTokenizers: [GemmaEmbeddingTokenizers()]` | `flutter_gemma_embeddings` | required by BOTH embedding backends above |
-| `sttBackends: [LiteRtSttBackend()]` | `flutter_gemma_speech` | speech-to-text (native only) |
-| `ttsBackends: [LiteRtTtsBackend()]` | `flutter_gemma_speech` | text-to-speech (native only) |
-| `vectorStore: QdrantVectorStore()` | `flutter_gemma_rag_qdrant` | native RAG |
-| `vectorStore: SqliteVectorStore()` / `WebSqliteVectorStore()` | `flutter_gemma_rag_sqlite` | sqlite-vec RAG (all platforms; `WebSqliteVectorStore()` on web) |
+| `inferenceEngines: [LiteRtLmEngine()]` | `flutter_edge_ai_litertlm` | `.litertlm` (mobile + desktop + web) |
+| `inferenceEngines: [MediaPipeEngine()]` | `flutter_edge_ai_mediapipe` | `.task` / `.bin` (mobile + web) |
+| `inferenceEngines: [OnnxEngine()]` | `flutter_edge_ai_onnx` | ONNX models — ORT-GenAI (FFI: macOS arm64, Linux x64, Windows x64, Android arm64, iOS arm64) or Transformers.js (Web) |
+| `embeddingBackends: [LiteRtEmbeddingBackend()]` | `flutter_edge_ai_litertlm` | text embeddings: EmbeddingGemma 2 `.litertlm` (native) and `.tflite` models |
+| `embeddingBackends: [OnnxEmbeddingBackend()]` | `flutter_edge_ai_onnx` | text embeddings from ONNX/ORT models |
+| `embeddingTokenizers: [GemmaEmbeddingTokenizers()]` | `flutter_edge_ai_embeddings` | required by both embedding backends above for `.tflite` and `.onnx` models; an EmbeddingGemma 2 `.litertlm` carries its own tokenizer |
+| `sttBackends: [LiteRtSttBackend()]` | `flutter_edge_ai_speech` | speech-to-text (native only) |
+| `ttsBackends: [LiteRtTtsBackend()]` | `flutter_edge_ai_speech` | text-to-speech (native only) |
 
-Add only the engines you ship. Passing both `LiteRtLmEngine()` and
+Add only the runtimes you ship. Passing both `LiteRtLmEngine()` and
 `MediaPipeEngine()` lets one app run both formats — the registry routes each
-model to the engine that handles its file type. The `sqlite-vec` store runs on
-every platform — use `vectorStore: SqliteVectorStore()` on native and
-`WebSqliteVectorStore()` on web. `flutter_gemma_rag_qdrant` is native-only (and
-the fastest option there).
+model to the engine that handles its file type. For RAG, register
+`SqliteVectorStoreProvider()` or `QdrantVectorStoreProvider()` on a separate
+`FlutterEdgeAiRag` instance; see [Embeddings & RAG](/docs/embeddings-and-rag).
 
 **Common settings:**
 
-- `huggingFaceToken`: authentication token for gated models (Gemma3n, EmbeddingGemma).
+- `huggingFaceToken`: authentication token for gated models (Gemma3n, Gemma 3 1B / 270M, EmbeddingGemma).
 - `maxDownloadRetries`: number of retry attempts for failed downloads (default: 10).
 - `webStorageMode` **(Web only)**: storage strategy for model files (default: `cacheApi`).
   - `WebStorageMode.cacheApi`: Cache API with Blob URLs (for models <2GB).
@@ -154,28 +159,32 @@ the fastest option there).
   - `WebStorageMode.none`: no caching (ephemeral mode for testing).
 
 <Info>
+
 Use `WebStorageMode.streaming` when shipping `.litertlm` web models — the
 `@litert-lm/core` engine consumes an OPFS ReadableStream and avoids Chrome's
 ~2 GB blob-fetch limit on Gemma 4 E2B/E4B web builds.
+
 </Info>
 
 ## 3. Platform-specific setup
 
 <Warning>
-Complete platform-specific setup before using the plugin.
+
+Complete platform-specific setup before running a model.
+
 </Warning>
 
 ### iOS
 
-Required by any engine package: `flutter_gemma_litertlm`, `flutter_gemma_mediapipe`
-and/or `flutter_gemma_builtin_ai`.
+Required by any engine package: `flutter_edge_ai_litertlm`, `flutter_edge_ai_mediapipe`,
+`flutter_edge_ai_onnx`, `flutter_edge_ai_builtin_ai` and/or `flutter_edge_ai_speech`.
 
 **Set the minimum iOS version to 15.0** — or **16.0** if your app depends on
-`flutter_gemma_mediapipe`, which needs MediaPipe GenAI. Core, `flutter_gemma_litertlm`
-and embeddings build from 15.0. (Requires `flutter_gemma` 1.6.4 or newer;
-earlier versions declared 16.0.)
+`flutter_edge_ai_mediapipe`, which needs MediaPipe GenAI. Core, `flutter_edge_ai_litertlm`
+and embeddings build from 15.0. (`flutter_gemma` before 1.6.4 declared
+16.0.)
 
-`flutter_gemma_builtin_ai` no longer sets an Apple floor of its own — since 0.3.0
+`flutter_edge_ai_builtin_ai` no longer sets an Apple floor of its own — since 0.3.0
 its native layer is `flutter_local_ai`, which builds from **iOS 13.0 / macOS
 12.0**. On iOS that changes nothing (core's 15.0 still wins); on **macOS it
 raises the floor from 10.15 to 12.0**, and a lower deployment target fails
@@ -183,14 +192,16 @@ resolution with a message naming the `flutter_local_ai` pod rather than the
 package you added.
 
 **Where you set it depends on the dependency manager.** Swift Package Manager is the
-default since Flutter 3.44 (opt-in before that), and an SPM-only app has no `Podfile` at all — set **iOS
+default since Flutter 3.44 (opt-in before that), and an SPM-only app has no `Podfile` at all.
+Flutter 3.47+ creates (and migrates) apps at iOS 15.0; on 3.44.x the template is 13.0 — set **iOS
 Deployment Target** on the Runner target in Xcode, or the build fails with `requires
-minimum platform version 15.0 … but this target supports 13.0`.
-`flutter_gemma_mediapipe` ships no `Package.swift`, so an app using it also gets a
+minimum platform version 15.0 … but this target supports 13.0`. iOS needs no Podfile
+step; macOS does — see [Desktop → macOS](/docs/desktop#macos).
+`flutter_edge_ai_mediapipe` ships no `Package.swift`, so an app using it also gets a
 `Podfile`; set the platform there as well:
 
 ```
-platform :ios, '16.0'   # 15.0 if the app does not use flutter_gemma_mediapipe
+platform :ios, '16.0'   # 15.0 if the app does not use flutter_edge_ai_mediapipe
 ```
 
 Declare `platform` only once — CocoaPods rejects a second one with
@@ -241,14 +252,20 @@ use_frameworks! :linkage => :static
 ```
 
 <Info>
-No host-side `Podfile` `post_install` is required on iOS — flutter_gemma patches
+
+No host-side `Podfile` `post_install` is required on iOS — flutter_edge_ai patches
 the upstream LiteRT-LM `dlopen` path to use
 `@executable_path/Frameworks/<X>.framework/<X>` so dyld resolves Metal
 accelerators directly through the Native-Assets-bundled framework. This also
 keeps `Runner.app/Frameworks/` App-Store-clean (fixes ITMS-90432).
+
 </Info>
 
 ### Android
+
+Release builds need `<uses-permission android:name="android.permission.INTERNET"/>`
+in `android/app/src/main/AndroidManifest.xml` to download models (Flutter's
+template adds it only to the debug and profile manifests).
 
 **Add-to-app hosts must declare the Kotlin Gradle Plugin themselves.** Flutter
 auto-applies KGP to plugin modules only when the host provides it, so a Java-only native
@@ -256,8 +273,9 @@ host fails with `Could not find method kotlin()`. Add KGP to the host's root
 `buildscript`/`plugins {}`. A normal `flutter build` app needs nothing — Flutter's own
 Gradle plugin carries KGP.
 
-**GPU (any engine): nothing to add.** `flutter_gemma`'s own manifest declares the
-OpenCL namespace entries and the manifest merger folds them into your app. These
+**GPU and NPU (any engine): nothing to add to the manifest.** `flutter_edge_ai`'s
+own manifest declares the OpenCL and FastRPC namespace entries and the manifest
+merger folds them into your app. These
 are what your merged manifest must contain if you pin or audit it — note
 `libvndksupport.so`: without it the OpenCL ICD load is denied on Android 12+, the
 engine falls back to WebGPU, and some Mali drivers hard-freeze (#324).
@@ -267,9 +285,26 @@ engine falls back to WebGPU, and some Mali drivers hard-freeze (#324).
 <uses-native-library android:name="libOpenCL.so" android:required="false"/>
 <uses-native-library android:name="libOpenCL-car.so" android:required="false"/>
 <uses-native-library android:name="libOpenCL-pixel.so" android:required="false"/>
+<uses-native-library android:name="libcdsprpc.so" android:required="false"/>
 ```
 
-**ProGuard/R8 (only if you use `flutter_gemma_mediapipe`):** the package ships
+**Qualcomm NPU (opt-in).** `PreferredBackend.npu` needs Qualcomm's QNN runtime,
+which Qualcomm licenses for redistribution only inside an application, so the
+app asks for it in its `pubspec.yaml` (the workspace root's, if the app is a pub
+workspace member):
+
+```
+hooks:
+  user_defines:
+    flutter_edge_ai_litertlm:
+      qualcomm_npu: true
+```
+
+The build hook then fetches the runtime — from Maven Central for Android, from
+Qualcomm's QAIRT SDK for Linux arm64 boards. Without the flag `npu` falls back
+to GPU, then CPU. See [LiteRT-LM](/docs/litertlm).
+
+**ProGuard/R8 (only if you use `flutter_edge_ai_mediapipe`):** the package ships
 its own consumer ProGuard rules; from 1.0.6 a release build needs no rules in
 your app (built on AGP 9.1). On 1.0.5 and earlier R8 fails the release build
 with `Missing class` (seen on AGP 9) — upgrade to 1.0.6, or add to your
@@ -294,17 +329,21 @@ missing MediaPipe class, also add:
 ```
 
 <Info>
-`flutter_gemma_litertlm` is delivered as a Native-Assets dylib (no MediaPipe Java
+
+`flutter_edge_ai_litertlm` is delivered as a Native-Assets dylib (no MediaPipe Java
 classes), so it needs no ProGuard rules.
+
 </Info>
 
 <Info>
-**`flutter_gemma_builtin_ai`** brings in `flutter_local_ai`, which declares
+
+**`flutter_edge_ai_builtin_ai`** brings in `flutter_local_ai`, which declares
 `minSdk 26` (the ML Kit GenAI / AICore floor) — raise your app's `minSdk` to 26
 or the manifest merger fails. The ML Kit Prompt API `beta4` artifact carries
 Kotlin 2.3 metadata, so the app also needs **Kotlin 2.3.21**. Unlike
-flutter_gemma's own plugins it applies KGP itself, so `android.builtInKotlin=true`
+flutter_edge_ai's own plugins it applies KGP itself, so `android.builtInKotlin=true`
 is not usable in an app that depends on it.
+
 </Info>
 
 #### Android architecture support
@@ -332,11 +371,23 @@ android {
 }
 ```
 
+In a Kotlin build script (`build.gradle.kts`):
+
+```
+android {
+    defaultConfig {
+        ndk { abiFilters += listOf("arm64-v8a") }
+    }
+}
+```
+
 <Warning>
+
 Anything backed by `libLiteRtLm.so` on Android — `.litertlm` inference,
 embeddings, and speech (STT + TTS) — requires **minSdk 30**: the library depends on
 API 30+ Bionic syscalls (`pthread_cond_clockwait`, `sem_clockwait`) that cannot
 be shimmed on older devices. MediaPipe `.task` models work on lower API levels.
+
 </Warning>
 
 ### Web
@@ -344,10 +395,10 @@ be shimmed on older devices. MediaPipe `.task` models work on lower API levels.
 On web, MediaPipe ignores `preferredBackend` and always runs on the GPU
 (WebGPU); ONNX honours `PreferredBackend.cpu` by pinning WASM.
 
-**Every web app** needs flutter_gemma's model storage helpers. Copy `cache_api.js`
-and `opfs_helper.js` from the `flutter_gemma` package's `web/` directory into
+**Every web app** needs flutter_edge_ai's model storage helpers. Copy `cache_api.js`
+and `opfs_helper.js` from the `flutter_edge_ai` package's `web/` directory into
 your app's `web/` (find the package directory with
-`grep -A1 '"name": "flutter_gemma"' .dart_tool/package_config.json`), then load
+`grep -A1 '"name": "flutter_edge_ai"' .dart_tool/package_config.json`), then load
 them in `web/index.html`:
 
 ```
@@ -357,7 +408,7 @@ them in `web/index.html`:
 
 Then add the CDN script(s) for the **engine package(s) you use**.
 
-**`flutter_gemma_mediapipe`** (`.task` / `-web.task` models):
+**`flutter_edge_ai_mediapipe`** (`.task` / `-web.task` models):
 
 ```
 <script type="module">
@@ -367,21 +418,30 @@ window.LlmInference = LlmInference;
 </script>
 ```
 
-**`flutter_gemma_litertlm`** (`.litertlm` web models — early preview). The
+**`flutter_edge_ai_litertlm`** (`.litertlm` web models — early preview). The
 `@litert-lm/core` ESM doesn't assign window globals and module scripts are
 deferred, so Dart must await `window.litertLmReady` before any static interop:
 
 ```
 <script type="module">
 window.litertLmReady = (async () => {
-  const m = await import('https://cdn.jsdelivr.net/npm/@litert-lm/core@0.17.1/+esm');
+  const m = await import('https://cdn.jsdelivr.net/npm/@litert-lm/core@0.18.0/+esm');
   window.Engine = m.Engine;
+  window.EmbeddingEngine = m.EmbeddingEngine;
   return m.Engine;
 })();
 </script>
 ```
 
-**`flutter_gemma_onnx`** (ONNX models on Web): generation runs on
+`window.Engine` runs `.litertlm` LLMs. `window.EmbeddingEngine` (litertlm
+1.13.1+) runs EmbeddingGemma 2 `.litertlm` embedders, text and images, on
+WebGPU; without that line such an embedder fails to load with an
+`EmbeddingLoadException` that names it. Both need a browser with WebGPU: the
+CPU (WebAssembly) path of `@litert-lm/core` 0.18.0 cannot read the EmbeddingGemma
+2 bundles' external weights, so without WebGPU the embedder's load fails with an
+`EmbeddingLoadException` that says so — there is no CPU fallback.
+
+**`flutter_edge_ai_onnx`** (ONNX models on Web): generation runs on
 [Transformers.js](https://huggingface.co/docs/transformers.js) v4, embeddings
 on onnxruntime-web. Both are readiness-handshake shims, same shape as the
 `litertLmReady` promise above:
@@ -408,8 +468,8 @@ window.ortReady = (async () => {
 Only add the shim(s) for the arm(s) you use — `transformersReady` for
 `OnnxEngine`, `ortReady` for `OnnxEmbeddingBackend`.
 
-**`LiteRtEmbeddingBackend`** (web embeddings, `flutter_gemma_litertlm`): runs on
-LiteRT.js, which needs the four files in `flutter_gemma_litertlm`'s `web/`
+**`LiteRtEmbeddingBackend`** (web embeddings, `flutter_edge_ai_litertlm`): runs on
+LiteRT.js, which needs the four files in `flutter_edge_ai_litertlm`'s `web/`
 copied into your app's `web/`: `litert_embeddings.js`, `sentencepiece.js`,
 `litert.js` and `tensorflow.js`. The first imports the other three by relative
 path — they are one bundle in four pieces — so they sit together and the entry
@@ -419,13 +479,21 @@ module is loaded locally:
 <script type="module" src="litert_embeddings.js"></script>
 ```
 
+Copy the four files again after every `flutter_edge_ai_litertlm` upgrade: 1.13.0
+changed the bundle's API, and a copy from an earlier version fails
+`getActiveEmbedder()` with an `EmbeddingLoadException` that names
+`litert_embeddings.js`. These four files serve `.tflite` embedding models;
+EmbeddingGemma 2 `.litertlm` embedders (flutter_edge_ai_litertlm 1.13.1+) need
+none of them, only the `window.EmbeddingEngine` line in the `@litert-lm/core`
+script above.
+
 The WASM runtime underneath comes from a pinned CDN copy by default
-(`flutter_gemma_litertlm` 1.8.0+) — nothing else to install. To serve it
+(`flutter_edge_ai_litertlm`) — nothing else to install. To serve it
 yourself, copy `node_modules/@litertjs/core/wasm/` into `web/wasm/` and set
 `LiteRtWebRuntime.wasmPath = '/wasm/';` before the first embedding. See
-[`flutter_gemma_litertlm`'s embeddings on web](https://pub.dev/packages/flutter_gemma_litertlm#embeddings-on-web).
+[`flutter_edge_ai_litertlm`'s embeddings on web](https://pub.dev/packages/flutter_edge_ai_litertlm#embeddings-on-web).
 
-**`flutter_gemma_rag_sqlite`** (web RAG): no `<script>`. Copy the package's
+**`flutter_edge_ai_sqlite`** (web RAG): no `<script>`. Copy the package's
 `web/rag/sqlite3.wasm` (a `sqlite3.wasm` with `sqlite-vec` statically linked)
 into your app's web root as `rag/sqlite3.wasm`, and serve the app with the
 cross-origin isolation headers OPFS persistence needs:
@@ -436,31 +504,41 @@ Cross-Origin-Embedder-Policy: require-corp
 ```
 
 <Info>
+
 **Model compatibility:** mobile `.task` models often don't work on web — use the
 `-web.task` (MediaPipe) or `.litertlm` (LiteRT-LM) web variant. Check the model
 repo for web-compatible builds.
+
 </Info>
 
 ### Desktop (macOS, Windows, Linux)
 
-Desktop is served **primarily** by **`flutter_gemma_litertlm`** (`.litertlm`
+Desktop is served **primarily** by **`flutter_edge_ai_litertlm`** (`.litertlm`
 files) — the default engine, whose native library is fetched at build time by the
-package's Native-Assets hook (no manual download/bundling). **`flutter_gemma_onnx`**
+package's Native-Assets hook (no manual download/bundling). **`flutter_edge_ai_onnx`**
 ([ONNX Runtime](/docs/onnx)) also runs on all three desktop OSes
 (macOS/Windows/Linux), and the OS built-in model is available via
-**`flutter_gemma_builtin_ai`** on **macOS** ([Apple Foundation
+**`flutter_edge_ai_builtin_ai`** on **macOS** ([Apple Foundation
 Models](/docs/builtin-ai)) and on **Windows** ([AI Foundry](/docs/builtin-ai) —
-opt-in: the app supplies the Windows App SDK projections); not on Linux. What
+nothing to configure to build: `flutter_local_ai` resolves the Windows App SDK
+projection itself; running needs Windows 11 25H2+ on Copilot+-class hardware and
+a packaged app); not on Linux. What
 holds across all of desktop: there is no MediaPipe engine on desktop — `.task` /
 `.bin` models are **NOT compatible** with desktop.
 
+**macOS needs one extra step:** turn Swift Package Manager off for the app
+(`flutter: config: enable-swift-package-manager: false` in `pubspec.yaml`) and
+paste a `post_install` block into the generated `macos/Podfile` — see
+[Desktop → macOS](/docs/desktop#macos). Without it the build succeeds and the
+first model load fails.
+
 See [Desktop Support](/docs/desktop) for the full per-platform reference (macOS
-`Podfile` `post_install`, entitlements, Windows VC++ runtime, Linux Vulkan
-driver, and known limitations).
+`Podfile` `post_install`, entitlements, Windows DLL loading — no VC++
+redistributable needed — Linux Vulkan driver, and known limitations).
 
 ## Platform & architecture support
 
-The plugin ships native prebuilts only for the architectures below. Other ABIs
+The native packages ship prebuilts only for the architectures below. Other ABIs
 fail at native load with a typed error.
 
 | Platform | Supported architecture | Not supported |
@@ -514,8 +592,9 @@ void main() async {
 
   const token = String.fromEnvironment('HUGGINGFACE_TOKEN');
 
-  await FlutterGemma.initialize(
+  await FlutterEdgeAi.initialize(
     huggingFaceToken: token.isNotEmpty ? token : null,
+    // plus inferenceEngines / embeddingBackends from step 2
   );
 
   runApp(MyApp());
@@ -534,24 +613,24 @@ To use a gated repo: visit the model page → "Request Access" button.
 
 ## Logging
 
-The plugin's internal logs are **silent in release builds** — model output,
+Flutter Edge AI's internal logs are **silent in release builds** — model output,
 prompts, and conversation history are never written to logcat / syslog. In debug
-builds they're shown according to `FlutterGemma.logLevel`:
+builds they're shown according to `FlutterEdgeAi.logLevel`:
 
 | Level | What it prints (debug only) |
 |---|---|
-| `GemmaLogLevel.none` | Nothing — fully silent. |
-| `GemmaLogLevel.info` *(default)* | Lifecycle, errors, diagnostics. **No** model output / prompts. |
-| `GemmaLogLevel.verbose` | Everything above **plus** model output, prompts, and conversation history. |
+| `EdgeAiLogLevel.none` | Nothing — fully silent. |
+| `EdgeAiLogLevel.info` *(default)* | Lifecycle, errors, diagnostics. **No** model output / prompts. |
+| `EdgeAiLogLevel.verbose` | Everything above **plus** model output, prompts, and conversation history. |
 
 ```dart
-import 'package:flutter_gemma/flutter_gemma.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 
 // See the model's generated tokens and prompts while debugging:
-FlutterGemma.logLevel = GemmaLogLevel.verbose;
+FlutterEdgeAi.logLevel = EdgeAiLogLevel.verbose;
 
-// Or silence the plugin entirely:
-FlutterGemma.logLevel = GemmaLogLevel.none;
+// Or silence logging entirely:
+FlutterEdgeAi.logLevel = EdgeAiLogLevel.none;
 ```
 
 Release builds are always silent regardless of this setting. The level is

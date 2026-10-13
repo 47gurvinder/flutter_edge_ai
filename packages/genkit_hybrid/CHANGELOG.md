@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.1
+
+- A cancel ends a cascade before or during its `accept`, never with a success.
+- `UNIMPLEMENTED` falls back to the next branch: another model may have the capability.
+
+## 0.3.0
+
+- **Breaking:** require `genkit` ^1.0.0; each branch runs in its own trace span and honours cancellation.
+
+## 0.2.2
+
+- Update package documentation for the Flutter Edge AI rename.
+
 ## 0.2.1
 
 - Widen the `genkit` constraint to `>=0.15.1 <0.17.0` so it works on both genkit 0.15 and 0.16 (no code change — uses only Model/generate/ModelRequest).

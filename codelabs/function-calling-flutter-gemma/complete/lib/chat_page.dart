@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_gemma/flutter_gemma.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 
 import 'model.dart';
 import 'tools.dart';
@@ -94,7 +94,14 @@ class _ChatPageState extends State<ChatPage> {
       // of the multimodal codelab there is nothing to set in two places —
       // `getActiveModel` builds the engine, and nothing about the weights
       // changes when you declare a function.
-      final inference = await FlutterGemma.getActiveModel(maxTokens: 4096);
+      //
+      // Both arguments come from the model, not from this page: FunctionGemma's
+      // download needs 1024 and the CPU, exactly as in Steps 1–3, while Gemma 4
+      // and a model you converted yourself get 4096 and the engine's default.
+      final inference = await FlutterEdgeAi.getActiveModel(
+        maxTokens: widget.model.maxTokens,
+        preferredBackend: widget.model.preferredBackend,
+      );
       // Hold the runtime before opening a chat on it: `createChat` can throw,
       // and a model this page never stored is a model `dispose` can never
       // close. A page that is already gone holds nothing, so it closes it here.
@@ -140,7 +147,7 @@ class _ChatPageState extends State<ChatPage> {
         toolChoice: _toolChoice,
         // Reason first, then answer. On weights with no thinking training this
         // buys nothing, which is why the switch is disabled for those.
-        isThinking: _thinking,
+        enableThinking: _thinking,
         // Thinking is generated text and comes out of the same budget as the
         // answer, so a reasoning turn needs more room than a plain one.
         maxOutputTokens: _thinking ? 512 : 256,
@@ -153,7 +160,7 @@ class _ChatPageState extends State<ChatPage> {
 
   /// Rebuilds the session because a session setting changed.
   ///
-  /// There is no way to change `toolChoice` or `isThinking` on a live chat:
+  /// There is no way to change `toolChoice` or `enableThinking` on a live chat:
   /// both are decided when the session is created — one travels with the
   /// declarations the session is opened with, the other switches on a
   /// generation channel — so the honest thing is to close this one and open
@@ -243,7 +250,7 @@ class _ChatPageState extends State<ChatPage> {
             }
           case ThinkingResponse(:final content):
             // These reach the stream only because the chat was opened with
-            // `isThinking: true`; with it false the SDK drops them before this
+            // `enableThinking: true`; with it false the SDK drops them before this
             // loop ever sees one.
             _thought.write(content);
             if (mounted) setState(_paintThinking);
@@ -367,7 +374,7 @@ class _ChatPageState extends State<ChatPage> {
           _chat = null;
         });
       }
-      await FlutterGemma.uninstallModel(widget.model.fileName);
+      await FlutterEdgeAi.uninstallModel(widget.model.fileName);
       if (mounted) widget.onModelRemoved();
     } catch (error) {
       // Deleting can fail too — a missing install record, a file the OS still

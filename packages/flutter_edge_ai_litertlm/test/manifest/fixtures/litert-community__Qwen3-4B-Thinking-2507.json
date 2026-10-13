@@ -1,0 +1,215 @@
+{
+  "manifest_schema": "0.1.2",
+  "repo": "litert-community/Qwen3-4B-Thinking-2507",
+  "generated": "2026-09-06",
+  "generator": "make_manifest.py",
+  "model": {
+    "display_name": "Qwen3-4B-Thinking-2507",
+    "base_model": "Qwen/Qwen3-4B-Thinking-2507",
+    "architecture": "qwen3-dense (36 layers)",
+    "parameters_b": 4.0,
+    "license": "apache-2.0",
+    "session_defaults": {
+      "max_output_tokens_min": 2048,
+      "notes": "Reasoning model: it emits a <think>...</think> chain before the answer. At a short output budget it is cut off mid-thought and never answers."
+    },
+    "context_length": 4096,
+    "capabilities": {
+      "vision": false,
+      "audio": false,
+      "thinking": {
+        "declared": true,
+        "channel": {
+          "start": "<think>\n",
+          "end": "\n</think>"
+        }
+      },
+      "channels": [
+        {
+          "name": "thought",
+          "start": "<think>\n",
+          "end": "\n</think>"
+        }
+      ]
+    }
+  },
+  "variants": [
+    {
+      "file": "Qwen3_4b_thinking_dynamic_wi4b32_afp32.litertlm",
+      "sha256": "a412d77da3a15047232ce525d126a8cdb803691d29df791f13a9ef4cffab309a",
+      "size_bytes": 2274193168,
+      "sections": [
+        {
+          "type": "LlmMetadataProto",
+          "size_bytes": 3228
+        },
+        {
+          "type": "ExecutorMetadataProto",
+          "size_bytes": 4967
+        },
+        {
+          "type": "HF_Tokenizer_Zlib",
+          "size_bytes": 2142162
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 2271997712,
+          "model_type": "tf_lite_prefill_decode"
+        }
+      ],
+      "quantization": "dynamic int4 block-32 weights, fp32 activations; GPU graph optimizations (RoPE/fused-QKV/fused-GateUp composites), static prefill allocation",
+      "backends": [
+        "cpu",
+        "gpu"
+      ],
+      "measured": [
+        {
+          "device": "Galaxy S26 (SM-S942Q, Qualcomm SM8850, Adreno)",
+          "backend": "gpu",
+          "runtime": "litert_lm_advanced_main v0.16.0, LiteRT CL delegate",
+          "prompt_tokens": 202,
+          "decode_tokens": 3894,
+          "prefill_tps": 225.3,
+          "decode_tps": 15.29,
+          "ttft_s": 0.96,
+          "load_s": 11.0,
+          "peak_memory_mb": 1627,
+          "runs": 1,
+          "date": "2026-08-24",
+          "source": "S4 GPU gate, 205-token benchmark, single run; full delegation (3764 ops across 3 subgraphs); generation gate answered the probe correctly. No same-device CPU control was taken, so this is a GPU speed, not a measured win over CPU."
+        }
+      ],
+      "default_backend": "cpu",
+      "recommended": [
+        {
+          "platform": "android",
+          "device_class": "flagship",
+          "backend": "gpu",
+          "reason": "the Android path verified on a Galaxy S26 (S4 gate 2026-08-24): full delegation (3764 ops across 3 subgraphs) and a correct answer to the probe; 15.3 tok/s decode, engine init 11.0 s, peak 1627 MB; the repo's other S26-verified file (model.litertlm) decodes 9.0 tok/s on the same handset. No same-device CPU control was taken, so this is the verified choice for the class, not a measured win over CPU"
+        }
+      ],
+      "min_runtime_version": "0.15.0",
+      "known_issues": [
+        "Block-32 int4 corrupts GPU output beyond iPhone: macOS Metal also degenerates (question-echo loops, truncated reasoning; measured 2026-08-31 before and after the metadata repair, pre-existing). Use this file on CPU; it delegated and generated on the Galaxy S26 Android GPU gate (2026-08-24). The block-128 file is the GPU-safe choice"
+      ]
+    },
+    {
+      "file": "model.litertlm",
+      "sha256": "356b2d7778d27d55fbb0d2e0c5e8801e9de136db59849c41c882bd97333840d5",
+      "size_bytes": 2474357680,
+      "sections": [
+        {
+          "type": "LlmMetadataProto",
+          "size_bytes": 191
+        },
+        {
+          "type": "HF_Tokenizer_Zlib",
+          "size_bytes": 2142162
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 2079558192,
+          "model_type": "tf_lite_prefill_decode"
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 392606640,
+          "model_type": "tf_lite_embedder"
+        }
+      ],
+      "quantization": "int4 block-128 symmetric weights + OCTAV optimal clipping; int8 embeddings (externalized section)",
+      "backends": [
+        "cpu",
+        "gpu"
+      ],
+      "default_backend": "gpu",
+      "min_runtime_version": "0.15.0",
+      "recommended": [
+        {
+          "platform": "macos",
+          "backend": "gpu",
+          "reason": "~9x prefill and ~3.8x decode vs CPU on the same file"
+        },
+        {
+          "platform": "ios",
+          "backend": "gpu",
+          "reason": "block-128 is the iPhone-safe int4 recipe for this family; prefer this file over the block-32 variant on iPhone GPU"
+        }
+      ],
+      "requirements": {
+        "platform_notes": [
+          "4B-class file (2.47 GB): budget device RAM accordingly; on Android import via AI Edge Gallery and enable the GPU toggle at import",
+          "iPhone 17 Pro Metal decode was observed at ~14 tok/s in an earlier on-device note; its run log is not retained, so it is not listed as a measured row"
+        ]
+      },
+      "measured": [
+        {
+          "device": "Apple M4 Max",
+          "os": "macOS",
+          "backend": "gpu",
+          "runtime": "litert-lm 0.15.0 (pip CLI benchmark)",
+          "prompt_tokens": 256,
+          "decode_tokens": 256,
+          "prefill_tps": 999.3,
+          "decode_tps": 68.5,
+          "ttft_s": 0.28,
+          "max_num_tokens": 4096,
+          "cache": "no",
+          "runs": 3,
+          "date": "2026-08-11",
+          "source": "cardbench Mac LLM sweep; model card Performance table"
+        },
+        {
+          "device": "Apple M4 Max",
+          "os": "macOS",
+          "backend": "cpu",
+          "runtime": "litert-lm 0.15.0 (pip CLI benchmark)",
+          "prompt_tokens": 256,
+          "decode_tokens": 256,
+          "prefill_tps": 111.0,
+          "decode_tps": 17.8,
+          "ttft_s": 2.49,
+          "max_num_tokens": 4096,
+          "cache": "no",
+          "runs": 3,
+          "date": "2026-08-11",
+          "source": "cardbench Mac LLM sweep; model card Performance table"
+        },
+        {
+          "device": "Galaxy S26 (SM-S942Q, Qualcomm SM8850, Adreno)",
+          "backend": "gpu",
+          "runtime": "litert_lm_advanced_main v0.16.0, LiteRT CL delegate",
+          "prompt_tokens": 202,
+          "decode_tokens": 1908,
+          "prefill_tps": 129.4,
+          "decode_tps": 8.98,
+          "ttft_s": 1.67,
+          "load_s": 11.0,
+          "peak_memory_mb": 971,
+          "runs": 1,
+          "date": "2026-08-24",
+          "source": "S4 GPU gate, 205-token benchmark, single run; full delegation (3270 ops across 2 subgraphs); generation gate answered the probe correctly. No same-device CPU control was taken, so this is a GPU speed, not a measured win over CPU."
+        },
+        {
+          "device": "Galaxy S26 (SM-S942Q, Qualcomm SM8850, Adreno)",
+          "backend": "cpu",
+          "runtime": "litert_lm_advanced_main v0.16.0 (XNNPACK CPU)",
+          "prompt_tokens": 204,
+          "decode_tokens": 1694,
+          "prefill_tps": "63.0-64.7",
+          "decode_tps": 5.96,
+          "ttft_s": "3.32-3.4",
+          "load_s": 3.4,
+          "peak_memory_mb": 3787,
+          "cache": "no",
+          "runs": 2,
+          "date": "2026-09-05",
+          "source": "S7 Android backfill: same-device CPU control - identical binary, prompt file and flags, only --backend differs; 205-token prompt with --benchmark, 2 cold runs (compile/weight caches deleted between runs, device cooled below 42 C before each run); same-device control for an existing GPU row on this handset"
+        }
+      ],
+      "known_issues": [
+        "Pixel 8a (8 GB): the prefill graph delegates 1674/1674 nodes on OpenCL but execution OOM-reboots the phone (Android GPU re-gate 2026-08-17, transfer verified byte-for-byte); use CPU or a 12 GB-class device for GPU"
+      ]
+    }
+  ]
+}

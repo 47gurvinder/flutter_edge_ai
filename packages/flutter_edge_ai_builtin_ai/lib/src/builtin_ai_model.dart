@@ -1,0 +1,428 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb, visibleForTesting;
+import 'package:flutter_edge_ai/engine.dart'
+    show
+        CloseNotifier,
+        InferenceChat,
+        InferenceModel,
+        InferenceModelSession,
+        ModelFileType,
+        ModelType,
+        PreferredBackend,
+        SamplingParams,
+        Tool,
+        ToolChoice,
+        defaultMaxFunctionBufferLength,
+        edgeAiLog;
+import 'package:flutter_local_ai/flutter_local_ai.dart'
+    show LocalAi, LocalAiModel;
+import 'package:meta/meta.dart' show experimental;
+
+import 'builtin_ai_session.dart';
+
+/// One-time guard so requesting thinking mode logs a single warning rather
+/// than spamming one per session/chat. Built-in OS models expose no thinking
+/// control, so the flag is accepted (for API parity) and ignored.
+bool _thinkingUnsupportedWarned = false;
+
+@visibleForTesting
+void resetThinkingUnsupportedWarning() => _thinkingUnsupportedWarned = false;
+
+void _warnThinkingIgnoredOnce() {
+  if (_thinkingUnsupportedWarned) return;
+  _thinkingUnsupportedWarned = true;
+  edgeAiLog(
+    '[BuiltInAI] Thinking mode is not supported by built-in OS models '
+    '(Gemini Nano / Apple Foundation Models); the flag is ignored.',
+  );
+}
+
+// flutter_local_ai 0.2.1's own `openSession` defaults. It takes no null
+// temperature or top-k, so an unset one is sent as these, as built-in AI
+// always has: the OS models' own defaults are out of reach until it does, and
+// an invented top-k could exceed a browser's `maxTopK`, which Chrome 151+ no
+// longer lets flutter_local_ai clamp to. top-p is passed only when set; it
+// reaches Windows only (Android and Chrome drop it, Apple's sampler takes the
+// top-k first).
+const _localAiTemperature = 0.8;
+const _localAiTopK = 1;
+
+bool _greedyTopKWarned = false;
+bool _seedIgnoredWarned = false;
+bool _topPIgnoredWarned = false;
+
+@visibleForTesting
+void resetSamplingWarnings() {
+  _greedyTopKWarned = false;
+  _seedIgnoredWarned = false;
+  _topPIgnoredWarned = false;
+}
+
+/// Throws for a value no engine can sample with, before anything is closed or
+/// opened, and says once what built-in AI cannot honour. Printed, because a
+/// release build is where it gets reported and edgeAiLog is silent there.
+void _checkSampling({
+  required double? temperature,
+  required int? topK,
+  required double? topP,
+  required int? randomSeed,
+}) {
+  final explicit = SamplingParams(
+    temperature: temperature,
+    topK: topK,
+    topP: topP,
+    randomSeed: randomSeed,
+  )..validate();
+  if (explicit.needsSamplingTopK && !_greedyTopKWarned) {
+    _greedyTopKWarned = true;
+    // ignore: avoid_print
+    print(
+      '[flutter_edge_ai_builtin_ai] WARNING: a temperature or topP was set '
+      'without topK, so the OS model gets topK $_localAiTopK and decodes '
+      'greedily. Pass a topK above 1 to sample. Shown once.',
+    );
+  }
+  final topPApplies =
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+  if (topP != null && !topPApplies && !_topPIgnoredWarned) {
+    _topPIgnoredWarned = true;
+    // ignore: avoid_print
+    print(
+      '[flutter_edge_ai_builtin_ai] WARNING: topP is ignored: only Windows '
+      "applies it; Android and Chrome drop it, and Apple's sampler takes the "
+      'top-k first. Shown once.',
+    );
+  }
+  if (randomSeed != null && !_seedIgnoredWarned) {
+    _seedIgnoredWarned = true;
+    // ignore: avoid_print
+    print(
+      '[flutter_edge_ai_builtin_ai] WARNING: randomSeed is ignored: built-in '
+      'OS models take no seed. Shown once.',
+    );
+  }
+}
+
+/// A loaded OS built-in model, adapting flutter_local_ai's [LocalAiModel] to
+/// flutter_edge_ai's [InferenceModel].
+///
+/// The OS owns the weights, so this is a session factory rather than anything
+/// holding a checkpoint. It supports both flutter_edge_ai session lanes:
+/// [createSession] keeps the singleton [session] field (replacing and closing
+/// any previous one), while [openSession] returns detached sessions for
+/// concurrent conversations. Mixes [CloseNotifier] so core can reset its
+/// singleton bookkeeping on close.
+class BuiltInAiModel extends InferenceModel with CloseNotifier {
+  BuiltInAiModel({
+    required this._model,
+    required this.modelType,
+    required this.maxTokens,
+    required this.supportImage,
+    this.fileType = ModelFileType.builtIn,
+    this.systemInstruction,
+    this.maxNumImages,
+    this.maxConcurrentSessions,
+  });
+
+  final LocalAiModel _model;
+  final ModelType modelType;
+  final bool supportImage;
+  final String? systemInstruction;
+  final int? maxNumImages;
+  final int? maxConcurrentSessions;
+  int _openingSessions = 0;
+  Future<void> _singletonTail = Future.value();
+
+  @override
+  final ModelFileType fileType;
+
+  @override
+  final int maxTokens;
+
+  /// The OS chooses its own accelerator and does not report which; claiming one
+  /// would be a guess.
+  @override
+  PreferredBackend? get activeBackend => null;
+
+  /// The underlying flutter_local_ai model.
+  ///
+  /// This is the supported escape hatch for the capabilities flutter_edge_ai's
+  /// [InferenceModel] has no slot for — native tool calling and
+  /// schema-constrained output. Open a `LocalAiSession` from it (or reach one
+  /// through [BuiltInAiSession.localAiSession]) and drive flutter_local_ai's
+  /// own API directly; the two APIs share one host, so sessions opened either
+  /// way coexist.
+  ///
+  /// Experimental: this is a `flutter_local_ai` type, so it may change with
+  /// that package's next major release independently of this one.
+  @experimental
+  LocalAiModel get localAiModel => _model;
+
+  bool _isClosed = false;
+
+  @override
+  bool get isClosed => _isClosed;
+  BuiltInAiSession? _session;
+  final List<BuiltInAiSession> _openSessions = [];
+
+  @override
+  InferenceModelSession? get session => _session;
+
+  @override
+  List<InferenceModelSession> get sessions =>
+      List.unmodifiable([?_session, ..._openSessions]);
+
+  Future<BuiltInAiSession> _newSession({
+    required double? temperature,
+    required int? topK,
+    required double? topP,
+    required bool? enableVisionModality,
+    required bool? enableAudioModality,
+    required String? systemInstruction,
+    required bool enableThinking,
+    required int? maxOutputTokens,
+    required void Function(BuiltInAiSession session) onClose,
+  }) async {
+    if (_isClosed) {
+      throw StateError(
+        'Model is closed. Create a new instance to use it again',
+      );
+    }
+    if (enableAudioModality == true) {
+      throw UnsupportedError('Audio is not supported by built-in OS models');
+    }
+    if (enableThinking) _warnThinkingIgnoredOnce();
+
+    final vision = enableVisionModality ?? supportImage;
+    if (maxConcurrentSessions != null &&
+        _model.sessions.length + _openingSessions >= maxConcurrentSessions!) {
+      throw StateError(
+        'Maximum concurrent sessions reached ($maxConcurrentSessions).',
+      );
+    }
+    _openingSessions++;
+    try {
+      // Vision is refused at configuration time, not at the first image: an
+      // explicit `enableVisionModality: true` the backend cannot honour is a
+      // mistake, and a session that quietly is not the one that was asked for
+      // fails later and further from the cause.
+      if (vision && !(await LocalAi.capabilities()).supportsVision) {
+        throw UnsupportedError('This backend does not support image input.');
+      }
+      // `tools` is deliberately NOT forwarded to flutter_local_ai's native
+      // tool API below. flutter_edge_ai's InferenceChat owns function calling:
+      // it weaves the declarations into the prompt and parses the calls back
+      // out, and the app executes them. Handing the same tools to the native
+      // runner as well would produce two competing tool loops for one turn.
+      // Native tool calling stays reachable through `localAiModel` /
+      // `BuiltInAiSession.localAiSession`.
+      final inner = await _model.openSession(
+        temperature: temperature ?? _localAiTemperature,
+        // temperature 0 is greedy on every engine, whatever top-k comes with
+        // it; what the OS models make of a temperature of 0 is unknown.
+        topK: SamplingParams(temperature: temperature, topK: topK).isGreedy
+            ? 1
+            : topK ?? _localAiTopK,
+        topP: topP,
+        maxOutputTokens: maxOutputTokens,
+        systemInstruction: systemInstruction ?? this.systemInstruction,
+      );
+
+      if (_isClosed) {
+        await inner.close();
+        throw StateError('Model closed while the session was opening.');
+      }
+      late final BuiltInAiSession created;
+      created = BuiltInAiSession(
+        session: inner,
+        modelType: modelType,
+        fileType: fileType,
+        supportImage: vision,
+        maxNumImages: maxNumImages,
+        onClose: () => onClose(created),
+      );
+      return created;
+    } finally {
+      _openingSessions--;
+    }
+  }
+
+  @override
+  Future<InferenceModelSession> createSession({
+    double? temperature,
+    int? randomSeed,
+    int? topK,
+    double? topP,
+    String? loraPath,
+    bool? enableVisionModality,
+    bool? enableAudioModality,
+    String? systemInstruction,
+    bool enableThinking = false,
+    List<Tool> tools = const [],
+    int? maxOutputTokens,
+  }) async {
+    final previousCreation = _singletonTail;
+    final completed = Completer<void>();
+    _singletonTail = completed.future;
+    await previousCreation;
+    try {
+      if (loraPath != null) {
+        throw UnsupportedError('LoRA is not exposed by this engine.');
+      }
+      _checkSampling(
+        temperature: temperature,
+        topK: topK,
+        topP: topP,
+        randomSeed: randomSeed,
+      );
+      // The singleton lane: a new session replaces the previous one, whose
+      // native context must be released first.
+      final previous = _session;
+      if (previous != null) await previous.close();
+
+      final created = await _newSession(
+        temperature: temperature,
+        topK: topK,
+        topP: topP,
+        enableVisionModality: enableVisionModality,
+        enableAudioModality: enableAudioModality,
+        systemInstruction: systemInstruction,
+        enableThinking: enableThinking,
+        maxOutputTokens: maxOutputTokens,
+        // Identity-guarded: a late close of a superseded session must not null
+        // out a newer one.
+        onClose: (session) {
+          if (identical(_session, session)) _session = null;
+        },
+      );
+      _session = created;
+      return created;
+    } finally {
+      completed.complete();
+    }
+  }
+
+  @override
+  Future<InferenceModelSession> openSession({
+    double? temperature,
+    int? randomSeed,
+    int? topK,
+    double? topP,
+    String? loraPath,
+    bool? enableVisionModality,
+    bool? enableAudioModality,
+    String? systemInstruction,
+    bool enableThinking = false,
+    List<Tool> tools = const [],
+    int? maxOutputTokens,
+  }) async {
+    if (loraPath != null) {
+      throw UnsupportedError('LoRA is not exposed by this engine.');
+    }
+    _checkSampling(
+      temperature: temperature,
+      topK: topK,
+      topP: topP,
+      randomSeed: randomSeed,
+    );
+    final created = await _newSession(
+      temperature: temperature,
+      topK: topK,
+      topP: topP,
+      enableVisionModality: enableVisionModality,
+      enableAudioModality: enableAudioModality,
+      systemInstruction: systemInstruction,
+      enableThinking: enableThinking,
+      maxOutputTokens: maxOutputTokens,
+      onClose: _openSessions.remove,
+    );
+    _openSessions.add(created);
+    return created;
+  }
+
+  @override
+  Future<InferenceChat> createChat({
+    double? temperature,
+    int? randomSeed,
+    int? topK,
+    double? topP,
+    int tokenBuffer = 256,
+    String? loraPath,
+    bool? supportImage,
+    bool? supportAudio,
+    List<Tool> tools = const [],
+    bool? supportsFunctionCalls,
+    bool enableThinking = false,
+    ModelType? modelType,
+    ToolChoice toolChoice = ToolChoice.auto,
+    int? maxFunctionBufferLength,
+    String? systemInstruction,
+    int? maxOutputTokens,
+  }) async {
+    if (supportAudio == true) {
+      throw UnsupportedError('Audio is not supported by built-in OS models');
+    }
+    chat = InferenceChat(
+      sessionCreator: () => createSession(
+        temperature: temperature,
+        randomSeed: randomSeed,
+        topK: topK,
+        topP: topP,
+        loraPath: loraPath,
+        enableVisionModality: supportImage ?? this.supportImage,
+        systemInstruction: systemInstruction ?? this.systemInstruction,
+        enableThinking: enableThinking,
+        tools: tools,
+        maxOutputTokens: maxOutputTokens,
+      ),
+      maxTokens: maxTokens,
+      tokenBuffer: tokenBuffer,
+      supportImage: supportImage ?? this.supportImage,
+      supportAudio: false,
+      supportsFunctionCalls: supportsFunctionCalls ?? false,
+      maxFunctionBufferLength:
+          maxFunctionBufferLength ?? defaultMaxFunctionBufferLength,
+      tools: tools,
+      modelType: modelType ?? this.modelType,
+      enableThinking: enableThinking,
+      fileType: fileType,
+      toolChoice: toolChoice,
+      systemInstruction: systemInstruction ?? this.systemInstruction,
+    );
+    await chat!.initSession();
+    return chat!;
+  }
+
+  /// The teardown in progress, shared by every caller of [close]: a second
+  /// call waits for it instead of returning at once, so core can tell when
+  /// the model is really gone before it builds the next one.
+  Future<void>? _closeFuture;
+
+  @override
+  Future<void> close() {
+    final teardown = _closeFuture;
+    if (teardown != null) return teardown;
+    final settled = Completer<void>();
+    _closeFuture = settled.future;
+    // The first caller gets the teardown's own outcome; every later caller
+    // gets `settled`, which completes normally once the teardown has ended.
+    return _close().whenComplete(settled.complete);
+  }
+
+  Future<void> _close() async {
+    _isClosed = true;
+    // Release the model and reset core's singleton bookkeeping even if its
+    // close throws — otherwise a phantom model lingers in the registry. The
+    // OS model goes first: core builds the next model once the listeners
+    // fire.
+    try {
+      _session = null;
+      _openSessions.clear();
+      await _model.close();
+    } finally {
+      fireCloseListeners();
+    }
+  }
+}

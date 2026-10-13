@@ -1,10 +1,10 @@
 ---
 name: build-native
-description: Rebuild native LiteRT-LM prebuilts for flutter_gemma (iOS / macOS / Linux / Windows / Android) — covers required build flags, the upstream commit pin, and a mandatory post-build verification checklist that catches the bugs we have already shipped at users.
+description: Rebuild native LiteRT-LM prebuilts for flutter_edge_ai (iOS / macOS / Linux / Windows / Android) — covers required build flags, the upstream commit pin, and a mandatory post-build verification checklist that catches the bugs we have already shipped at users.
 user_invocable: true
 ---
 
-# Build native dylibs for flutter_gemma — the right way
+# Build native dylibs for flutter_edge_ai — the right way
 
 This skill exists because we shipped 0.14.0 and 0.14.1 with native dylibs that broke real users (App Store rejection in 0.14.0, `install_name_tool` headerpad failure in 0.14.1, x86_64-not-arm64 in upstream prebuilts). Every one of those was caught **after** publish. The verification checklist below would have caught all of them locally.
 
@@ -19,6 +19,13 @@ and pointed at `native/litert_lm/…`, which does not exist from the root. `nm` 
 whole verification checklist read as passing while touching no artifact at all —
 the same defect the checklist exists to catch, applied to itself. When you add a
 command here, run it from the root first and confirm it produces output.
+
+**Use `/usr/bin/grep` when you paste a check into an interactive shell.** In the
+agent's zsh, `grep` is a shell function over a ripgrep-style search that skips
+binary files and hidden files. `grep -q LogitMask <provider>` then answers "no"
+for a provider that has it (a false ABI MISMATCH at the v0.18.0 bump), and a
+recursive search never opens `.bazelrc`. The build scripts are unaffected —
+they run under bash, which does not inherit zsh functions.
 
 ---
 
@@ -47,8 +54,8 @@ gh api "repos/google-ai-edge/LiteRT-LM/contents/prebuilt/ios_arm64?ref=<tag>" --
 
 A LiteRT-LM bump silently moves `LITERT_REF` in `WORKSPACE` (line ~6), and that is a **different upstream repo** with its own C API. This matters because three separate things bind to it:
 
-- `flutter_gemma_litertlm` → LiteRT-LM C API (`c/engine.h`)
-- `flutter_gemma_speech` → **LiteRT** C API directly, via litertlm's `lib/src/ffi/litert_bindings.dart`
+- `flutter_edge_ai_litertlm` → LiteRT-LM C API (`c/engine.h`)
+- `flutter_edge_ai_speech` → **LiteRT** C API directly, via litertlm's `lib/src/ffi/litert_bindings.dart`
 - **both NPU dispatch libraries** → the `LiteRtDispatchApi` struct and the LiteRT runtime they are loaded into
 
 So a green litertlm smoke run proves nothing about embeddings, and nothing at all about NPU. In the v0.14.0 migration the pin moved, `LiteRtCreateModelFromFile` gained a third parameter (`LiteRtEnvironment` first), and embeddings silently returned `status=500` — a full day lost before the cause was found.
@@ -64,13 +71,13 @@ old embeddings-only grep now misses more than half of them (23 vs 52 symbols):
 
 ```bash
 grep -rohE "LiteRt[A-Za-z_]+" \
-  packages/flutter_gemma_litertlm/lib/src/ffi/litert_bindings.dart \
-  packages/flutter_gemma_speech/lib/src/litert/ | sort -u
+  packages/flutter_edge_ai_litertlm/lib/src/ffi/litert_bindings.dart \
+  packages/flutter_edge_ai_speech/lib/src/litert/ | sort -u
 ```
 
 **Diff the structs too, not only the function signatures.** A struct we mirror by hand (`LiteRtLayout`, `LiteRtRankedTensorType`) can change layout while every symbol and signature stays the same, so the symbol list above passes. LiteRT `d84656955` (2026-07-09) turned `bool has_strides : 1` into `unsigned int has_strides : 1`, which moved `dimensions[]` from offset 8 to 4 **under MSVC only**; our Windows-only mirror kept offset 8 and broke Windows embeddings and speech from native-v0.16.0 on (pitfall #16). Diff `litert/c/litert_layout.h` and `litert/c/litert_model_types.h` at both refs, and when a divergence we work around disappears upstream, delete the workaround in the same bump. `test/ffi/litert_layout_abi_test.dart` pins the current sizes.
 
-Known pins: v0.14.0 → `622f1f3c` (**breaking** for embeddings; predates `d84656955`); v0.15.0 → `3cb830ad` (safe — four headers byte-identical, `litert_compiled_model.h` only gains `LiteRtGetCompiledModelEnvironment()`); v0.16.0 → `0ff28117f1cb5556d0e015bf80b773f74e2bee51` (contains `d84656955`); v0.17.0 → `9fe5be45564c868408e6514c8aabb83e211a0911` (headers additive; the GPU samplers' `Create` gained a leading `runtime_c_api` argument, prebuilt samplers refreshed upstream in `a24911058`).
+Known pins: v0.14.0 → `622f1f3c` (**breaking** for embeddings; predates `d84656955`); v0.15.0 → `3cb830ad` (safe — four headers byte-identical, `litert_compiled_model.h` only gains `LiteRtGetCompiledModelEnvironment()`); v0.16.0 → `0ff28117f1cb5556d0e015bf80b773f74e2bee51` (contains `d84656955`); v0.17.0 → `9fe5be45564c868408e6514c8aabb83e211a0911` (headers additive; the GPU samplers' `Create` gained a leading `runtime_c_api` argument, prebuilt samplers refreshed upstream in `a24911058`); v0.18.0 → `26895c9fbcc25c43faa8c1a98cd1fd28951602c3` (the seven binding headers byte-identical, `litert_common.h` / `litert_tensor_buffer_types.h` comment-only; deletes `resolve_symbols_in_exec` in `fd031ae5`, see below).
 
 **Never hardcode this ref in a build script.** `build_qualcomm_dispatch.sh` carried a literal `5c5b9ce6` from the native-v0.12.0 era and nobody noticed for four releases, because a stale dispatch library does not fail politely — see the NPU section below. Derive it from the WORKSPACE of the LiteRT-LM revision being built:
 
@@ -89,20 +96,28 @@ A `--define` that upstream has deleted is **not an error**. Bazel accepts any `-
 
 We passed `--define=litert_link_capi_so=true` on Windows and Linux for three releases. Upstream removed the name; **no `config_setting` reads it** in the v0.16.0 tree (a plain grep still finds one commented-out mention in `.github/workflows/ci-build-mac.yml`, which is why the recipe below greps only `.bzl`/`BUILD`/`.bazelrc`). The live name is `litert_runtime_link_mode=dynamic`. This was harmless until v0.14.0 split Dawn out of the WebGPU accelerator, from which point the statically-linked runtime is exactly what crashed GPU `engine_create` — reported upstream as #2957 and **retracted**, because the cause was ours.
 
-Before trusting any define in a build command, grep the tree you are about to build:
+Before trusting any define in a build command, grep **both** trees it can live in — LiteRT-LM, and LiteRT at the derived `LITERT_REF` (a define read only by `@litert` never appears in the LiteRT-LM tree, so grepping that alone reports "dead" for a live flag and "dead" for a dead one alike):
 
 ```bash
-for d in litert_runtime_link_mode resolve_symbols_in_exec <any-other>; do
-  printf "%-32s %s\n" "$d" "$(grep -rl "$d" /tmp/LiteRT-LM --include='*.bzl' --include='BUILD*' --include='*.bazelrc' 2>/dev/null | wc -l)"
+# Query the LiteRT-LM workspace, not the repo root (not a Bazel workspace), and
+# only after a build/fetch at this pin — otherwise LR points nowhere and every
+# define reads litert=0.
+LR="$(cd /tmp/LiteRT-LM && bazelisk info output_base 2>/dev/null)/external/litert"
+[ -d "$LR/litert" ] || echo "LiteRT not fetched at $LR — run a build or 'bazelisk fetch' first"
+for d in litert_runtime_link_mode <any-other>; do
+  printf "%-32s lm=%s litert=%s\n" "$d" \
+    "$(/usr/bin/grep -rl "$d" /tmp/LiteRT-LM --include='*.bzl' --include='BUILD*' --include='.bazelrc' --include='*.bazelrc' 2>/dev/null | wc -l)" \
+    "$(/usr/bin/grep -rl "$d" "$LR" --include='*.bzl' --include='BUILD*' 2>/dev/null | wc -l)"
 done
 ```
 
-Zero files means the flag is dead — find the replacement in `docs/getting-started/build-and-run.md`, do not leave it in "just in case". Both of the current desktop defines are documented there as **mandatory for GPU**:
+Zero in both means the flag is dead — find the replacement in `docs/getting-started/build-and-run.md`, do not leave it in "just in case". The one current desktop define is documented there as **mandatory for GPU**:
 
 | Define | Why |
 |---|---|
 | `litert_runtime_link_mode=dynamic` | Keeps the LiteRt C API **out** of `libLiteRtLm` so it resolves against the separately shipped `libLiteRt` at runtime — which is what the prebuilt WebGPU accelerator and the split `libwebgpu_dawn` expect. |
-| `resolve_symbols_in_exec=false` | Without it Bazel cannot resolve `LiteRt*` imports at link time (167 unresolved externals). |
+
+`resolve_symbols_in_exec=false` used to sit in this table. LiteRT `fd031ae5` (2026-08-28, inside the v0.18.0 pin) deleted the flag together with every `select` that read it and hard-wired the branch `=false` picked (the DLL import library on Windows), so dropping it changes nothing in the build. It was removed from both workflows at the v0.18.0 bump.
 
 ### Required linker flags
 
@@ -129,12 +144,12 @@ Anything at or near the current macOS release means the flag was dropped. Rebuil
 
 ### Patches we apply
 
-`packages/flutter_gemma_litertlm/native/litert_lm/patch_c_api.sh` — the surviving sections (2–9 were **deleted** at the v0.14.0 migration once upstream implemented them natively; don't go looking for them):
+`packages/flutter_edge_ai_litertlm/native/litert_lm/patch_c_api.sh` — the surviving sections (2–9 were **deleted** at the v0.14.0 migration once upstream implemented them natively; don't go looking for them):
 
 1. `cc_binary(linkshared=True)` target + Linux dynamic-list + Windows .def
 4b. `set_use_hw_masking_for_npu` (Intel LunarLake/PantherLake — default `true` crashes their NPU)
 4c. GPU smooth-UI knobs — `gpu_context_low_priority` + `kernel_batch_size` (#364)
-10b. **App Store ITMS-90432 fix** — rewrite `gpu_registry.cc` dlopen to `@executable_path/...framework/<X>` on Apple. **iOS-critical.**
+10b. **App Store ITMS-90432 fix** — rewrite `gpu_registry.cc` dlopen to `@executable_path/...framework/<X>` on Apple. **iOS-critical.** Plus `patches/litert_gpu_registry_apple.patch` (since native-v0.18.0-b), added to the `litert` archive as `patches=`: on Apple our framework is the ONLY GPU accelerator tried, and the `RTLD_DEFAULT` fallback is off — see "coexisting LiteRT runtimes" below.
 11. minizip/zlib mirrored off the flaky zlib.net
 
 §10a (sampler_factory.cc) is **deliberately NOT patched** — `libLiteRtTopKMetalSampler.dylib` has 3-of-7 broken exports on Apple (#2073). Patching it surfaces a NULL-vtable crash. Leave the basename dlopen so `sampler_factory.cc` falls back to CPU sampler. Revisit when Google fixes #2073.
@@ -153,14 +168,39 @@ Make it fail instead of trusting yourself to read the log:
 
 ```bash
 LOG=/tmp/patch_c_api.log
-bash packages/flutter_gemma_litertlm/native/litert_lm/patch_c_api.sh /tmp/LiteRT-LM 2>&1 | tee "$LOG"
+bash packages/flutter_edge_ai_litertlm/native/litert_lm/patch_c_api.sh /tmp/LiteRT-LM 2>&1 | tee "$LOG"
 grep -q WARN "$LOG" && { echo "PATCH INCOMPLETE — a target moved, do not build"; exit 1; }
 
-# Assert the artifact, not the log line: §10b's macro must be in the patched file.
-grep -q FLUTTER_GEMMA_METAL_FW_PATH \
-  /tmp/LiteRT-LM/litert/runtime/accelerators/gpu_registry.cc \
+# Assert the artifact, not the log line. gpu_registry.cc lives in LiteRT, not
+# in this tree — §10b patches WORKSPACE so Bazel rewrites it at fetch time.
+grep -q FLUTTER_GEMMA_GPU_REGISTRY_PATCH /tmp/LiteRT-LM/WORKSPACE \
   || { echo "§10b did not apply — iOS GPU would ship broken"; exit 1; }
 ```
+
+That proves the patch is queued, not that it compiled in — post-build check #5 (the `@executable_path` string inside the dylib) is what proves that. At v0.18.0 the WARN fired for real: upstream rewrote the `litert` `patch_cmds` entry our anchor matched, and the script exited 0. §10b now anchors on the `patch_cmds = [` list of the `litert` archive itself.
+
+**Coexisting LiteRT runtimes (litertlm 1.10.0 → native-v0.18.0-b).** An app can
+hold a second LiteRT: `flutter_litert` ≥ 3.4 embeds its own `LiteRt.framework`
+and `LiteRtMetalAccelerator.framework` (LiteRT 2.1.5 at 3.9.3). Upstream
+`gpu_registry.cc` tries the generic `libLiteRtGpuAccelerator` first, and when a
+`dlopen` fails it calls `dlsym(RTLD_DEFAULT, "LiteRtRegisterGpuAccelerator")` —
+the first such symbol in load order. flutter_litert's accelerator is linked at
+launch, ours is `dlopen`ed later, so the fallback registered **their**
+accelerator into **our** environment and the app crashed in
+`LiteRtCreateCompiledModel`. The rename to `LiteRtLmMetalAccelerator` (§10)
+fixed the framework-name collision and is what exposed this: 1.10.0 shipped
+it, crashed on the first iPhone that also ran a flutter_litert GPU model, and
+the rename was never run in that app before publishing. The patch is a real
+diff, not one more sed: Bazel applies `patches` before `patch_cmds` and fails
+the fetch when a hunk does not apply, which is the loud failure a moved
+upstream line has to produce. `patch_c_api.sh` refuses a tree an older
+patcher already touched (sed without the diff), and `build_{ios,macos}.sh`
+refuse a `libLiteRtLm.dylib` that still names `libLiteRtGpuAccelerator` or the
+bare `LiteRtMetalAccelerator`. The one test that proves it is the app with
+flutter_litert on a real iPhone (litert_hackathon `--selftest`: detector GPU,
+Gemma GPU, detector again) — the console must show
+`Dynamically loaded GPU accelerator(@executable_path/Frameworks/LiteRtLmMetalAccelerator.framework/LiteRtLmMetalAccelerator) registered`
+as the FIRST attempt.
 
 On Windows/git-bash, `python3` resolves to the Microsoft Store stub, which prints "Python was not found" **and still exits 0** — so sections 10b and 11 silently no-op. Shim it first:
 `printf '#!/bin/sh\nexec "<path>/python.exe" "$@"\n' > /somewhere/python3 && chmod +x` and prepend that dir to `PATH`.
@@ -193,12 +233,13 @@ Verify the LFS pull produced real binaries, not pointers — `head -c 20 <file>`
 
 **This section previously said the opposite.** It claimed both NPU stacks are unbuildable and must be copied from the previous release, and instructed asserting byte-identity against it. That was wrong, and it is the single most expensive mistake this skill has recorded: it turned two of our own configuration defects into upstream bug reports (#2957, #3217) that had to be retracted, and it is the direct cause of the Android NPU crash below.
 
-Both dispatch libraries build from the same pin as the runtime:
+All three dispatch libraries build from the same pin as the runtime:
 
 | Bundle | Target | Notes |
 |---|---|---|
 | `windows_x86_64` | `@litert//litert/vendors/intel_openvino/dispatch:LiteRtDispatch` | Bazel fetches the OpenVino SDK itself (`configurable_repo`) — no preinstalled toolkit on the runner. Built in CI. |
-| `android_arm64` | `//litert/vendors/qualcomm/dispatch:dispatch_api_so` | From the **LiteRT** repo at the derived `LITERT_REF`, not LiteRT-LM. Bazel auto-downloads QAIRT 2.44.0.260225 (~500 MB), or point `LITERT_QAIRT_SDK` at a local copy. Built locally by `build_qualcomm_dispatch.sh`. |
+| `android_arm64` | `//litert/vendors/qualcomm/dispatch:dispatch_api_so` | From the **LiteRT** repo at the derived `LITERT_REF`, not LiteRT-LM. Bazel auto-downloads the QAIRT that LiteRT's `third_party/qairt/workspace.bzl` pins (~500 MB) — 2.44 at v0.16.0, 2.47 at v0.17.x, **2.50.0.260828 at v0.18.0** — or point `LITERT_QAIRT_SDK` at a local copy of that same version. The script fails unless the SDK's `sdk.yaml` version equals the hook's `qnnRuntimeVersion` (see below). Built locally by `build_qualcomm_dispatch.sh`. |
+| `linux_arm64` (since native-v0.18.0-c) | the same target, `TARGET=linux_arm64` | Built in CI by the `build-linux-arm64-qualcomm-dispatch` job (`ubuntu-22.04-arm`, clang-17 — clang 14 fails on `std::source_location`), from a standalone LiteRT checkout where the script drops the Android-only `-Wl,-lc++abi` linkopt. Never downloads the 2.6 GB SDK: `fetch_qairt_sdk_slim.py` reads the headers, `sdk.yaml` and two host libs out of the zip by HTTP range and checks them against a pinned SHA-256 before writing. Also emits our `libcdsprpc.so` shim (empty, `NEEDED libcdsprpc.so.1`, `SONAME libcdsprpc.so`). Run the job alone with `qualcomm_dispatch_linux_only: true`; a full release packs both files into `linux_arm64`. The QNN runtime is never built or shipped: the app's hook reads it from the QAIRT zip (`lib/src/hook/qairt_linux.dart`). |
 
 Why the old rule was believable and still wrong: a fresh LiteRT-LM build genuinely emits neither library, because neither lives in the LiteRT-LM tree — they are LiteRT vendor targets. "Absent from the output" was read as "unbuildable" instead of "wrong target".
 
@@ -219,9 +260,9 @@ Be precise about what that does and does not buy, because the first version of t
 
 **Put it in both workflows.** `build-litertlm-native-windows.yml` is fast iteration and ends at `upload-artifact`; `build-litertlm-native.yml` carries the `publish-release` job that creates the `native-v*` tag users fetch. A check added only to the first protects nothing that ships — which is exactly the mistake this paragraph originally shipped with.
 
-**Android has no equivalent, and cannot have one.** The QNN `.so`s are `cp`'d straight out of the Bazel-fetched QAIRT SDK, so there is nothing to pair them against — no second copy, no version string to compare. `build_qualcomm_dispatch.sh` asserts each one is **present** (`[ -f "$src" ] || exit 1`, a real gate) and then only **prints** its size with `printf`; that print is not a comparison and must not be counted as one. The actual coverage for Android is the on-device run (check #9).
+**Android: since native-v0.18.0 the QNN runtime is NOT in the tarball.** Qualcomm licenses the QNN libraries for redistribution only inside an application, so the `android_arm64` bundle carries the dispatch alone. An app opts in with `hooks: user_defines: flutter_edge_ai_litertlm: qualcomm_npu: true` (in the app's root pubspec, or the workspace root for a workspace member), and the litertlm hook fetches `com.qualcomm.qti:qnn-runtime` from Maven Central — version and sha256 pinned in `lib/src/hook/qnn_runtime.dart`, Skels raised to 16 KB there (`prepareQnnLibrary`), promoted into `<cacheBase>/qnn/android_arm64/<version>-<sha8>-p<format>/`. `build_android.sh` deletes any QNN `.so` left in `prebuilt/android_arm64/` and `verify_tarball_manifest.sh` lists the ten as `INTENTIONAL_DROPS`. Do not put them back in the tarball.
 
-**The QNN runtime `.so`s must be refreshed with the dispatch, not carried forward.** They are not compiled from source — they come out of the QAIRT SDK — which makes "just keep the old ones" look safe. It is not: the dispatch you build negotiates an **API version** with them, and ours drifted into
+**The QNN runtime and the dispatch are still one matched pair.** The dispatch negotiates an **API version** with the runtime it finds, and a stale runtime does not fail politely — ours once drifted into
 
 ```
 E/litert: [qnn_manager.cc:349] Qnn System library version 1.8.0 is mismatched.
@@ -230,20 +271,11 @@ E/litert: [dispatch_api.cc:139] Failed to set up QNN manager
 E/litert: [dispatch_delegate.cc:131] No usable Dispatch runtime found
 ```
 
-Bazel already downloaded the matching SDK while building the dispatch. Take them from there so both halves come from one QAIRT:
+So bumping the LiteRT pin is a two-file change whenever its `third_party/qairt/workspace.bzl` moves: `build_qualcomm_dispatch.sh` reads the Bazel-fetched SDK's `sdk.yaml` version (`2.50.0` at v0.18.0) and **refuses to build** unless it equals `qnnRuntimeVersion` in `lib/src/hook/qnn_runtime.dart`. Bump that constant and `qnnRuntimeSha256` to the matching Maven release first (`curl -fsSL https://repo1.maven.org/maven2/com/qualcomm/qti/qnn-runtime/<v>/qnn-runtime-<v>.aar | shasum -a 256`, and compare its `.sha1` with Maven's own). The release number is the only pairing that holds: QNN carries two independent numberings, and `libQnnSystem.so` — the file that broke — has no version string at all, so never try to pair them by `strings | grep`.
 
-```bash
-Q=$(find "$(bazel info output_base)/external/qairt" -maxdepth 0 2>/dev/null)
-D=packages/flutter_gemma_litertlm/native/litert_lm/prebuilt/android_arm64
-for f in libQnnSystem.so libQnnHtp.so libQnnHtpV{73,75,79,81}Stub.so; do cp -f "$Q/lib/aarch64-android/$f" "$D/"; done
-for v in 73 75 79 81; do cp -f "$Q/lib/hexagon-v$v/unsigned/libQnnHtpV${v}Skel.so" "$D/"; done
-```
+`libQnnHtpV79Skel.so` must stay in the hook's list: it is **absent from `/vendor/dsp/cdsp/` even on Qualcomm reference firmware**, so shipping it is required, not a workaround for unusual devices.
 
-`libQnnHtpV79Skel.so` in particular must be bundled: it is **absent from `/vendor/dsp/cdsp/` even on Qualcomm reference firmware**, so shipping it is required, not a workaround for unusual devices.
-
-**Do not verify this by version string.** QNN carries two independent numberings — the SDK marketing version (`2.44.0.260225143659`, present in `libQnnHtp*.so`) and the per-component API version (`1.8.0` vs the required `1.11.0`) that actually gates loading. Matching the first says nothing about the second, and `libQnnSystem.so` — the exact file that broke — carries **no version string at all**, so a `strings | grep` check on it silently reports "no data" in a way that reads as "fine". Compare **file sizes against the SDK** instead; every one of our ten stale libs was visibly smaller than its QAIRT 2.44 counterpart.
-
-Whatever the origin, assert the NPU file count per bundle before packing. Shipping without them fails no build and no CPU/GPU smoke test — only a user on `PreferredBackend.npu` finds out.
+Assert the dispatch per bundle before packing — `build_qualcomm_dispatch.sh` promotes exactly one file on Android and two (dispatch + shim) on Linux; `verify_tarball_manifest.sh` requires both in `linux_arm64` and forbids `libQnn*` there. Shipping without it fails no build and no CPU/GPU smoke test — only a user on `PreferredBackend.npu` finds out. The on-device run (check #10) is still the only coverage of the pair working together.
 
 #### Windows CI specifics
 
@@ -299,13 +331,13 @@ Always pass the pinned SHA explicitly — the scripts' `DEFAULT_REF` lags the re
 REF=<tag-commit-sha>          # v0.17.0 = e9fd8c53ff968071774206163027dd84bedfe925 (v0.16.0 = 924e79c9…)
 export ANDROID_NDK_HOME="$HOME/Library/Android/sdk/ndk/29.0.14206865"   # r29 mandatory
 
-packages/flutter_gemma_litertlm/native/litert_lm/build_macos.sh   "$REF"    # macOS arm64
-packages/flutter_gemma_litertlm/native/litert_lm/build_ios.sh     "$REF"    # iOS device + simulator
-packages/flutter_gemma_litertlm/native/litert_lm/build_android.sh "$REF"    # Android arm64, cross-compiled
+packages/flutter_edge_ai_litertlm/native/litert_lm/build_macos.sh   "$REF"    # macOS arm64
+packages/flutter_edge_ai_litertlm/native/litert_lm/build_ios.sh     "$REF"    # iOS device + simulator
+packages/flutter_edge_ai_litertlm/native/litert_lm/build_android.sh "$REF"    # Android arm64, cross-compiled
 
 # Qualcomm NPU dispatch — separate build, separate repo (LiteRT), separate NDK.
 # Derives LITERT_REF from the LiteRT-LM WORKSPACE; see the NPU section above.
-LITERTLM_REF="$REF" packages/flutter_gemma_litertlm/native/litert_lm/build_qualcomm_dispatch.sh
+LITERTLM_REF="$REF" packages/flutter_edge_ai_litertlm/native/litert_lm/build_qualcomm_dispatch.sh
 ```
 
 `ANDROID_NDK_HOME` must be **exported explicitly**: `build_android.sh` auto-detects the newest NDK *only when the variable is unset*, so a stale value in your shell silently selects the wrong toolchain (r26 fails on a C++20 concept in the minijinja chat template).
@@ -348,13 +380,13 @@ Every freshly-built dylib must pass **all** of these checks. Skipping any one of
 ### 1. Mach-O architecture (iOS / macOS / desktop)
 
 ```bash
-file packages/flutter_gemma_litertlm/native/litert_lm/prebuilt/<dir>/libLiteRtLm.dylib
+file packages/flutter_edge_ai_litertlm/native/litert_lm/prebuilt/<dir>/libLiteRtLm.dylib
 ```
 
 Expected: `arm64` for iOS device, `arm64` for iOS Sim, `arm64` for macOS_arm64. **Not x86_64.** Upstream `5e0d86b` shipped `libLiteRt.dylib` and `libLiteRtTopKMetalSampler.dylib` as **x86_64 macOS binaries inside `prebuilt/ios_arm64/`** (#2072) — when you copy them across, double-check.
 
 ```bash
-otool -hv packages/flutter_gemma_litertlm/native/litert_lm/prebuilt/<dir>/libLiteRtLm.dylib | tail -2
+otool -hv packages/flutter_edge_ai_litertlm/native/litert_lm/prebuilt/<dir>/libLiteRtLm.dylib | tail -2
 # → cputype 16777228 (arm64), filetype 6 (DYLIB)
 ```
 
@@ -386,7 +418,7 @@ otool -l <file> | grep -A2 LC_RPATH | grep " path "
 The mandatory test that catches headerpad bugs:
 
 ```bash
-cp packages/flutter_gemma_litertlm/native/litert_lm/prebuilt/<dir>/libX.dylib /tmp/test.dylib
+cp packages/flutter_edge_ai_litertlm/native/litert_lm/prebuilt/<dir>/libX.dylib /tmp/test.dylib
 chmod +w /tmp/test.dylib
 install_name_tool -id @rpath/this_is_a_long_test_path_pad_to_native_assets_target/libX.dylib /tmp/test.dylib
 # → must succeed silently. If it fails with "larger updated load commands do not fit", headerpad is too small. STOP and rebuild.
@@ -394,49 +426,105 @@ install_name_tool -id @rpath/this_is_a_long_test_path_pad_to_native_assets_targe
 
 Run this for **every** dylib in `prebuilt/<dir>/`, not just the one you rebuilt. Native Assets rewrites all of them.
 
+**One known, accepted failure: `ios_sim_arm64/libLiteRtLmMetalAccelerator.dylib`.** It is upstream's prebuilt `libLiteRtMetalAccelerator.dylib`, shipped renamed since native-v0.18.0 (flutter_litert embeds a `LiteRtMetalAccelerator.framework` of its own, and an app bundle holds one framework per name — see `patch_c_api.sh` §10). It has only **48 bytes** of header slack, so the 91-character test path above does not fit. The name the iOS build actually writes, `@rpath/LiteRtLmMetalAccelerator.framework/LiteRtLmMetalAccelerator` (66 characters, +32 bytes of load commands), does fit — test that one for this file. The published native-v0.17.1-a carried a file with the same slack, so this is not a regression; it surfaced at the v0.18.0 bump. The device slice (`ios_arm64`) passes the long path. If a future upstream refresh shrinks the slack further, the framework name stops fitting too, and then it is a blocker: relink or report upstream (see "When upstream is broken").
+
 ### 5. Phase 8 patch markers (iOS / macOS only)
 
 ```bash
-strings packages/flutter_gemma_litertlm/native/litert_lm/prebuilt/<dir>/libLiteRtLm.dylib | grep '@executable_path.*LiteRtMetalAccelerator'
+strings packages/flutter_edge_ai_litertlm/native/litert_lm/prebuilt/<dir>/libLiteRtLm.dylib | grep '@executable_path.*LiteRtLmMetalAccelerator'
 ```
 
-Expected: 1 hit (path to `LiteRtMetalAccelerator.framework/LiteRtMetalAccelerator`). If 0 hits, `patch_c_api.sh` §10b didn't apply — your build was against a tree where `WORKSPACE.patch_cmds` didn't run. Run `bazelisk clean --expunge` and rebuild.
+Expected: 1 hit (path to `LiteRtLmMetalAccelerator.framework/LiteRtLmMetalAccelerator`; before native-v0.18.0 it was the upstream `LiteRtMetalAccelerator`). If 0 hits, `patch_c_api.sh` §10b didn't apply — your build was against a tree where `WORKSPACE.patch_cmds` didn't run. Run `bazelisk clean --expunge` and rebuild.
 
 ```bash
-strings packages/flutter_gemma_litertlm/native/litert_lm/prebuilt/<dir>/libLiteRtLm.dylib | grep -c '^libLiteRtMetalAccelerator.dylib$'
+strings packages/flutter_edge_ai_litertlm/native/litert_lm/prebuilt/<dir>/libLiteRtLm.dylib | grep -c '^libLiteRtMetalAccelerator.dylib$'
 ```
 
 Expected: 0. If non-zero, the basename dlopen string is still in the binary — patch failed.
 
+```bash
+strings packages/flutter_edge_ai_litertlm/native/litert_lm/prebuilt/<dir>/libLiteRtLm.dylib \
+  | /usr/bin/grep -E 'libLiteRtGpuAccelerator|^(lib)?LiteRtMetalAccelerator(\.dylib)?$'
+```
+
+Expected: nothing (since native-v0.18.0-b; `build_{ios,macos}.sh` fail on any
+hit). `libLiteRtGpuAccelerator.dylib` or a bare `LiteRtMetalAccelerator` here
+means `patches/litert_gpu_registry_apple.patch` did not apply, and in an app
+with flutter_litert the GPU registers that runtime's accelerator and crashes.
+Every native-v0.18.0 / -a Apple binary prints `libLiteRtGpuAccelerator.dylib`.
+Strings cannot show the `RTLD_DEFAULT` fallback being off — the device run in
+"Coexisting LiteRT runtimes" above is what does.
+
 ### 6. Required exports
 
 ```bash
-nm -gU packages/flutter_gemma_litertlm/native/litert_lm/prebuilt/<dir>/libLiteRtLm.dylib | grep _litert_lm_engine_create
+nm -gU packages/flutter_edge_ai_litertlm/native/litert_lm/prebuilt/<dir>/libLiteRtLm.dylib | grep _litert_lm_engine_create
 # → must show the symbol as T (text section, exported)
 ```
 
 Run `nm -gU | grep -c '_litert_lm_'` — expect ~50 symbols (matches `bindings.dart` lookupFunction count).
+
+**EmbeddingEngine exports (EmbeddingGemma 2).** `verify_tarball_manifest.sh` runs
+`check_embedding_exports.py` on every tarball: `libLiteRtLm` must export the 33
+EmbeddingEngine / ModelInfo / error-reporter functions the `.litertlm` embedding
+pass calls (`liteRtLmEmbeddingSymbols` in `lib/src/embedding/litert_lm_embedding_pass.dart`;
+a VM test keeps the two lists equal); three are the dispatch-directory setters
+the NPU path calls for the main, vision and audio executors. Two are ours, not
+upstream's:
+`litert_lm_embedding_response_get_input_length` / `_get_truncated_length`
+(`patch_c_api.sh` §14, from `native-v0.18.0-e`) — litertlm 1.13.1 refuses every
+EG2 load on a library without them, so a release that drops §14 breaks EG2
+text too. They leave through visibility attributes, not the Windows `.def`, and
+no LLM check calls them — a dropped one fails only an EG2 load on that
+platform. On a **LiteRT-LM pin bump** also:
+- replace `native/litert_lm/include/c/*.h` with upstream's `c/` headers at the new
+  pin, verbatim — then re-add §14's two getter declarations — and regenerate
+  `lib/src/ffi/litert_lm_embedding_bindings.dart`:
+  `dart pub global activate ffigen 20.1.1`, then in `packages/flutter_edge_ai_litertlm`
+  `dart pub global run ffigen --config ffigen_embedding.yaml` (ffigen is no
+  dependency of the workspace; upstream `main` after v0.18.0 already changed the
+  embedding setters to return status codes);
+- re-check R5 §4.8 against `embedding_litert_compiled_model_executor.cc`: the pass
+  sends overflow strategy kTruncate on every request and refuses a response
+  whose `truncated_length` is > 0 (or whose `input_length` exceeds 1024) as
+  `EmbeddingInputTooLongException(maxInputTokens: truncated_length,
+  actualTokens: input_length)`. That holds only while `truncated_length` is set
+  on the truncate branch alone (to the largest signature, 1024) and
+  `input_length` is counted before truncation with media tokens included
+  (measured at v0.18.0: text 11509, a 60 s clip 1504, a 954-token text plus one
+  image 1086 — the wheel's kError counts). A NULL response is never an overflow;
+- on an IMAGE request, status 3 must still mean the image failed to decode
+  (stb, `stb_image_preprocessor.cc`: a corrupt or truncated file) — the pass maps
+  it to `EmbeddingEngineException(nativeCode: 3)`. Re-check too that the
+  bundles' vision signatures are still `[70, 140]` and that 200/280 still fail
+  (`LiteRtEmbeddingBackend` accepts only 140 and 70);
+- on an AUDIO request, status 2 must still mean miniaudio could not open the
+  clip (`audio_preprocessor_miniaudio.cc`; WAV/MP3/FLAC open, Ogg and M4A do
+  not — `liteRtLmAudioFormats`), and the audio tower must still be a
+  `TFLiteModel` section whose `model_type` starts with `tf_lite_audio_encoder`
+  (`litertlm_container.dart`; ModelInfo claims audio on the 270m and the 440m,
+  which have none).
 
 ### 7. **Real `pub get` smoke test in a fresh project**
 
 This catches problems no static check sees. Mandatory before commit:
 
 ```bash
-REPO=/Users/sashadenisov/Work/flutter_gemma
+REPO=/Users/sashadenisov/Work/flutter_edge_ai
 cd /tmp
-rm -rf test_flutter_gemma_native
-flutter create test_flutter_gemma_native --platforms=macos,ios
-cd test_flutter_gemma_native
-# The repo ROOT is the workspace package (name: flutter_gemma_workspace,
+rm -rf test_flutter_edge_ai_native
+flutter create test_flutter_edge_ai_native --platforms=macos,ios
+cd test_flutter_edge_ai_native
+# The repo ROOT is the workspace package (name: flutter_edge_ai_workspace,
 # publish_to: none) — pointing --path at it fails with "name field doesn't
 # match expected name". And core owns NO native bundle: its hook has
 # `const _bundles = <_NativeBundle>[];`. Adding core alone exercises zero
 # CodeAssets, so the check that exists to catch the 0.14.1 headerpad bug
 # would have passed while testing nothing. Add the package that owns the
 # dylibs.
-flutter pub add flutter_gemma --path="$REPO/packages/flutter_gemma"
-flutter pub add flutter_gemma_litertlm --path="$REPO/packages/flutter_gemma_litertlm"
-# flutter_gemma_embeddings is pure Dart and shares no bundle — never in this list
+flutter pub add flutter_edge_ai --path="$REPO/packages/flutter_edge_ai"
+flutter pub add flutter_edge_ai_litertlm --path="$REPO/packages/flutter_edge_ai_litertlm"
+# flutter_edge_ai_embeddings is pure Dart and shares no bundle — never in this list
 rm -rf .dart_tool build
 flutter pub get
 # → must complete without "Failed to set install names" or any other error
@@ -454,22 +542,22 @@ find build -name 'libLiteRtLm*' -o -name 'LiteRtLm*' | head
 
 ### 7b. Build with `prebuilt/` moved aside — the only test of what users actually get
 
-`_resolveLibDir` tries local `packages/flutter_gemma_litertlm/native/litert_lm/prebuilt/<dir>/`, then the cache; its caller falls back to `_downloadAndExtract` from `native-v<version>`. The cache path is NOT version-scoped — staleness is decided by the marker file. **End users only ever reach the download** — `prebuilt/` is gitignored and ships in no pub package (confirm with `dart pub publish --dry-run | grep -ciE 'prebuilt|\.so$|\.dylib|\.dll'` → must be `0`).
+`_resolveLibDir` tries local `packages/flutter_edge_ai_litertlm/native/litert_lm/prebuilt/<dir>/`, then the cache; its caller falls back to `_downloadAndExtract` from `native-v<version>`. The cache path is NOT version-scoped — staleness is decided by the marker file. **End users only ever reach the download** — `prebuilt/` is gitignored and ships in no pub package (confirm with `dart pub publish --dry-run | grep -ciE 'prebuilt|\.so$|\.dylib|\.dll'` → must be `0`).
 
 On a maintainer machine the first source always hits. So every build you run locally — including check #7 and the release skill's `flutter build apk --release` pre-flight — silently validates **your** bundle and never touches the download, checksum verification, or extraction. Green means nothing about the artifact you are about to publish.
 
 After the release exists and the hook's `checksums` are updated, force the real path:
 
 ```bash
-mv packages/flutter_gemma_litertlm/native/litert_lm/prebuilt /tmp/prebuilt-aside
+mv packages/flutter_edge_ai_litertlm/native/litert_lm/prebuilt /tmp/prebuilt-aside
 # Cache location is per-OS (_cacheBaseDir()). On the Windows NPU VM the macOS
 # path wipes nothing and you silently re-test the cache instead of the download.
 #   macOS   ~/Library/Caches/flutter_gemma/native
 #   Linux   ~/.cache/flutter_gemma/native
 #   Windows %LOCALAPPDATA%\flutter_gemma\native
 rm -rf "$HOME/Library/Caches/flutter_gemma/native"     # kill the cache too, or you test source #2
-cd packages/flutter_gemma/example && flutter clean && flutter pub get && flutter build apk --release
-mv /tmp/prebuilt-aside packages/flutter_gemma_litertlm/native/litert_lm/prebuilt
+cd packages/flutter_edge_ai/example && flutter clean && flutter pub get && flutter build apk --release
+mv /tmp/prebuilt-aside packages/flutter_edge_ai_litertlm/native/litert_lm/prebuilt
 ```
 
 Pack the tarballs **from the exact directory you device-tested**, so the published bytes match the verified bytes by construction rather than by coincidence.
@@ -483,7 +571,7 @@ After `flutter build ipa --release` or archive:
 ```bash
 R=build/ios/iphoneos/Runner.app
 ls "$R/Frameworks" | wc -l                                    # must be NON-ZERO
-ls "$R/Frameworks" | grep -E 'LiteRtLm|LiteRtMetalAccelerator|GemmaModelConstraintProvider|StreamProxy'
+ls "$R/Frameworks" | grep -E 'LiteRtLm|LiteRtLmMetalAccelerator|GemmaModelConstraintProvider|StreamProxy'
 find "$R/Frameworks" -maxdepth 1 -type l                      # must be empty
 find "$R/Frameworks" -maxdepth 1 -name "*.dylib" -type f      # must be empty
 ```
@@ -502,7 +590,7 @@ you did — and when the two disagree, the first tool call segfaults in
 green. native-v0.17.0 shipped exactly that.
 
 ```bash
-cd packages/flutter_gemma/example
+cd packages/flutter_edge_ai/example
 flutter test integration_test/litertlm_native_tools_test.dart -d <device>
 ```
 
@@ -544,6 +632,18 @@ OLDER than the runtime segfaults, a NEWER one segfaults the same way from the
 other side (which is what happens if you build an older ref while `PREBUILT_REF`
 still points at main), and a `grep` on a missing header silently answers "no".
 
+**Linux has a second provider ABI on top of this one (#551).** The Linux
+providers are built with Google's libc++ (`std::__u`), our runtime with clang +
+libstdc++, so `patch_c_api.sh` section 12 puts `gemma_constraint_abi_bridge.h`
+between them: it calls the provider's vtable slots with the provider's own
+convention and reads its `BitmapLogitMask` at fixed offsets. Those facts were
+measured on the `4453b286` binaries. **Whenever `PREBUILT_REF` moves**,
+disassemble the new Linux providers (`FstConstraint::Start`, `ComputeNext`,
+`ComputeMask`, the `BitmapLogitMask` constructor) and re-check the constants at
+the top of the bridge; the gate is `litertlm_native_tools_test` passing on
+Linux x86_64 AND arm64 — the old cast died there on the first constrained token
+while every other suite stayed green.
+
 ### 9b. 16 KB page alignment (Android) — Google finds this, not you
 
 Google Play rejects an app when **any** `.so` in its APK has a `PT_LOAD`
@@ -554,7 +654,7 @@ DSP rather than mapped by the kernel.
 This is not hypothetical and it is not caught by anything else. `native-v0.17.0-a`
 shipped four Qualcomm Skel blobs at `p_align=0x1000` — straight from the QAIRT
 SDK, unchanged by us — and because `androidExtraLibs` puts them in every
-consumer APK, every app shipping `flutter_gemma_litertlm` was rejected. The
+consumer APK, every app shipping `flutter_edge_ai_litertlm` was rejected. The
 build was green, every test passed, the manifest gate passed, and the report
 came from a downstream app's store submission (#529).
 
@@ -594,9 +694,25 @@ provider in the importer's NEEDED closure. `build_android.sh` runs it as step
 fails, is `patchelf --add-needed` on the importer (steps 8b/8c), never an
 allowlist. patchelf missing is a build error, not a warning.
 
+It also asserts that every NEEDED entry is loadable at all — in the bundle, an
+NDK platform library, or a vendor library the core manifest requests with
+`<uses-native-library>` (`VENDOR` in the script; keep the two in step). The
+symbol rule alone cannot see a NEEDED library that is simply absent: its
+exports are unknown, so every symbol it would provide reads as "no known
+provider" and is skipped. That is pitfall #18.
+
 ```
-  [ok]   15 aarch64 libraries checked against API 35 stubs
+  [ok]   12 aarch64 libraries checked against API 35 stubs
 ```
+
+12, not 15: since native-v0.18.0 the Android bundle no longer carries the three
+Dawn-dependent companions (`libLiteRtGpuAccelerator.so`,
+`libLiteRtWebGpuAccelerator.so`, `libLiteRtTopKWebGpuSampler.so`). Android GPU
+is OpenCL only — the same as Google's `litertlm-android` AAR (one
+`liblitertlm_jni.so` with ML Drift OpenCL linked in) and `litert-gpu` (only
+`libLiteRtClGlAccelerator.so`). Do not "fix" the bundle by adding
+`libwebgpu_dawn.so`: that puts `libLiteRtGpuAccelerator` first in
+`gpu_registry`'s Android order, a path no shipped SDK uses.
 
 ### 10. NPU on real silicon — the only check that covers the dispatch libraries
 
@@ -614,6 +730,7 @@ The NPU group **skips** (and counts as passed) when its model file is absent, so
 | v0.15.2 | — | ✅ 18/18, Lunar Lake 258V, 2026-05-15 |
 | v0.16.0 | ✅ 23/23, Snapdragon 8 Elite, 2026-08-15 | ⚠️ not recorded |
 | v0.17.0 | ⏳ pending | ⏳ pending — Tiber gateway unreachable since 2026-09-18 |
+| v0.18.0 | ✅ 24/24, Snapdragon 8 Elite Gen 5 (SM8850, HTP V81, QDC), 2026-10-08 — AAB split install, QNN 2.50.0 from Maven via `qualcomm_npu`, `engine_create` 429 ms, greedy run1 == run2 | ⏳ pending — Tiber gateway unreachable |
 
 Both are slow, awkward, and easy to skip. Skipping them is what shipped the two frozen dispatch libraries described above.
 
@@ -643,7 +760,9 @@ adb shell 'mkdir -p /data/local/tmp/flutter_gemma_test && cd /data/local/tmp/flu
   https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it_qualcomm_sm8750.litertlm'
 ```
 
-Check first, before spending minutes: `getprop ro.soc.model` must say `SM8750` (platform `sun`). `/vendor/dsp/cdsp/` carries **no** `libQnnHtpV79Skel.so` even on Qualcomm's own reference image — that is why the bundle ships the Skel libraries itself.
+A bundle that is not on HF has to go through the tunnel, at ~2–3 MB/s. A single `adb push` of 2.6 GB died mid-way on 2026-10-08 when the tunnel dropped (and adb deletes the partial file). What worked: re-spawn the ssh in a `while true` loop, `adb kill-server` before each respawn's first use (a dropped tunnel lets the next adb call start a LOCAL server on 5037, and ssh then cannot bind), split the file into 128 MB chunks, push each with retries until the device holds it at full size, `cat` them together on the device and compare `sha256sum` with the local file. The SM8850 (8 Elite Gen 5, V81) Gemma 4 bundle is not on HF; the test looks for it as `gemma-4-E2B-it_qualcomm_sm8850.litertlm`. The CPU/GPU `gemma-4-E2B-it.litertlm` downloads on the device itself in ~2 minutes.
+
+Check first, before spending minutes: `getprop ro.soc.model` must say `SM8750` (platform `sun`) or `SM8850` (platform `canoe`) — whichever SoC the staged bundle was compiled for. `/vendor/dsp/cdsp/` carries **no** `libQnnHtpV79Skel.so` even on Qualcomm's own reference image — that is why the bundle ships the Skel libraries itself.
 
 Build **both** APKs with the test as the target, install both, and run the instrumentation (the app id and runner are in `example/android/app/build.gradle.kts`):
 
@@ -660,7 +779,7 @@ adb shell am instrument -w -r dev.flutterberlin.flutter_gemma_example.test/andro
 Building the instrumentation APK: `flutter build apk` is **wrong**, it packs `main.dart`. The app APK must carry the test entrypoint:
 
 ```bash
-cd packages/flutter_gemma/example/android
+cd packages/flutter_edge_ai/example/android
 ./gradlew app:assembleDebug -Ptarget=<absolute path to integration_test/xxx_test.dart>
 ```
 
@@ -716,6 +835,8 @@ Put a worktree of the branch on each VM instead of switching its checkout, drop 
 | 15 | QNN runtime libs left at an old QAIRT while the dispatch moved — `Qnn System library version 1.8.0 is mismatched` | Check #9 on device; compare file sizes against the SDK | native-v0.12.0 → v0.16.0, **caught on device** |
 | 16 | Windows-only `LiteRtLayoutMsvc` mirror kept after LiteRT `d84656955` unified the layout — every host-memory tensor buffer got a shape 4 bytes off: `CreateTensorBufferFromHostMemory` `status=3` in embeddings and STT | Check #10 on Windows; struct diff at both `LITERT_REF`s | **native-v0.16.0 → fixed in `67b9857f`**; seen on Tiber 2026-08-10 and misread as a bad box cache |
 | 17 | Upstream companion imports a symbol its NEEDED cannot reach: sampler without `libLiteRtLm.so` (#270, silent CPU fallback); v0.17.0 accelerators without `libandroid.so` (#545, SIGSEGV on Mali only) | Check #9c (`check_android_needed.py`); Android GPU on Adreno **and** Mali | #270: 0.14.x; **#545: native-v0.17.0 → v0.17.1**, upstream #3575 open six days before our first release |
+| 18 | Three Android companions NEED `libwebgpu_dawn.so`, which the bundle never carried — `dlopen` fails, `gpu_registry` silently moves on to OpenCL, ~18 MB of unloadable code in every APK | Check #9c (now also asserts every NEEDED is loadable); compare against what Google's own AARs ship | **native-v0.14.0 → v0.17.x**, found by a Codex review at the v0.18.0 bump; fixed by dropping the three, not by adding Dawn |
+| 19 | Apple `gpu_registry` tried the generic `libLiteRtGpuAccelerator` first and, on the failed `dlopen`, `dlsym(RTLD_DEFAULT)` bound flutter_litert's accelerator (another LiteRT) — crash in `LiteRtCreateCompiledModel` | Check #5 (generic names absent) + the app with flutter_litert on a real iPhone | **litertlm 1.10.0 / native-v0.18.0-a**, reported from an app on the day of release; fixed in native-v0.18.0-b |
 
 Every one of those would have been caught by checks 1-10 before commit. **Run them all every time.**
 
@@ -742,7 +863,7 @@ We import some dylibs as-is from upstream LiteRT-LM (`libGemmaModelConstraintPro
 ## After successful build
 
 1. **Run the verification checklist 1-10 above. All checks must pass.**
-2. Do NOT try to commit the dylibs — `prebuilt/` is gitignored (`.gitignore` `**/packages/flutter_gemma_litertlm/native/litert_lm/prebuilt/`) and `git ls-files` returns nothing under it. The bundles reach users through the GitHub Release only; the working copy is yours alone. (This step used to say `git add prebuilt/<dir>/*.dylib`, which cannot succeed.)
+2. Do NOT try to commit the dylibs — `prebuilt/` is gitignored (`.gitignore` `**/packages/flutter_edge_ai_litertlm/native/litert_lm/prebuilt/`) and `git ls-files` returns nothing under it. The bundles reach users through the GitHub Release only; the working copy is yours alone. (This step used to say `git add prebuilt/<dir>/*.dylib`, which cannot succeed.)
 3. Pack tarballs + update `hook/build.dart` `checksums` + re-upload to GitHub Release `native-v<version>` (see `release` skill).
 4. Run `dart pub publish --dry-run` — must show 0 warnings.
 5. Only then publish.

@@ -1,0 +1,187 @@
+{
+  "manifest_schema": "0.1.2",
+  "repo": "mlboydaisuke/OvisOCR2-LiteRT",
+  "generated": "2026-09-06",
+  "generator": "make_manifest.py",
+  "model": {
+    "display_name": "OvisOCR2",
+    "base_model": "ATH-MaaS/OvisOCR2",
+    "architecture": "Qwen3.5-0.8B gated-delta hybrid (18 GatedDeltaNet linear-attention + 6 gated full-attention layers, KV budget 4096) post-trained for page-level document parsing, plus the checkpoint's own 12-layer 768-dim ViT (no DeepStack) wired to fast_vlm at static 512x512; MTP head dropped",
+    "parameters_b": 0.85,
+    "license": "apache-2.0",
+    "context_length": 4096,
+    "capabilities": {
+      "vision": true,
+      "audio": false,
+      "thinking": {
+        "declared": false
+      }
+    }
+  },
+  "variants": [
+    {
+      "file": "OvisOCR2_int8.litertlm",
+      "sha256": "6482ff193826b70093a9b86f559669b1c12c13ab170f6dfc0f4eb6037a88887d",
+      "size_bytes": 1302262448,
+      "sections": [
+        {
+          "type": "LlmMetadataProto",
+          "size_bytes": 1286
+        },
+        {
+          "type": "ExecutorMetadataProto",
+          "size_bytes": 3201
+        },
+        {
+          "type": "HF_Tokenizer_Zlib",
+          "size_bytes": 3913268
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 257261728,
+          "model_type": "tf_lite_embedder"
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 852971520,
+          "model_type": "tf_lite_prefill_decode"
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 175366528,
+          "model_type": "tf_lite_vision_encoder"
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 12661424,
+          "model_type": "tf_lite_vision_adapter"
+        }
+      ],
+      "quantization": "int8 decoder (dynamic on linears + embedding; convs and the delta rule stay float, fp32 activations declared) + fp16 vision encoder / int8 vision adapter - vision quant gated on document fixtures: fp16enc+int8adp end-to-end corr 0.9998+ on table/formula/arXiv pages",
+      "backends": [
+        "cpu",
+        "gpu"
+      ],
+      "default_backend": "cpu",
+      "recommended": [
+        {
+          "platform": "macos",
+          "backend": "gpu",
+          "reason": "verified on macOS (Metal); GPU decode ~2.9x CPU on M4 Max, OCR output byte-identical to CPU on the table-page gate"
+        },
+        {
+          "platform": "ios",
+          "backend": "gpu",
+          "reason": "verified on iPhone 17 Pro (Metal): decode 48.5 tok/s vs 18.0 CPU; peak 3.8 GB GPU vs 0.9 GB CPU"
+        },
+        {
+          "platform": "android",
+          "device_class": "flagship",
+          "backend": "cpu",
+          "reason": "measured on one Galaxy S26 with one binary: cpu 35.56-37.62 tok/s decode / 216.7 prefill, peak 1778 MB, init 15.7 s (S7 Android backfill 2026-09-05, 2 cold runs) against gpu 35.02 tok/s decode / 537.1-576.2 prefill, peak 3771 MB, init 81.3 s (S7 Android backfill 2026-09-05, 2 cold runs). Same-device control taken: decode is a wash (within 10%), so the choice rests on the other numbers. The engine init (16 s against 81 s) and the peak memory (1.8 GB against 3.8 GB) decide for cpu: for an OCR model whose input is an image and whose output is short, the GPU's prefill lead does not pay back its init. Neither backend's generation gate on this generic text prompt returned a usable answer (the CPU echoed the question, the GPU looped the answer - the general-chat echo mode listed in known_issues), so both speed rows are throughput only; the OCR output itself was verified on macOS and iPhone (card), not on this handset"
+        }
+      ],
+      "requirements": {
+        "platform_notes": [
+          "Requires litert-lm >= 0.15 (hybrid state binds via ExecutorMetadata)",
+          "This is a document parser, not a chat model: the OCR post-training erodes general chat (it transcribes prompts instead of answering) - prompt it with the upstream transcription prompt and a page image",
+          "Vision input is static 512x512: pages must be legible at that size; dense small-print pages degrade into paraphrase/repetition (checkpoint behavior at this resolution)",
+          "Run OCR with --attachment <page.png> and the upstream reference prompt (see model card); image is placed before the text prompt automatically",
+          "GPU inference runs with fp32 activations (declared in the bundle) - GPU peak memory ~3.8 GB on iPhone 17 Pro vs ~0.9 GB CPU"
+        ]
+      },
+      "measured": [
+        {
+          "device": "Apple M4 Max",
+          "os": "macOS",
+          "backend": "gpu",
+          "runtime": "litert-lm 0.16.0",
+          "prompt_tokens": 256,
+          "decode_tokens": 256,
+          "prefill_tps": 2174.9,
+          "decode_tps": 140.9,
+          "ttft_s": 0.13,
+          "max_num_tokens": 4096,
+          "runs": 3,
+          "date": "2026-09-01",
+          "source": "litertlm-convert ovisocr2_work/bench_ovisocr2.log; litert-lm benchmark -p 256 -d 256 --runs 3 --cache no, quiet window"
+        },
+        {
+          "device": "Apple M4 Max",
+          "os": "macOS",
+          "backend": "cpu",
+          "runtime": "litert-lm 0.16.0",
+          "prompt_tokens": 256,
+          "decode_tokens": 256,
+          "prefill_tps": 659.5,
+          "decode_tps": 48.9,
+          "ttft_s": 0.43,
+          "max_num_tokens": 4096,
+          "runs": 3,
+          "date": "2026-09-01",
+          "source": "litertlm-convert ovisocr2_work/bench_ovisocr2.log"
+        },
+        {
+          "device": "iPhone 17 Pro",
+          "os": "iOS 27",
+          "backend": "gpu",
+          "runtime": "litert-lm v0.16.0 (vendored xcframework)",
+          "decode_tps": 48.5,
+          "ttft_s": 1.51,
+          "peak_memory_mb": 3828,
+          "runs": 1,
+          "date": "2026-09-01",
+          "source": "litertlm-convert ovisocr2_work/device_gate_20260901/ (quality Metal leg, cold start)"
+        },
+        {
+          "device": "iPhone 17 Pro",
+          "os": "iOS 27",
+          "backend": "cpu",
+          "runtime": "litert-lm v0.16.0 (vendored xcframework)",
+          "decode_tps": 18.0,
+          "ttft_s": 1.02,
+          "peak_memory_mb": 915,
+          "runs": 1,
+          "date": "2026-09-01",
+          "source": "litertlm-convert ovisocr2_work/device_gate_20260901/ (quality CPU leg, cold start)"
+        },
+        {
+          "device": "Galaxy S26 (SM-S942Q, Qualcomm SM8850, Adreno)",
+          "backend": "gpu",
+          "runtime": "litert_lm_advanced_main v0.16.0, LiteRT CL delegate",
+          "prompt_tokens": 207,
+          "decode_tokens": 195,
+          "prefill_tps": "537.1-576.2",
+          "decode_tps": 35.02,
+          "ttft_s": "0.39-0.41",
+          "load_s": 81.3,
+          "peak_memory_mb": 3771,
+          "cache": "no",
+          "runs": 2,
+          "date": "2026-09-05",
+          "source": "S7 Android backfill: 205-token prompt with --benchmark, 2 cold runs (compile/weight caches deleted between runs, device cooled below 42 C before each run); GPU gate full LITERT_CL delegation (99187 ops across 7 subgraphs), generation verified on the gate prompt; the cpu row of the same date is the same-device control"
+        },
+        {
+          "device": "Galaxy S26 (SM-S942Q, Qualcomm SM8850, Adreno)",
+          "backend": "cpu",
+          "runtime": "litert_lm_advanced_main v0.16.0 (XNNPACK CPU)",
+          "prompt_tokens": 207,
+          "decode_tokens": 195,
+          "prefill_tps": 216.7,
+          "decode_tps": "35.56-37.62",
+          "ttft_s": "0.97-0.99",
+          "load_s": 15.7,
+          "peak_memory_mb": 1778,
+          "cache": "no",
+          "runs": 2,
+          "date": "2026-09-05",
+          "source": "S7 Android backfill: same-device CPU control - identical binary, prompt file and flags, only --backend differs; 205-token prompt with --benchmark, 2 cold runs (compile/weight caches deleted between runs, device cooled below 42 C before each run); same-device control for an existing GPU row on this handset; the CPU generation gate on this generic prompt did not produce an answer (task-prompted model, outside its contract), so this row is throughput only"
+        }
+      ],
+      "known_issues": [
+        "General-chat sanity gates score low (Mac 8Q: 3-4/8) with a transcription/echo failure mode - checkpoint behavior from the OCR post-training, not quantization damage (anchored against the HF fp32 original)",
+        "Dense academic pages at 512x512 transcribe correctly at the start then drift into repetition; upstream's own reference code ships a repeat-cleanup post-processor for this"
+      ]
+    }
+  ]
+}

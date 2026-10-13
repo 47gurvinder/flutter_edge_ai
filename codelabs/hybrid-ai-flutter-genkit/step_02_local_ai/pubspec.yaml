@@ -13,15 +13,18 @@ dependencies:
   cupertino_icons: ^1.0.8
 
   # Step 2: Cloud AI via Gemini API
-  genkit: ^0.16.0
-  genkit_google_genai: ^0.3.1
+  genkit: ^1.0.0
+  genkit_google_genai: ^1.0.0
 
-  # Step 3: On-device AI via genkit_flutter_gemma
-  genkit_flutter_gemma: ^0.6.1
-  flutter_gemma: ^1.9.0
-  # flutter_gemma 1.x registers no engine by default — opt into LiteRT-LM
+  # Step 3: On-device AI via genkit_flutter_edge_ai
+  genkit_flutter_edge_ai: ^0.9.1
+  flutter_edge_ai: ^2.3.0
+  # flutter_edge_ai registers no engine by default — opt into LiteRT-LM
   # (.litertlm inference) here.
-  flutter_gemma_litertlm: ^1.8.0
+  flutter_edge_ai_litertlm: ^1.13.0
+  # Step 5 embeds your documents. The engine above runs the forward pass;
+  # this package supplies the tokenizers it needs.
+  flutter_edge_ai_embeddings: ^2.3.0
 
 dev_dependencies:
   flutter_test:
@@ -29,6 +32,10 @@ dev_dependencies:
   flutter_lints: ^6.0.0
 
 flutter:
+  # Swift Package Manager off: on macOS the LiteRT-LM companion libraries are
+  # staged by the Podfile post_install block, and an SPM-only app has no Podfile.
+  config:
+    enable-swift-package-manager: false
   uses-material-design: true
   assets:
     - assets/tourist_data/

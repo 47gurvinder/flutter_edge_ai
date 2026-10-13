@@ -1,14 +1,14 @@
 ---
 name: upgrade-genkit
-description: Realign the genkit_flutter_gemma / genkit_hybrid packages when flutter_gemma's core API changes — discover changes, fix compilation, support new features, update fakes/tests, bump version. Monorepo-aware.
+description: Realign the genkit_flutter_edge_ai / genkit_hybrid packages when flutter_edge_ai's core API changes or when `genkit` itself publishes a breaking version — discover changes, fix compilation, support new features, update fakes/tests, the codelab and the site, bump version. Monorepo-aware.
 user_invocable: true
 ---
 
-# Upgrade Genkit packages to the current flutter_gemma API
+# Upgrade Genkit packages to the current flutter_edge_ai API
 
-The Genkit integration packages (`packages/genkit_flutter_gemma`, `packages/genkit_hybrid`)
-wrap flutter_gemma's public API. When that API changes, they must be realigned or
-they break. In the **monorepo** they consume flutter_gemma as an in-workspace
+The Genkit integration packages (`packages/genkit_flutter_edge_ai`, `packages/genkit_hybrid`)
+wrap flutter_edge_ai's public API. When that API changes, they must be realigned or
+they break. In the **monorepo** they consume flutter_edge_ai as an in-workspace
 path dependency, so a core change can break them in the same commit — run this
 whenever a PR changes the public `InferenceModel` / `InferenceChat` /
 `EmbeddingModel` / `Message` / `ModelResponse` / enum surface.
@@ -17,17 +17,17 @@ Follow these 5 phases sequentially. Ask the user before deciding which new
 features to support (Phase 3).
 
 > Paths below are relative to the repo root. Core package =
-> `packages/flutter_gemma`; genkit package = `packages/genkit_flutter_gemma`
+> `packages/flutter_edge_ai`; genkit package = `packages/genkit_flutter_edge_ai`
 > (mirror for `genkit_hybrid`). `REPO_ROOT` = monorepo root,
-> `PKG_DIR=packages/genkit_flutter_gemma`, `EXAMPLE_DIR=$PKG_DIR/example`.
+> `PKG_DIR=packages/genkit_flutter_edge_ai`, `EXAMPLE_DIR=$PKG_DIR/example`.
 
 ## Phase 1: Reconnaissance
 
-1. Identify what changed in the core public API. In the monorepo flutter_gemma
+1. Identify what changed in the core public API. In the monorepo flutter_edge_ai
    is a path dep (not pub), so don't rely on `dart pub outdated` — instead read
-   the diff / CHANGELOG of `packages/flutter_gemma`:
-   - `git log --oneline -- packages/flutter_gemma/lib/flutter_gemma_interface.dart packages/flutter_gemma/lib/core`
-   - `packages/flutter_gemma/CHANGELOG.md` (top entry)
+   the diff / CHANGELOG of `packages/flutter_edge_ai`:
+   - `git log --oneline -- packages/flutter_edge_ai/lib` (the public libraries at `lib/*.dart` plus everything under `lib/src`)
+   - `packages/flutter_edge_ai/CHANGELOG.md` (top entry)
 2. Summarize for the user:
    - **Breaking changes** (removed/renamed APIs, changed signatures)
    - **New APIs** (new parameters, methods, enums, classes)
@@ -36,16 +36,16 @@ features to support (Phase 3).
 
 ## Phase 2: Fix Compilation
 
-1. `cd packages/genkit_flutter_gemma && dart analyze` (repeat for `genkit_hybrid`).
-2. Fix all compilation errors. Files that depend on flutter_gemma's API:
-   - [ ] `lib/src/flutter_gemma_runtime.dart` — `FlutterGemma.getActiveModel()`, `getActiveEmbedder()` signatures
-   - [ ] `lib/src/flutter_gemma_model.dart` — `InferenceModel.createChat()` signature, `ModelResponse` pattern matching, `InferenceChat` methods
-   - [ ] `lib/src/flutter_gemma_embedder.dart` — `EmbeddingModel.generateEmbeddings()`, `PreferredBackend` enum
+1. `cd packages/genkit_flutter_edge_ai && dart analyze` (repeat for `genkit_hybrid`).
+2. Fix all compilation errors. Files that depend on flutter_edge_ai's API:
+   - [ ] `lib/src/flutter_edge_ai_runtime.dart` — `FlutterEdgeAi.getActiveModel()`, `getActiveEmbedder()` signatures
+   - [ ] `lib/src/flutter_edge_ai_model.dart` — `InferenceModel.createChat()` signature, `ModelResponse` pattern matching, `InferenceChat` methods
+   - [ ] `lib/src/flutter_edge_ai_embedder.dart` — `EmbeddingModel.generateEmbeddings()`, `PreferredBackend` enum
    - [ ] `lib/src/converters/request_converter.dart` — `Message` constructors (`.withImage`, `.withAudio`, `.toolCall`, `.toolResponse`)
    - [ ] `lib/src/converters/response_converter.dart` — `ModelResponse` subtypes (`TextResponse`, `FunctionCallResponse`, `ParallelFunctionCallResponse`, `ThinkingResponse`)
    - [ ] `lib/src/converters/tool_converter.dart` — `Tool` constructor
-   - [ ] `lib/src/flutter_gemma_plugin.dart` — `ModelType`, `ModelFileType` enums
-   - [ ] `test/src/fake_runtime.dart` — `FakeInferenceModel`, `FakeInferenceChat`, `FakeEmbeddingModel` **must** match upstream abstract-class signatures (see genkit `CLAUDE.md`)
+   - [ ] `lib/src/flutter_edge_ai_plugin.dart` — `ModelType`, `ModelFileType` enums
+   - [ ] `test/src/fake_runtime.dart` — `FakeInferenceModel`, `FakeInferenceChat`, `FakeEmbeddingModel` **must** match upstream abstract-class signatures (see genkit `AGENTS.md`)
 3. Repeat `dart analyze` until clean (0 issues).
 
 ## Phase 3: Support New Features
@@ -53,24 +53,24 @@ features to support (Phase 3).
 Based on Phase 1, decide with the user which new APIs to support. Typical integration points:
 
 ### New parameter in `createChat()` / `createSession()`
-1. Add field to `$FlutterGemmaModelOptions` in `lib/src/flutter_gemma_options.dart`
-2. **Manually** update `lib/src/flutter_gemma_options.g.dart` (constructor param, field with `@override`, `fromJson`, `toJson`, `jsonSchema()` entry)
-3. Extract from config + pass in `lib/src/flutter_gemma_model.dart` (`_executeGeneration`)
+1. Add field to `$FlutterEdgeAiModelOptions` in `lib/src/flutter_edge_ai_options.dart`
+2. Regenerate `lib/src/flutter_edge_ai_options.g.dart`: `dart pub global run build_runner build --delete-conflicting-outputs` in `PKG_DIR` (see the package `AGENTS.md`; `dart pub global activate build_runner` once). Never hand-edit it.
+3. Extract from config + pass in `lib/src/flutter_edge_ai_model.dart` (`_prepare` validates and converts; `_generate` passes it to `createChat`)
 4. Update `FakeInferenceModel.createChat()` in `test/src/fake_runtime.dart` (add param, store in `last*` field for assertions)
 
 ### New enum value (e.g. `ModelFileType`)
-- Update comments in `lib/src/flutter_gemma_plugin.dart` (`FlutterGemmaModelConfig.fileType`)
+- Update comments in `lib/src/flutter_edge_ai_plugin.dart` (`FlutterEdgeAiModelConfig.fileType`)
 
 ### New method on `InferenceChat` / `InferenceModel`
 - Add override in `FakeInferenceChat` / `FakeInferenceModel` in `test/src/fake_runtime.dart`
 
 ### Changed model capabilities
-- Update `supports` map in `lib/src/flutter_gemma_plugin.dart` (`list()` method)
+- Update `kFlutterEdgeAiModelSupports` in `lib/src/flutter_edge_ai_model.dart`; `list()` in `flutter_edge_ai_plugin.dart` only references it
 
 ### Changed message handling
 - Update converters in `lib/src/converters/`; update `extractSystemInstruction()` if system-message handling changed
 
-**IMPORTANT:** `*.g.dart` here is **manually maintained** (build_runner not used by default). Always hand-update it when changing the schema.
+**IMPORTANT:** `*.g.dart` here is generated by `schemantic_builder` (`// GENERATED CODE - DO NOT MODIFY BY HAND`). Regenerate it after any schema change; a hand edit drifts from the shape the generator produces.
 
 ## Phase 4: Tests and Review
 
@@ -86,3 +86,64 @@ Based on Phase 1, decide with the user which new APIs to support. Typical integr
 3. **Update `PKG_DIR/README.md`** (options table, known limitations, quick-start if usage changed).
 4. Verify: `dart analyze && flutter test && dart pub publish --dry-run` (all clean).
 5. The release itself goes through the **`release` skill** (genkit packages release in lockstep with the monorepo) — do not publish standalone.
+
+## When `genkit` itself releases a breaking version
+
+The phases above assume the change came from flutter_edge_ai. Genkit 1.0.0
+(2026-10-07) was the other trigger: it shipped with every Genkit Dart plugin
+(`genkit_google_genai`, `genkit_vertexai`, `genkit_firebase_ai`, …) requiring
+`genkit ^1.0.0`, so our packages could not be installed next to any current
+cloud plugin until they moved too.
+
+1. Read the upstream CHANGELOG back to the version we pin:
+   `dart pub cache add genkit --version <new>`, then
+   `~/.pub-cache/hosted/pub.dev/genkit-<new>/CHANGELOG.md`. Split it into
+   compile breaks, which the analyzer finds, and behaviour changes, which it
+   does not. Check every behaviour change against our code, the apps and the
+   docs. The one 1.0 brought: a model error no longer throws out of
+   `ai.generate` / `generateStream` but comes back with
+   `finishReason: FinishReason.failed` (0.17, #413). It also turns tests
+   with negative assertions (`isNot(contains(...))`, `lessThan(n)`) into
+   tests that pass on a failed generation, so make them assert
+   `FinishReason.stop` first. Schema instructions never reached the prompt by
+   default, not under 0.16 either; 1.0 adds the opt-in
+   `simulateConstrainedGeneration()` middleware (#519). New exports can
+   collide with `flutter_edge_ai`'s: 1.0's `ToolChoice` makes
+   `ToolChoice.none` an `ambiguous_import` in any file importing both, so
+   compile every snippet on the site against both imports.
+2. Bump `genkit` in both packages and in `genkit_flutter_edge_ai/example`.
+   `schemantic` and `schemantic_builder` move with it (genkit 1.0 needs
+   schemantic ^1.0.0).
+3. Regenerate `lib/src/flutter_edge_ai_options.g.dart` with
+   `dart pub global run build_runner build --delete-conflicting-outputs` and
+   diff it: the option list must not change, only the generated shape.
+4. `flutter analyze`, fix, `flutter test` in both packages. Do not run
+   `dart format` over a whole package: many files predate the current
+   formatter and would be restyled. Format only the files you edited, and only
+   if they were formatted before.
+5. Update what the analyzer never sees, because it sits outside the workspace:
+   - the codelab `codelabs/hybrid-ai-flutter-genkit/`: every step's pubspec
+     (`step_00_starter` carries the pins as comments) and README; the
+     generate calls (`lib/services/*_ai_service.dart` in steps 01–02,
+     `lib/screens/chat_screen.dart` in 03–05 and `complete`); and
+     `lib/services/ai_engine.dart` in 03–05 and `complete`, which wraps a model
+     the way genkit_hybrid calls a branch. `genkit_google_genai` moves with
+     genkit, so bump it there. Check the steps with a temporary
+     `pubspec_overrides.yaml` copied from `tool/check_codelabs.sh` and delete
+     it afterwards, or run `CODELAB_USE_LOCAL_PACKAGES=1 tool/check_codelabs.sh`,
+     which writes and removes them itself but checks every codelab. Codelab CI
+     runs `flutter analyze` with infos fatal and checks formatting.
+   - the genkit example app (`example/lib/app_state.dart` calls `generate`).
+   - the codelab page `website/codelabs/hybrid-ai-flutter-genkit/index.md`,
+     which repeats the step code, `website/content/docs/genkit.md`, both
+     package READMEs (their install snippets name `genkit:`) and dartdoc
+     samples: grep them for every removed or renamed symbol.
+6. Version: a new major of a required dependency is a minor bump for a 0.x
+   package, even when our own API is unchanged. Update AGENTS.md
+   "Current Version".
+7. Ship it as one PR with the version bumps, the site and the codelab (release
+   skill rule), and publish right after the merge: the site deploys on merge
+   and its pins name the new versions. Each package's README must change in
+   that PR, or the release docs guard blocks its publish after a squash merge.
+   After publishing, dispatch the Codelabs workflow on main (release skill,
+   step 10b): until then it resolves the old published packages and fails.

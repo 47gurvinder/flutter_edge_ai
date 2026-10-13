@@ -80,8 +80,9 @@ call. That is the rule the loop in Step 3 exists to keep.
 * Room for **284 MB** — one download, shared by Steps 1, 2 and 3 — and for
   **2.59 GB** more in Step 5, plus the memory to open the larger one, roughly
   6 GB of RAM. A 4 GB phone is killed by the OS rather than told no
-* Step 4 is optional and costs CPU time instead of megabytes: **Linux or
-  macOS**, Python 3.10–3.12, and about 2.2 GB of cached Python environments.
+* Step 4 is optional and costs CPU time instead of megabytes: **Linux x86_64
+  or an Apple Silicon Mac** for the whole run (Windows runs every stage but
+  `convert`), Python 3.10–3.12, and about 2.9 GB of cached Python environments.
   It is the one part of this codelab that *does* need a Hugging Face token,
   because the base checkpoint it fine-tunes is gated and the approval is
   manual — **request access before you start it**, see that step's own
@@ -90,8 +91,8 @@ call. That is the rule the loop in Step 3 exists to keep.
 ### Get the code
 
 ```bash
-git clone --depth 1 https://github.com/DenisovAV/flutter_gemma.git
-cd flutter_gemma/codelabs/function-calling-flutter-gemma
+git clone --depth 1 https://github.com/DenisovAV/flutter_edge_ai.git
+cd flutter_edge_ai/codelabs/function-calling-flutter-gemma
 ls
 ```
 
@@ -124,7 +125,7 @@ before the first frame is guarded:
 
 ```dart
   try {
-    await FlutterGemma.initialize(
+    await FlutterEdgeAi.initialize(
       inferenceEngines: [LiteRtLmEngine()],
       // OPFS streaming: on web a `.litertlm` this size does not fit the blob
       // the default `cacheApi` mode would have to buffer it into. Every other
@@ -326,7 +327,7 @@ where `supportImage` has to go on `getActiveModel` as well or native fails the
 turn. There is no second place here:
 
 ```dart
-      final inference = await FlutterGemma.getActiveModel(
+      final inference = await FlutterEdgeAi.getActiveModel(
         maxTokens: 1024,
         preferredBackend: PreferredBackend.cpu,
       );
@@ -421,7 +422,7 @@ stream, so it collects both:
           pending.addAll(calls);
         case ThinkingResponse():
           // Filtered out upstream unless the chat was opened with
-          // `isThinking: true` — `complete` does exactly that. Here the branch
+          // `enableThinking: true` — `complete` does exactly that. Here the branch
           // exists so the switch stays exhaustive.
           break;
       }
@@ -582,7 +583,7 @@ in.
 
 `step_04_finetune/` is not a Flutter app — it has no `pubspec.yaml`, so the
 codelab gate does not analyze or build it. What it holds is the two inputs a
-[litetune](https://github.com/DenisovAV/litetune) run needs, for the four
+[litetune](https://litetune.dev) run needs, for the four
 tools this codelab declares.
 
 ### What litetune is
@@ -591,32 +592,52 @@ It takes a Hugging Face checkpoint through LoRA fine-tuning, merges, exports to
 `.litertlm`, and bundles the result with metadata — five commands, because each
 stage fails differently and a single `run` would hide which one you are in.
 
-**This is alpha software**, and it says what it has measured: four models end to
-end — `google/functiongemma-270m-it` with the tool-call scorer, and
-`google/gemma-3-270m-it`, `google/gemma-3-1b-it` and `Qwen/Qwen3-0.6B` with
-`exact-text` on a 77-way intent task. The first of those is precisely the model
-and the task you have been running since Step 2, so this codelab sits inside the
-path the tool knows best.
+The commands below are verified against **litetune 0.4.1**, the current PyPI
+release, run end to end on 2026-10-12. It pins LiteRT-LM 0.18.0 for
+verification and the matching 0.18.0 builder for conversion. The source is
+available on [GitHub](https://github.com/DenisovAV/litetune).
+
+Converted with litetune 0.3.0 on Python 3.10 or 3.11? Convert again: with a
+relative `--output-dir`, as below, that version wrote a bundle without its GPU
+activation key, and on the GPU it answers wrong.
+
+**This is alpha software**, and it says what it has measured: six models end to
+end — `google/functiongemma-270m-it` with the tool-call scorer, plus
+`google/gemma-3-270m-it`, `google/gemma-3-1b-it`, `Qwen/Qwen3-0.6B`,
+`Qwen/Qwen2.5-0.5B-Instruct` and `google/gemma-4-E2B-it` with `exact-text` on a
+77-way intent task. The first of those is precisely the model and the task you
+have been running since Step 2, so this codelab sits inside the path the tool
+knows best.
 
 ```bash
 pip install litetune
 ```
 
-**Linux or macOS**, Python 3.10–3.12. Python 3.13 runs `prepare`, `tune` and
-`bundle` but not `convert` or `verify`: the export toolchain pins
-`numpy==2.0.2`, and that stops publishing wheels after 3.12. Windows is
-untried. On Linux you also need `libvulkan1` — `litert-lm` `dlopen()`s a
-Vulkan-linked library even for the CPU backend, and without it every
-invocation, `--help` included, dies in under a second:
+**Linux, macOS or Windows**, Python 3.10–3.12. `convert` specifically needs
+Linux x86_64 or an Apple Silicon Mac; Windows runs `prepare`, `tune`, `verify`
+and `bundle`, but not `convert`. Python 3.13 runs `prepare`, `tune` and `bundle`
+but not `convert` or `verify`: the export toolchain pins `numpy==2.0.2`, and
+that stops publishing wheels after 3.12. On Linux you also need `libvulkan1` —
+`litert-lm` `dlopen()`s a Vulkan-linked library even for the CPU backend, and
+without it every invocation, `--help` included, dies in under a second:
 
 ```bash
 sudo apt-get install -y libvulkan1     # Debian/Ubuntu
 ```
 
-It runs on CPU, which is workable at 270M. Each stage builds and caches its own
-environment, and they are not small: `convert` pulls about 1.6 GB and `tune`
-588 MB. `litetune env` shows what is on disk, `litetune env --clean` removes
-it. Colab works out of the box.
+Use litetune 0.4.1 or later with a Python that uv installed: 0.4.0 could not
+start its stage environments there (`venv --copies` left `libpython` behind)
+and every stage reported `could_not_check`. The run above used uv's Python
+3.11 with 0.4.1.
+
+By default, `tune` and the float-reference side of `verify` choose CUDA, then
+Apple's Metal (`mps`), then CPU. The commands below set
+`LITETUNE_DEVICE=cpu` for a reproducible 270M run; CPU is workable at that
+size. `convert` always runs on CPU, while the converted side of `verify` has
+its own `--backend` flag. Each stage builds and caches its own environment,
+and they are not small: `convert` pulls about 1.6 GB, `tune` 588 MB and
+`verify` about 740 MB across its two environments. `litetune env` shows what
+is on disk, `litetune env --clean` removes it. Colab works out of the box.
 
 ### Your data declares the task
 
@@ -651,11 +672,19 @@ stock model's 13. They are not enough to resolve much — the interval on 18 row
 is wider than most differences worth having — and they cost something that the
 score cannot see. `step_04_finetune/README.md` has both halves, measured.
 
+That score snapshot was recorded with litetune 0.1.7 and LiteRT-LM 0.16.1. A
+rerun on litetune 0.4.1 and LiteRT-LM 0.18.0 (2026-10-12) gave the tuned model
+the same 18 of 18 with the runtime's grammar on, and 16 of 18 with it off.
+
 ### The five commands
 
 Run them from `step_04_finetune/`.
 
 ```bash
+# Keep this tutorial's measurements reproducible. Unset it to let litetune
+# auto-select CUDA, then MPS, then CPU.
+export LITETUNE_DEVICE=cpu
+
 # 1. Split, and reject rows that cannot be scored. Seconds.
 litetune prepare --data raw.jsonl --output-dir data --context-length 1024 \
                  --tokenizer google/functiongemma-270m-it \
@@ -672,13 +701,15 @@ litetune tune --model google/functiongemma-270m-it --data data/train.jsonl \
 
 # 3. Convert, sweeping recipes rather than trusting a default.
 litetune convert --model tuned/model --output-dir artifacts \
+                 --train-metrics tuned/metrics.json \
                  --recipe dynamic_wi8_afp32 --recipe weight_only_wi8_afp32
 
 # 4. Measure what the conversion cost, against the float twin.
 #    `convert` names the artifact; look the filename up rather than build it.
 litetune verify --model artifacts/weight_only_wi8_afp32/<name>.litertlm \
                 --reference tuned/model --data data/heldout.jsonl \
-                --declarations tools.json --json > manifest.json
+                --declarations tools.json --scorer tool-call \
+                --backend cpu --json > manifest.json
 
 # 5. Package the artifact with what was measured about it.
 litetune bundle --output-dir bundle \
@@ -969,7 +1000,7 @@ parameters specialised for one skill, and reasoning is not it. One flag:
 ```dart
         // Reason first, then answer. On weights with no thinking training this
         // buys nothing, which is why the switch is disabled for those.
-        isThinking: _thinking,
+        enableThinking: _thinking,
 ```
 
 With it on, the stream carries a third kind of chunk:
@@ -977,13 +1008,13 @@ With it on, the stream carries a third kind of chunk:
 ```dart
           case ThinkingResponse(:final content):
             // These reach the stream only because the chat was opened with
-            // `isThinking: true`; with it false the SDK drops them before this
+            // `enableThinking: true`; with it false the SDK drops them before this
             // loop ever sees one.
             _thought.write(content);
             if (mounted) setState(_paintThinking);
 ```
 
-`isThinking: false` is not a display choice — the SDK filters `ThinkingResponse`
+`enableThinking: false` is not a display choice — the SDK filters `ThinkingResponse`
 out of the stream entirely, so an app that ignores the case sees nothing either
 way. And the reasoning goes *above* the answer, because that is the order it
 happened in:
@@ -1008,7 +1039,7 @@ which is why the session asks for more room when it is on:
 
 ### Both settings belong to the session
 
-Neither `toolChoice` nor `isThinking` can be changed on a live chat. One
+Neither `toolChoice` nor `enableThinking` can be changed on a live chat. One
 travels with the declarations the session was opened with; the other switches
 on a generation channel. Both are settled when the session is created,
 so changing either closes the chat and opens another — and the transcript goes
@@ -1017,7 +1048,7 @@ with it:
 ```dart
   /// Rebuilds the session because a session setting changed.
   ///
-  /// There is no way to change `toolChoice` or `isThinking` on a live chat:
+  /// There is no way to change `toolChoice` or `enableThinking` on a live chat:
   /// both are decided when the session is created — one travels with the
   /// declarations the session is opened with, the other switches on a
   /// generation channel — so the honest thing is to close this one and open
@@ -1036,12 +1067,12 @@ not enough — the gate has to say which model it *means*:
 
 ```dart
   Future<bool> _check() async {
-    if (!await FlutterGemma.isModelInstalled(widget.model.fileName)) {
+    if (!await FlutterEdgeAi.isModelInstalled(widget.model.fileName)) {
       return false;
     }
     await widget.model
         .locate(
-          FlutterGemma.installModel(
+          FlutterEdgeAi.installModel(
             modelType: widget.model.modelType,
             fileType: ModelFileType.litertlm,
           ),
@@ -1058,11 +1089,11 @@ ids, and `getModelPath` turns one back into where the file actually is:
 ```dart
   Future<List<ModelChoice>> _findYourOwn() async {
     final shipped = {for (final m in Models.downloadable) m.fileName};
-    final installed = await FlutterGemma.listInstalledModels();
+    final installed = await FlutterEdgeAi.listInstalledModels();
     final yours = <ModelChoice>[];
     for (final id in installed) {
       if (shipped.contains(id)) continue;
-      yours.add(ModelChoice.fromDisk(await FlutterGemma.getModelPath(id)));
+      yours.add(ModelChoice.fromDisk(await FlutterEdgeAi.getModelPath(id)));
     }
     return yours;
   }
@@ -1072,6 +1103,19 @@ One simplification stated out loud: a model opened from disk is assumed to be a
 fine-tuned FunctionGemma, because that is what Step 4 produces and nothing on
 disk records which family a `.litertlm` belongs to. Tune a different base and
 `ModelChoice.fromDisk` is the line to change.
+
+The three also disagree about how to be opened, so each `ModelChoice` carries
+that too. FunctionGemma's download keeps Step 2's `maxTokens: 1024` on the CPU
+— the `<pad>` workaround belongs to that one file — while Gemma 4 and a model
+you converted in Step 4 get a 4096-token context and the engine's default
+backend:
+
+```dart
+      final inference = await FlutterEdgeAi.getActiveModel(
+        maxTokens: widget.model.maxTokens,
+        preferredBackend: widget.model.preferredBackend,
+      );
+```
 
 ### Where this runs
 
@@ -1129,17 +1173,19 @@ you tuned yourself, if you spent the CPU time.
 
 * **On-device RAG** gives the model documents instead of functions: embed your
   own text, search it, and ground the answer
-* **`flutter_gemma_agent`** builds on exactly this loop — skills written as
+* **`flutter_edge_ai_agent`** builds on exactly this loop — skills written as
   Markdown, JavaScript or native intents, driven by the same
   function-calling machinery
+  ([On-Device Agents in Flutter](/codelabs/on-device-agent-flutter-gemma))
 * **Multimodal** ([Vision and Audio on Device](/codelabs/multimodal-flutter-gemma))
   is the other thing a session flag switches on, and the codelab where the flag
   really does have to go in two places
 
 ### Reference
 
-* [flutter_gemma on pub.dev](https://pub.dev/packages/flutter_gemma) — the full
+* [flutter_edge_ai on pub.dev](https://pub.dev/packages/flutter_edge_ai) — the full
   platform support matrix and the model table
-* [litetune](https://github.com/DenisovAV/litetune) — the fine-tuning pipeline
+* [litetune](https://litetune.dev) — the fine-tuning pipeline
   Step 4 uses, including what it has and has not measured
-* [Source and this codelab's code](https://github.com/DenisovAV/flutter_gemma)
+* [litetune source](https://github.com/DenisovAV/litetune)
+* [Source and this codelab's code](https://github.com/DenisovAV/flutter_edge_ai)

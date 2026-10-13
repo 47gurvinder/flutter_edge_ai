@@ -1,0 +1,212 @@
+{
+  "manifest_schema": "0.1.2",
+  "repo": "mlboydaisuke/S1-mini-LiteRT",
+  "generated": "2026-09-22",
+  "generator": "make_manifest.py",
+  "model": {
+    "display_name": "S1-mini (LiteRT-LM)",
+    "base_model": "superwhisper/s1-mini",
+    "architecture": "Dense 0.6B ASR-transcript normalizer, Qwen3ForCausalLM finetune, 28 layers, GQA 16Q:8KV, tied embeddings",
+    "parameters_b": 0.6,
+    "license": "other",
+    "session_defaults": {
+      "notes": "Single-task text normalizer, NOT a chat model — it rewrites a question instead of answering it. Greedy is the trained behaviour (upstream generation_config sets do_sample=false): use top-k 1 / temperature 0. Every input is a control line '[Styling: casual|semi-casual|semi-formal|formal] [Structure: prose|lists] [Context: general|email]', a newline, then one raw transcript; values outside those sets are out of contract. The required system prompt is baked into the bundle template, so callers send only the control line and transcript. English only, inputs up to ~1000 tokens. License carries a naming term: distribution must keep identifying it as \"S1-mini\" by \"Superwhisper\"."
+    },
+    "context_length": 4096,
+    "capabilities": {
+      "vision": false,
+      "audio": false,
+      "thinking": {
+        "declared": true,
+        "channel": {
+          "start": "<think>",
+          "end": "</think>"
+        }
+      },
+      "channels": [
+        {
+          "name": "thought",
+          "start": "<think>",
+          "end": "</think>"
+        }
+      ]
+    }
+  },
+  "variants": [
+    {
+      "file": "S1-mini_int8.litertlm",
+      "sha256": "94828f0da7774e36acaedf36bfbc54ec9d81a3076ea10ed3c5e45f4ccbdb94e5",
+      "size_bytes": 688157792,
+      "sections": [
+        {
+          "type": "LlmMetadataProto",
+          "size_bytes": 1137
+        },
+        {
+          "type": "HF_Tokenizer_Zlib",
+          "size_bytes": 2142162
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 685978720,
+          "model_type": "tf_lite_prefill_decode"
+        }
+      ],
+      "quantization": "int8 dynamic on linears + embedding (dynamic_wi8_afp32)",
+      "backends": [
+        "cpu",
+        "gpu"
+      ],
+      "default_backend": "cpu",
+      "recommended": [
+        {
+          "platform": "android",
+          "device_class": "midrange",
+          "backend": "cpu",
+          "reason": "measured on one Pixel 8a with one binary (2026-08-25, 205-token prompt, single run each): GPU 434 tok/s prefill / 12.3 decode against CPU 40.4 / 5.8 - the GPU is faster, but on this phone it deterministically drops a date separator on number-dense input ('March 3rd, 2026.' -> 'March 32026.') while the CPU output is byte-identical to macOS on all 12 test cases. For a text-normalization model exactness is the job, so CPU is the default here; choose gpu when time-to-first-token matters more (0.67 s vs 6.46 s). Same-device pair taken, so the speed ordering is measured, not assumed"
+        },
+        {
+          "platform": "android",
+          "device_class": "flagship",
+          "backend": "gpu",
+          "reason": "measured on one Galaxy S26 with one binary (S7 Android backfill 2026-09-05, 205-token prompt, 2 cold runs per backend, cooled before each run): gpu decodes 25.13-25.8 tok/s against cpu's 12.29 (2.1x), prefill 940.7-1027.5 vs 166.7-175.3 tok/s, peak 1323 vs 2129 MB, engine init 6.3 vs 2.2 s. Same-device CPU control taken - a measured win for gpu on decode. On the Pixel 8a's Mali GPU this model deterministically dropped a date separator on number-dense input ('March 3rd, 2026.' -> 'March 32026.'); the same date vector run on this Adreno GPU came back intact ('The invoice came to $23,450 and it's due on March 3, 2026.', S7 probe 2026-09-05, same binary), so that Mali defect does not reproduce here. The full 12-case exactness check was not repeated on Adreno; where byte-exactness is the job, cpu remains the conservative choice"
+        }
+      ],
+      "requirements": {
+        "platform_notes": [
+          "Context (KV cache) 4096; prefill signatures 1..1024",
+          "int8 is the only variant: an int4 block-32 build was measured and rejected — it drops commas and discourse words and decodes slower at this size",
+          "Pixel 8a (Tensor G3): graph runs entirely on the OpenCL delegate — 1247/1247 decode nodes, zero XNNPACK fallback",
+          "iPhone 17 Pro verified (Metal): loads and generates, peak ~1.7 GB",
+          "Android: Google AI Edge Gallery imports the file, but Gallery builds current as of 2026-08 give imported models no accelerator choice and run them on the CPU; set TopK 1 / temperature 0.00 in the import dialog (its defaults are sampling values)"
+        ]
+      },
+      "measured": [
+        {
+          "device": "Apple M4 Max",
+          "os": "macOS",
+          "backend": "gpu",
+          "runtime": "litert-lm 0.16.0",
+          "prompt_tokens": 256,
+          "decode_tokens": 256,
+          "prefill_tps": 3673,
+          "decode_tps": 144.6,
+          "ttft_s": 0.077,
+          "max_num_tokens": 4096,
+          "runs": 3,
+          "date": "2026-08-25",
+          "source": "litert-lm benchmark, -p 256 -d 256 --runs 3 --cache no, quiet machine"
+        },
+        {
+          "device": "Apple M4 Max",
+          "os": "macOS",
+          "backend": "cpu",
+          "runtime": "litert-lm 0.16.0",
+          "prompt_tokens": 256,
+          "decode_tokens": 256,
+          "prefill_tps": 427,
+          "decode_tps": 33.3,
+          "ttft_s": 0.63,
+          "max_num_tokens": 4096,
+          "runs": 3,
+          "date": "2026-08-25",
+          "source": "litert-lm benchmark, -p 256 -d 256 --runs 3 --cache no, quiet machine"
+        },
+        {
+          "device": "Pixel 8a",
+          "os": "Android",
+          "backend": "gpu",
+          "runtime": "litert_lm_advanced_main v0.16.0 kit (LiteRT CompiledModel, LITERT_CL)",
+          "prompt_tokens": 205,
+          "prefill_tps": 434,
+          "decode_tps": 12.3,
+          "ttft_s": 0.67,
+          "max_num_tokens": 4096,
+          "runs": 1,
+          "date": "2026-08-25",
+          "source": "on-device benchmark run, 205-token prompt"
+        },
+        {
+          "device": "Pixel 8a",
+          "os": "Android",
+          "backend": "cpu",
+          "runtime": "litert_lm_advanced_main v0.16.0 kit (XNNPACK)",
+          "prompt_tokens": 205,
+          "prefill_tps": 40.4,
+          "decode_tps": 5.8,
+          "ttft_s": 6.46,
+          "max_num_tokens": 4096,
+          "runs": 1,
+          "date": "2026-08-25",
+          "source": "on-device benchmark run, 205-token prompt"
+        },
+        {
+          "device": "iPhone 17 Pro",
+          "os": "iOS",
+          "backend": "gpu",
+          "runtime": "litert-lm (Swift, yardstick harness)",
+          "prompt_tokens": 180,
+          "prefill_tps": 801,
+          "decode_tps": 32.0,
+          "ttft_s": 0.31,
+          "max_num_tokens": 4096,
+          "runs": 2,
+          "date": "2026-08-25",
+          "source": "on-device harness; the two runs that agreed (32.02 / 32.01 tok/s). An earlier run of the same build read 30.2. Device reported thermal state 'serious' throughout — read as a floor."
+        },
+        {
+          "device": "iPhone 17 Pro",
+          "os": "iOS",
+          "backend": "cpu",
+          "runtime": "litert-lm (Swift, yardstick harness)",
+          "prompt_tokens": 180,
+          "prefill_tps": 281,
+          "decode_tps": 15.5,
+          "ttft_s": 0.74,
+          "max_num_tokens": 4096,
+          "runs": 1,
+          "date": "2026-08-25",
+          "source": "on-device harness, single run; device reported thermal state 'serious' — read as a floor.",
+          "peak_mem_mb": 1427
+        },
+        {
+          "device": "Galaxy S26 (SM-S942Q, Qualcomm SM8850, Adreno)",
+          "backend": "gpu",
+          "runtime": "litert_lm_advanced_main v0.16.0, LiteRT CL delegate",
+          "prompt_tokens": 254,
+          "decode_tokens": 195,
+          "prefill_tps": "940.7-1027.5",
+          "decode_tps": "25.13-25.8",
+          "ttft_s": "0.29-0.31",
+          "load_s": 6.3,
+          "peak_memory_mb": 1323,
+          "cache": "no",
+          "runs": 2,
+          "date": "2026-09-05",
+          "source": "S7 Android backfill: 205-token prompt with --benchmark, 2 cold runs (compile/weight caches deleted between runs, device cooled below 42 C before each run); GPU gate full LITERT_CL delegation (15474 ops across 12 subgraphs), generation verified on the gate prompt; the cpu row of the same date is the same-device control"
+        },
+        {
+          "device": "Galaxy S26 (SM-S942Q, Qualcomm SM8850, Adreno)",
+          "backend": "cpu",
+          "runtime": "litert_lm_advanced_main v0.16.0 (XNNPACK CPU)",
+          "prompt_tokens": 254,
+          "decode_tokens": 195,
+          "prefill_tps": "166.7-175.3",
+          "decode_tps": 12.29,
+          "ttft_s": "1.53-1.61",
+          "load_s": 2.2,
+          "peak_memory_mb": 2129,
+          "cache": "no",
+          "runs": 2,
+          "date": "2026-09-05",
+          "source": "S7 Android backfill: same-device CPU control - identical binary, prompt file and flags, only --backend differs; 205-token prompt with --benchmark, 2 cold runs (compile/weight caches deleted between runs, device cooled below 42 C before each run); same-device control for the gpu row of the same date"
+        }
+      ],
+      "known_issues": [
+        "Pixel 8a GPU: on number-dense input a date separator can be lost ('March 3rd, 2026.' -> 'March 32026.'), deterministic on repeat runs; the CPU backend on the same phone is byte-identical to macOS across all 12 test cases. Prefer CPU on this phone when exactness matters, GPU when time-to-first-token matters.",
+        "The released checkpoint itself drifts from its own upstream card's example table (it keeps 'Hmm,' / 'So' discourse markers the card drops); parity here is stated against HF fp32, not against those published examples.",
+        "All iPhone 17 Pro rows were measured with the device reporting a 'serious' thermal state; they are floors, not peaks."
+      ]
+    }
+  ]
+}

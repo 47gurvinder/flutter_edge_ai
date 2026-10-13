@@ -1,0 +1,360 @@
+// Unit test for the 1.5.0 facade API-completeness surface:
+//   - uninstallEmbedder() (uninstalls model + tokenizer, keeps files the app
+//     installed with fromFile, clears the active identity, no-op when nothing
+//     is active),
+//   - the typed identity getters (activeEmbedderSpec vs the other modalities),
+//   - getModelPath() resolving an installed file's on-device path.
+//
+// Mirrors stt_install_plumbing_test.dart: drives the real
+// FlutterEdgeAiPlugin.instance.modelManager singleton end-to-end in a plain
+// `flutter test` via a SharedPreferences mock + a PathProviderPlatform stub —
+// no device, no native engine.
+//
+// Run: flutter test test/core/api/uninstall_and_introspection_test.dart
+
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:flutter_edge_ai/src/di/service_registry.dart';
+import 'package:flutter_edge_ai/src/embedding/embedding_pass.dart';
+import 'package:flutter_edge_ai/src/registry/embedding_backend_provider.dart';
+import 'package:flutter_edge_ai/src/registry/embedding_registry.dart';
+import 'package:flutter_edge_ai/src/registry/runtime_config.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+
+// FileSourceHandler enforces a minimum size per extension (1MB for model
+// files, 1KB for small/config extensions like .json) to catch truncated
+// downloads — the fixtures below must clear both thresholds or "install"
+// rejects them as corrupted.
+final _fakeModelBytes = Uint8List(1024 * 1024 + 16);
+final _fakeTokenizerBytes = Uint8List(2048);
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  late Directory fakeDocuments;
+  late Directory fakeAppSupport;
+  late Directory sourceDir;
+  late _FixedPathProviderPlatform mockProvider;
+
+  setUp(() async {
+    fakeDocuments = await Directory.systemTemp.createTemp(
+      'flutter_edge_ai_docs_',
+    );
+    fakeAppSupport = await Directory.systemTemp.createTemp(
+      'flutter_edge_ai_appsupport_',
+    );
+    sourceDir = await Directory.systemTemp.createTemp('flutter_edge_ai_src_');
+    mockProvider = _FixedPathProviderPlatform(
+      documentsPath: fakeDocuments.path,
+      appSupportPath: fakeAppSupport.path,
+    );
+    PathProviderPlatform.instance = mockProvider;
+    SharedPreferences.setMockInitialValues({});
+    ServiceRegistry.reset();
+    EmbeddingRegistry.instance.reset();
+    // The default FlutterEdgeAiPlugin instance (and its model manager) is a
+    // process-wide singleton that outlives each test — clear any active
+    // embedder identity a previous test left behind so tests stay independent.
+    await FlutterEdgeAiPlugin.instance.modelManager
+        .clearActiveEmbeddingIdentity();
+  });
+
+  tearDown(() async {
+    ServiceRegistry.reset();
+    EmbeddingRegistry.instance.reset();
+    for (final dir in [fakeDocuments, fakeAppSupport, sourceDir]) {
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+    }
+  });
+
+  // FileSourceHandler references the app's files in place (no copy). The
+  // fixtures sit INSIDE the managed model directory (Application
+  // Support/flutter_gemma on the desktop test host; the name is kept across
+  // the rename), so the app's file IS at the managed path — the layout where
+  // only the record says whose file it is, and uninstall must keep it.
+  Future<EmbeddingModelSpec> installEmbedder() async {
+    final managedDir = Directory(
+      path.join(fakeAppSupport.path, 'flutter_gemma'),
+    );
+    await managedDir.create(recursive: true);
+
+    final modelFile = File(path.join(managedDir.path, 'model.tflite'));
+    await modelFile.writeAsBytes(_fakeModelBytes);
+    final tokenizerFile = File(path.join(managedDir.path, 'tokenizer.json'));
+    await tokenizerFile.writeAsBytes(_fakeTokenizerBytes);
+
+    final installation = await FlutterEdgeAi.installEmbedder()
+        .modelFromFile(modelFile.path)
+        .tokenizerFromFile(tokenizerFile.path)
+        .install();
+    return installation.spec;
+  }
+
+  group('uninstallEmbedder + introspection', () {
+    test(
+      'install sets a typed active spec; getModelPath resolves both files',
+      () async {
+        await FlutterEdgeAi.initialize(
+          embeddingBackends: [_FakeEmbeddingBackend()],
+        );
+
+        final spec = await installEmbedder();
+        expect(spec, isA<EmbeddingModelSpec>());
+
+        // Typed getter returns the right runtime type; the other modalities
+        // are null (guards against a copy-paste miswire reading a sibling
+        // slot).
+        expect(FlutterEdgeAi.hasActiveEmbedder(), isTrue);
+        expect(FlutterEdgeAi.activeEmbedderSpec, isA<EmbeddingModelSpec>());
+        expect(FlutterEdgeAi.activeModelSpec, isNull);
+        expect(FlutterEdgeAi.activeSttSpec, isNull);
+        expect(FlutterEdgeAi.activeTtsSpec, isNull);
+
+        // Both installed files (model + tokenizer) resolve to a real on-disk
+        // path via getModelPath.
+        expect(spec.files.length, 2);
+        for (final file in spec.files) {
+          final resolved = await FlutterEdgeAi.getModelPath(file.filename);
+          expect(
+            File(resolved).existsSync(),
+            isTrue,
+            reason: '${file.filename} should exist after install',
+          );
+        }
+      },
+    );
+
+    test('uninstallEmbedder uninstalls both files, keeps fromFile ones and '
+        'clears the active identity', () async {
+      await FlutterEdgeAi.initialize(
+        embeddingBackends: [_FakeEmbeddingBackend()],
+      );
+
+      final spec = await installEmbedder();
+      final paths = [
+        for (final file in spec.files)
+          await FlutterEdgeAi.getModelPath(file.filename),
+      ];
+      expect(paths.every((p) => File(p).existsSync()), isTrue);
+
+      await FlutterEdgeAi.uninstallEmbedder();
+
+      // Both the model AND the tokenizer are uninstalled, not just one;
+      // installed with fromFile, they are the app's own files and stay.
+      final repository = ServiceRegistry.instance.modelRepository;
+      for (final file in spec.files) {
+        expect(await repository.isInstalled(file.filename), isFalse);
+      }
+      for (final p in paths) {
+        expect(
+          File(p).existsSync(),
+          isTrue,
+          reason: '$p is the app\'s own file',
+        );
+      }
+      // Identity cleared → getActiveEmbedder now fails fast.
+      expect(FlutterEdgeAi.hasActiveEmbedder(), isFalse);
+      expect(FlutterEdgeAi.activeEmbedderSpec, isNull);
+      // Typed, so a caller can tell "nothing installed" from a model that
+      // cannot run; still a StateError for code that catches that.
+      expect(
+        () => FlutterEdgeAi.getActiveEmbedder(),
+        throwsA(isA<NoActiveModelError>()),
+      );
+    });
+
+    test('uninstallEmbedder is a no-op when nothing is active', () async {
+      await FlutterEdgeAi.initialize(
+        embeddingBackends: [_FakeEmbeddingBackend()],
+      );
+      expect(FlutterEdgeAi.hasActiveEmbedder(), isFalse);
+      // Must complete without throwing.
+      await FlutterEdgeAi.uninstallEmbedder();
+      expect(FlutterEdgeAi.hasActiveEmbedder(), isFalse);
+    });
+
+    test(
+      'third-party manager deletes both artifacts then clears exactly once',
+      () async {
+        final spec = EmbeddingModelSpec(
+          name: 'third-party',
+          modelSource: NetworkSource('https://example.com/model.tflite'),
+          tokenizerSource: NetworkSource('https://example.com/tokenizer.model'),
+          modelFilename: 'third-party-model.tflite',
+          tokenizerFilename: 'third-party-tokenizer.model',
+        );
+        final manager = _ThirdPartyEmbeddingManager(spec);
+        final previousPlugin = FlutterEdgeAiPlugin.instance;
+        FlutterEdgeAiPlugin.instance = _ThirdPartyPlugin(manager);
+        try {
+          await FlutterEdgeAi.uninstallEmbedder();
+        } finally {
+          FlutterEdgeAiPlugin.instance = previousPlugin;
+        }
+
+        expect(manager.deletedArtifacts, [
+          'third-party-model.tflite',
+          'third-party-tokenizer.model',
+        ]);
+        expect(manager.clearCalls, 1);
+        expect(manager.clearCompleted, isTrue);
+        expect(manager.events, [
+          'delete:third-party-model.tflite',
+          'delete:third-party-tokenizer.model',
+          'clear:start',
+          'clear:done',
+        ]);
+      },
+    );
+
+    test(
+      'third-party partial delete failure does not clear identity',
+      () async {
+        final spec = EmbeddingModelSpec(
+          name: 'third-party-failure',
+          modelSource: NetworkSource('https://example.com/model.tflite'),
+          tokenizerSource: NetworkSource('https://example.com/tokenizer.model'),
+          modelFilename: 'failure-model.tflite',
+          tokenizerFilename: 'failure-tokenizer.model',
+        );
+        final manager = _ThirdPartyEmbeddingManager(spec, failDeleteAt: 1);
+        final previousPlugin = FlutterEdgeAiPlugin.instance;
+        FlutterEdgeAiPlugin.instance = _ThirdPartyPlugin(manager);
+        try {
+          await expectLater(
+            FlutterEdgeAi.uninstallEmbedder(),
+            throwsA(isA<StateError>()),
+          );
+        } finally {
+          FlutterEdgeAiPlugin.instance = previousPlugin;
+        }
+
+        expect(manager.deleteAttempts, 2);
+        expect(manager.deletedArtifacts, ['failure-model.tflite']);
+        expect(manager.clearCalls, 0);
+        expect(manager.activeEmbeddingModel, same(spec));
+      },
+    );
+  });
+}
+
+final class _ThirdPartyPlugin extends FlutterEdgeAiPlugin {
+  _ThirdPartyPlugin(this._manager);
+
+  final ModelFileManager _manager;
+
+  @override
+  ModelFileManager get modelManager => _manager;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _ThirdPartyEmbeddingManager extends ModelFileManager {
+  _ThirdPartyEmbeddingManager(this._activeEmbeddingModel, {this.failDeleteAt});
+
+  ModelSpec? _activeEmbeddingModel;
+  final int? failDeleteAt;
+  final List<String> deletedArtifacts = [];
+  final List<String> events = [];
+  int deleteAttempts = 0;
+  int clearCalls = 0;
+  bool clearCompleted = false;
+
+  @override
+  ModelSpec? get activeEmbeddingModel => _activeEmbeddingModel;
+
+  @override
+  Future<void> deleteModel(ModelSpec spec) async {
+    for (var i = 0; i < spec.files.length; i++) {
+      deleteAttempts++;
+      if (failDeleteAt == i) {
+        throw StateError('artifact delete failed at index $i');
+      }
+      final filename = spec.files[i].filename;
+      deletedArtifacts.add(filename);
+      events.add('delete:$filename');
+    }
+  }
+
+  @override
+  Future<void> clearActiveEmbeddingIdentity() async {
+    clearCalls++;
+    events.add('clear:start');
+    await Future<void>.delayed(Duration.zero);
+    _activeEmbeddingModel = null;
+    clearCompleted = true;
+    events.add('clear:done');
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Claims every spec and describes a trivial pass. These tests install and
+/// introspect; nothing builds the embedder.
+final class _FakeEmbeddingBackend extends EmbeddingBackendProvider {
+  @override
+  String get name => 'FakeEmbedding';
+
+  @override
+  int get priority => 0;
+
+  @override
+  bool canHandle(EmbeddingModelSpec spec) => true;
+
+  @override
+  Future<EmbeddingPassDescriptor<Object>> describe(
+    EmbeddingModelSpec spec,
+    RuntimeConfig config,
+  ) async => const EmbeddingPassDescriptor<String>(
+    engineTag: 'Fake',
+    factory: _buildFakePass,
+    config: 'fake',
+    activeBackend: PreferredBackend.cpu,
+  );
+}
+
+EmbeddingPass _buildFakePass(String _) => _FakePass();
+
+final class _FakePass extends EmbeddingPass {
+  @override
+  Future<EmbeddingPassInfo> load() async =>
+      const EmbeddingPassInfo(dimension: 1);
+
+  @override
+  Future<List<double>> embed(EmbeddingInput input, TaskType taskType) async =>
+      const [0.0];
+
+  @override
+  Future<void> close() async {}
+}
+
+/// PathProviderPlatform stub returning fixed Documents / ApplicationSupport
+/// paths so the model manager resolves into temp dirs under test.
+class _FixedPathProviderPlatform extends PathProviderPlatform {
+  final String documentsPath;
+  final String appSupportPath;
+
+  _FixedPathProviderPlatform({
+    required this.documentsPath,
+    required this.appSupportPath,
+  });
+
+  @override
+  Future<String?> getApplicationDocumentsPath() async => documentsPath;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => appSupportPath;
+
+  @override
+  Future<String?> getTemporaryPath() async => Directory.systemTemp.path;
+}

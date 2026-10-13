@@ -1,0 +1,240 @@
+// Fake-backed unit tests for OnnxInferenceModel — zero dlopen (hardened
+// plan Phase 3, Task 6).
+import 'dart:async';
+
+import 'package:flutter_edge_ai/engine.dart';
+import 'package:flutter_edge_ai_onnx/src/onnx_inference_model.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'fakes/fake_gen_ai_client.dart';
+
+OnnxInferenceModel _model(FakeGenAiClient client, {void Function()? onClose}) {
+  return OnnxInferenceModel(
+    client: client,
+    maxTokens: 1024,
+    modelType: ModelType.gemmaIt,
+    activeBackend: PreferredBackend.cpu,
+    onClose: onClose ?? () {},
+  );
+}
+
+Future<Map<String, Object>> _searchOptionsOf(
+  FakeGenAiClient client,
+  OnnxInferenceModel model,
+) async {
+  await model.session!.addQueryChunk(const Message(text: 'Hi', isUser: true));
+  await model.session!.getResponse();
+  return client.generateCalls.last.searchOptions;
+}
+
+void main() {
+  group('sampling reaches the generator', () {
+    test('values the caller sets become ORT-GenAI search options', () async {
+      final client = FakeGenAiClient();
+      final model = _model(client);
+      await model.createSession(temperature: 0.7, topK: 20, randomSeed: 3);
+      expect(await _searchOptionsOf(client, model), {
+        'do_sample': true,
+        'temperature': 0.7,
+        'top_k': 20,
+        'random_seed': 3,
+      });
+    });
+
+    test('nothing set leaves the model config alone', () async {
+      final client = FakeGenAiClient();
+      final model = _model(client);
+      await model.createSession();
+      expect(await _searchOptionsOf(client, model), isEmpty);
+    });
+
+    test('an invalid value throws before the live session is closed', () async {
+      final client = FakeGenAiClient();
+      final model = _model(client);
+      final live = await model.createSession();
+
+      await expectLater(model.createSession(topP: 0), throwsArgumentError);
+      expect(model.session, same(live));
+      expect(client.resetSessionCalls, 0);
+    });
+  });
+
+  group('createSession singleton lane', () {
+    test(
+      'a second sequential createSession closes the first session',
+      () async {
+        final client = FakeGenAiClient();
+        final model = _model(client);
+
+        final first = await model.createSession();
+        final second = await model.createSession();
+
+        expect(identical(first, second), isFalse);
+        expect(model.session, same(second));
+        // The first session's close() reached the client via resetSession().
+        expect(client.resetSessionCalls, greaterThanOrEqualTo(1));
+      },
+    );
+
+    test(
+      'concurrent createSession callers share one in-flight future',
+      () async {
+        final client = FakeGenAiClient();
+        final model = _model(client);
+
+        final futureA = model.createSession();
+        final futureB = model.createSession();
+
+        final results = await Future.wait([futureA, futureB]);
+        expect(identical(results[0], results[1]), isTrue);
+      },
+    );
+
+    test('loraPath throws UnsupportedError', () async {
+      final client = FakeGenAiClient();
+      final model = _model(client);
+
+      expect(
+        () => model.createSession(loraPath: '/tmp/lora.bin'),
+        throwsUnsupportedError,
+      );
+    });
+
+    test('vision/audio modality request throws UnsupportedError', () async {
+      final client = FakeGenAiClient();
+      final model = _model(client);
+
+      expect(
+        () => model.createSession(enableVisionModality: true),
+        throwsUnsupportedError,
+      );
+      expect(
+        () => model.createSession(enableAudioModality: true),
+        throwsUnsupportedError,
+      );
+    });
+  });
+
+  group('openSession', () {
+    test(
+      'is not supported (v1) — inherits the base UnsupportedError',
+      () async {
+        final client = FakeGenAiClient();
+        final model = _model(client);
+
+        expect(() => model.openSession(), throwsUnsupportedError);
+      },
+    );
+  });
+
+  group('close', () {
+    test(
+      'is idempotent and fires CloseNotifier listeners exactly once',
+      () async {
+        final client = FakeGenAiClient();
+        final model = _model(client);
+        await model.createSession();
+
+        var fired = 0;
+        model.addCloseListener(() => fired++);
+
+        await model.close();
+        await model.close();
+
+        expect(fired, 1);
+        expect(client.shutdownCalls, 1);
+      },
+    );
+
+    test('closes the live session before shutting down the client', () async {
+      final client = FakeGenAiClient();
+      final model = _model(client);
+      await model.createSession();
+      expect(model.session, isNotNull);
+
+      await model.close();
+
+      expect(model.session, isNull);
+    });
+
+    test('isClosed is true from the moment close() starts', () async {
+      // Core's getActiveModel cache checks this: its close listener fires
+      // only once the teardown has ended.
+      final model = _model(FakeGenAiClient());
+      expect(model.isClosed, isFalse);
+
+      final closing = model.close();
+      expect(model.isClosed, isTrue);
+      await closing;
+    });
+
+    test('createSession after close throws StateError', () async {
+      final client = FakeGenAiClient();
+      final model = _model(client);
+      await model.close();
+
+      expect(() => model.createSession(), throwsStateError);
+    });
+
+    test('a throwing client shutdown still fires the close listeners, and '
+        'only the first close() reports it', () async {
+      final client = FakeGenAiClient()
+        ..shutdownError = StateError('shutdown failed');
+      var onCloseCalls = 0;
+      var listenerCalls = 0;
+      final model = _model(client, onClose: () => onCloseCalls++);
+      model.addCloseListener(() => listenerCalls++);
+
+      await expectLater(
+        model.close(),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            'shutdown failed',
+          ),
+        ),
+      );
+      expect(onCloseCalls, 1);
+      expect(listenerCalls, 1, reason: 'core evicts on the listener');
+      await model.close();
+      expect(listenerCalls, 1);
+      expect(client.shutdownCalls, 1);
+    });
+
+    test('when shutdown and onClose both throw, close() reports the shutdown '
+        'error and prints the other one', () async {
+      final client = FakeGenAiClient()
+        ..shutdownError = StateError('shutdown failed');
+      var listenerCalls = 0;
+      final model = _model(
+        client,
+        onClose: () => throw StateError('onClose failed'),
+      );
+      model.addCloseListener(() => listenerCalls++);
+      final printed = <String>[];
+
+      await runZoned(
+        () => expectLater(
+          model.close(),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              'shutdown failed',
+            ),
+          ),
+        ),
+        zoneSpecification: ZoneSpecification(
+          print: (_, _, _, line) => printed.add(line),
+        ),
+      );
+      expect(listenerCalls, 1, reason: 'core evicts on the listener');
+      expect(
+        printed,
+        contains(contains('onClose failed')),
+        reason: 'the second failure was lost',
+      );
+    });
+  });
+}

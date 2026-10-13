@@ -44,8 +44,8 @@ to make, and each step here is built around one of them:
 
 ### What you'll need
 
-* Flutter **3.47** or newer — higher than the rest of flutter_gemma asks for.
-  `flutter_gemma_rag_sqlite` 1.4.0 requires sqlite3 3.6.0, whose build
+* Flutter **3.47** or newer — higher than the rest of flutter_edge_ai asks for.
+  `flutter_edge_ai_sqlite` 2.1.0 requires sqlite3 3.6.0, whose build
   toolchain wants `meta ^1.19.0`, and every Flutter 3.44.x pins `meta` to
   1.18.0 exactly. On 3.44 the Step 3 app will not resolve
 * Any one of Flutter's six platforms: an arm64 Android device or emulator, an
@@ -66,8 +66,8 @@ Every step of this codelab exists as a complete, runnable app, so you can join
 at any point or check your work against the next one.
 
 ```bash
-git clone --depth 1 https://github.com/DenisovAV/flutter_gemma.git
-cd flutter_gemma/codelabs/on-device-rag-flutter-gemma
+git clone --depth 1 https://github.com/DenisovAV/flutter_edge_ai.git
+cd flutter_edge_ai/codelabs/on-device-rag-flutter-gemma
 ls
 ```
 
@@ -77,7 +77,7 @@ step_02_embed/       after Step 2 — the corpus, embedded
 step_03_store/       after Step 3 — a real vector store
 step_04_filters/     after Step 4 — filtered search
 step_05_grounded/    after Step 5 — answers with sources
-complete/            after Step 6 — the finished app
+complete/            the finished app — the same code as step_05_grounded
 ```
 
 ## Step 1: The starter app
@@ -133,12 +133,12 @@ a **number** and a **bool**.
 ### Add the packages
 
 ```bash
-flutter pub add flutter_gemma_embeddings
+flutter pub add flutter_edge_ai_embeddings
 ```
 
-One package, and it is not an engine. `flutter_gemma_litertlm` — already in the
+One package, and it is not an engine. `flutter_edge_ai_litertlm` — already in the
 app — supplies `LiteRtEmbeddingBackend`, the thing that runs the forward pass.
-`flutter_gemma_embeddings` supplies the **tokenizers**. They are separate on
+`flutter_edge_ai_embeddings` supplies the **tokenizers**. They are separate on
 purpose, and Step 2's whole registration hinges on why.
 
 ### Register the backend and the tokenizer
@@ -146,7 +146,7 @@ purpose, and Step 2's whole registration hinges on why.
 In `lib/main.dart`:
 
 ```dart
-await FlutterGemma.initialize(
+await FlutterEdgeAi.initialize(
   inferenceEngines: [LiteRtLmEngine()],
   embeddingBackends: [LiteRtEmbeddingBackend()],
   embeddingTokenizers: [GemmaEmbeddingTokenizers()],
@@ -159,57 +159,83 @@ Two lines, two packages, and the reason matters.
 Which tokenizer an embedding model needs is a property of the **model**, not of
 the engine that runs it: EmbeddingGemma wants SentencePiece whether LiteRT or
 ONNX Runtime executes it, and a BERT-family model wants WordPiece under either.
-So since `flutter_gemma` 1.9.0 the backend no longer carries one, and the app
-says which families it has.
+That registry change shipped in the legacy `flutter_gemma` 1.9.0 package and is
+part of the current `flutter_edge_ai`; the backend no longer carries a
+tokenizer, and the app says which families it has.
 
-**Watch out:** Leave `embeddingTokenizers` out and the first embedding throws a `StateError` naming the package to add. That is the design working: the alternative — falling back to one family and tokenizing with the wrong convention — returns vectors that are quietly the wrong point in the embedding space, and no test downstream can tell them from good ones.
+**Watch out:** Leave `embeddingTokenizers` out and the first embedding fails with an `EmbeddingLoadException` naming the package to add. That is the design working: the alternative — falling back to one family and tokenizing with the wrong convention — returns vectors that are quietly the wrong point in the embedding space, and no test downstream can tell them from good ones.
 
 ### Pick an embedding model
 
 ```dart
-static const embeddingGemma = EmbedderChoice(
-  modelUrl: '.../embeddinggemma-300M_seq256_mixed-precision.tflite',
-  tokenizerUrl: '.../sentencepiece.model',
-  sizeLabel: '0.2 GB',
-  requiresToken: true,
-);
+// lib/model.dart
+abstract final class Embedders {
+  static const embeddingGemma = EmbedderChoice(
+    label: 'EmbeddingGemma 300M',
+    profileId:
+        'embeddinggemma-300m-seq256-mp-rev-29888fcee321-'
+        'retrieval-prefix-meanpool-l2-v1',
+    modelUrl:
+        'https://huggingface.co/litert-community/embeddinggemma-300m/resolve/'
+        '29888fcee3216acadc7e844906e5fe0d79a61875/'
+        'embeddinggemma-300M_seq256_mixed-precision.tflite',
+    tokenizerUrl:
+        'https://huggingface.co/litert-community/embeddinggemma-300m/resolve/'
+        '29888fcee3216acadc7e844906e5fe0d79a61875/sentencepiece.model',
+    sizeLabel: '0.2 GB',
+    // Same licence gate as Gemma 3 above, and the same HF_TOKEN covers both.
+    requiresToken: true,
+  );
+}
 ```
+
+`EmbedderChoice` is a plain value class in the same file, one `final` field per
+argument above — `step_02_embed/lib/model.dart` has it.
 
 Two files, and both are required: the `.tflite` holds the weights,
 `sentencepiece.model` turns text into the ids those weights expect. There is no
 tokenizer baked into the graph — hand over only the first and the install
 fails.
 
-**Good to know:** `seq256` is the **sequence length in tokens**, not the embedding dimension. The vectors are 768 long either way; 256 is how much text fits into one forward pass before it is truncated. Every recipe here is comfortably shorter.
+**Good to know:** `seq256` is the **sequence length in tokens**, not the embedding dimension. The vectors are 768 long either way; 256 tokens, task prefix included, is the most one forward pass takes, and a longer input throws `EmbeddingInputTooLongException` rather than being cut. Every recipe here is comfortably shorter.
 
 ### Install it and embed
 
 ```dart
-await FlutterGemma.installEmbedder()
-    .modelFromNetwork(e.modelUrl, token: hfToken)
-    .tokenizerFromNetwork(e.tokenizerUrl, token: hfToken)
-    .withModelProgress((p) => setState(() => _installProgress = p / 100))
+// _embedder is Embedders.embeddingGemma; an unset HF_TOKEN goes as null.
+await FlutterEdgeAi.installEmbedder()
+    .modelFromNetwork(
+      _embedder.modelUrl,
+      token: widget.hfToken.isEmpty ? null : widget.hfToken,
+    )
+    .tokenizerFromNetwork(
+      _embedder.tokenizerUrl,
+      token: widget.hfToken.isEmpty ? null : widget.hfToken,
+    )
+    .withModelProgress((p) {
+      if (mounted) setState(() => _installProgress = p / 100);
+    })
     .install();
 
-final embedder = await FlutterGemma.getActiveEmbedder();
-final vectors = await embedder.generateEmbeddings(
-  kRecipes.map((r) => r.text).toList(),
-  taskType: TaskType.retrievalDocument,
-);
+final embedder = await FlutterEdgeAi.getActiveEmbedder();
+final vectors = await embedder.embedAll([
+  for (final r in kRecipes) EmbeddingInput.text(r.text),
+], taskType: TaskType.retrievalDocument);
 ```
 
 `install()` is idempotent — the bytes are fetched once, and the second run of
 that button skips straight past the download. Progress is a link in the
 builder chain, not an argument to `install()`.
 
-One call for the whole corpus rather than a loop: the worker isolate is set up
-once and the model stays resident between texts.
+One call for the whole corpus rather than a loop: `embedAll` checks every text
+before the first is sent, and keeps the next one queued while the model works
+on the current one.
 
 ### The prefix that throws nothing
 
-`taskType` is the part worth slowing down for. EmbeddingGemma was trained with
-a different prefix for documents than for queries, and the enum is where that
-lives:
+`taskType` — a required argument — is the part worth slowing down for.
+EmbeddingGemma was trained with a different prefix for documents than for
+queries, and the enum is where that lives:
 
 ```text
 TaskType.retrievalDocument  ->  'title: none | text: '
@@ -220,7 +246,7 @@ Index your corpus with the query prefix and nothing errors. The vectors simply
 land slightly off, every search afterwards is a little worse, and no exception
 will ever point at it.
 
-**Watch out:** This is the one place in the codelab you have to get right by hand. From Step 3 on, `searchSimilar(query:)` embeds the query for you and uses `retrievalQuery` by default — so the two halves stay matched as long as you index with `retrievalDocument`.
+**Watch out:** This is the one place in the codelab you have to get right by hand. From Step 3 on, `RagIndex.search(query:)` embeds the query for you, through the index's embedder, whose query task is `retrievalQuery` by default — so the two halves stay matched as long as you index with `retrievalDocument`.
 
 ### Wire it into the app
 
@@ -260,12 +286,16 @@ Skip this unless you are running in Chrome — but do not skip it *and* then run
 in Chrome, because the Embed button is the first thing that fails.
 
 Embedding in a browser runs through LiteRT.js, which ships as four files in
-`flutter_gemma_litertlm/web/`. Copy them into your own `web/`, the same way
+`flutter_edge_ai_litertlm/web/`. Copy them into your own `web/`, the same way
 `cache_api.js` was copied in Getting Started:
 
 ```text
 litert.js   litert_embeddings.js   sentencepiece.js   tensorflow.js
 ```
+
+Take them from the version your app resolves: `flutter_edge_ai_litertlm`
+1.13.0 changed the bundle's API, and a copy from an older release fails
+`getActiveEmbedder()` with an `EmbeddingLoadException` that names the file.
 
 Then load the entry point from `web/index.html`:
 
@@ -319,11 +349,12 @@ Dart object and become rows in a database that knows they are vectors.
 
 ### Choose your store
 
-`flutter_gemma` ships two, behind one interface. This codelab uses
-**sqlite-vec**, and the table says why — but the code from here on is written
-against `VectorStoreRepository`, so swapping is one line either way.
+RAG orchestration lives in `flutter_edge_ai_rag`; storage providers remain
+replaceable packages. This codelab uses **sqlite-vec**, and the table says why.
+The code from here on talks to `RagIndex`, so changing storage does not rewrite
+the indexing, retrieval, filter, or grounding pipeline.
 
-| | `flutter_gemma_rag_sqlite` | `flutter_gemma_rag_qdrant` |
+| | `flutter_edge_ai_sqlite` | `flutter_edge_ai_qdrant` |
 |---|---|---|
 | Platforms | all six, **including web** | five — **no web** |
 | Search | exact KNN, always | exact below 10 000 points, approximate (HNSW) above |
@@ -340,28 +371,27 @@ codelab's fields are named `cuisine`, `minutes` and `vegetarian` and not
 `prep-time`.
 
 ```bash
-flutter pub add flutter_gemma_rag_sqlite path_provider
+flutter pub add flutter_edge_ai_rag flutter_edge_ai_sqlite path_provider
 ```
 
-### Register it
+### Create one app-owned RAG service
 
 ```dart
-await FlutterGemma.initialize(
-  // ...
-  vectorStore: kIsWeb ? WebSqliteVectorStore() : SqliteVectorStore(),
+final rag = FlutterEdgeAiRag(
+  providers: const [SqliteVectorStoreProvider()],
 );
 ```
 
-Two classes, one per platform arm. The native one is sqlite3 over `dart:ffi`
-with the `vec0` extension loaded; the web one is the same SQLite compiled to
-WASM with `vec0` linked in, keeping its pages in IndexedDB. Both implement the
-same interface, which is what makes everything after this line
-platform-independent.
+`FlutterEdgeAiRag` is deliberately independent of `FlutterEdgeAi.initialize()`.
+The provider chooses the native sqlite3/FFI implementation or the web
+SQLite/WASM implementation internally. Keep one `RagStore` service and one
+open `RagIndex` per location; on the web an open SQLite index owns an exclusive
+Web Lock for that location.
 
 ### Web setup
 
 One more file, and it needs no `<script>` tag. Copy the store's SQLite build
-from `flutter_gemma_rag_sqlite/web/rag/`:
+from `flutter_edge_ai_sqlite/web/rag/`:
 
 ```text
 web/rag/sqlite3.wasm
@@ -374,27 +404,66 @@ SQL.
 
 ### Open, index, search
 
-`lib/rag_store.dart` holds all three:
+`lib/rag_store.dart` is a new file — copy it from `step_03_store`, then read
+the parts that matter below. Its `RagStore` class owns the orchestrator and
+caches one in-flight open:
 
 ```dart
-static Future<String> databasePath() async {
-  const name = 'recipes.db';
-  if (kIsWeb) return name;
-  final dir = await getApplicationDocumentsDirectory();
-  return '${dir.path}/$name';
+final FlutterEdgeAiRag _rag = FlutterEdgeAiRag(
+  providers: const [SqliteVectorStoreProvider()],
+);
+Future<RagIndex>? _opening;
+
+Future<RagIndex> _index() {
+  if (!embedderInstalled) {
+    throw StateError('Install the embedder before opening the index: ...');
+  }
+  return _opening ??= _openOnce();
 }
 
-await FlutterGemma.rag.initialize(await databasePath());
+Future<RagIndex> _openOnce() async {
+  return _rag.open(
+    spec: VectorStoreSpec(
+      providerId: SqliteVectorStoreProvider.providerId,
+      location: await databasePath(),
+      // A constructor argument, FilterSchema.empty until Step 4 declares
+      // fields.
+      filterSchema: filterSchema,
+    ),
+    // Core's active embedder under this app's stable profile id. open()
+    // binds the store to that id and the model's dimension before a row
+    // is written, and search() embeds queries through it.
+    embedder: FlutterEdgeAiActiveEmbedder(
+      profileId: Embedders.embeddingGemma.profileId,
+    ),
+  );
+}
 ```
 
-sqlite-vec wants a `.db` **file** path. On web there is no file system to put
-one on — the store registers an IndexedDB-backed VFS under that name instead,
-so the bare name is the whole path.
+The file's versions also refuse to run after `dispose()` and forget a failed
+open so the next call retries; the excerpt leaves both out.
+
+`open()` binds the location for good: to the embedding profile — the ID you
+pass plus the dimension the model reports, 768 — and to the modality of its
+documents, `VectorStoreSpec.documents`, which defaults to text. Opening a
+location already bound to something else fails with a `StateError`, so as long
+as every model gets its own profile ID, two embedding spaces never share a
+store.
+
+**Watch out:** Install the embedder **before** you open the index. `open()` resolves the embedder's profile, which loads the active embedding model, and `FlutterEdgeAiActiveEmbedder` pins the model that is active when it is created, for the life of the index. On a fresh install — before `installEmbedder()` has run — there is none, and `open()` fails with *No active embedding model was configured when this FlutterEdgeAiActiveEmbedder was created*. That is what `embedderInstalled` (`FlutterEdgeAi.hasActiveEmbedder()`) guards: `RagStore` will not open until it is true, and its `search()` returns an empty list before then — nothing can have been indexed without the embedder anyway.
+
+The runnable app uses the stable profile ID
+`embeddinggemma-300m-seq256-mp-rev-29888fcee321-retrieval-prefix-meanpool-l2-v1`
+and pins both Hugging Face URLs to revision `29888fcee3216acadc7e844906e5fe0d79a61875`.
+The database name is `recipes-embeddinggemma-29888fcee321-unfiltered-v1.db`:
+model/profile and physical schema changes get a new location instead of
+silently mixing incompatible vectors. On web the bare name identifies an
+IndexedDB-backed VFS; native platforms use a full documents-directory path.
 
 Writing a row takes the vector you already have:
 
 ```dart
-await FlutterGemma.rag.addDocumentWithEmbedding(
+await (await _index()).addVector(
   id: r.id,
   content: r.text,
   embedding: vectors[i],
@@ -405,13 +474,17 @@ await FlutterGemma.rag.addDocumentWithEmbedding(
 );
 ```
 
-**Good to know:** There is also `addDocument(content:)`, which embeds for you — one document per call. Fine for one, wasteful for twelve, because each call sets the embedding worker up again. `id` is what a search result hands back, so it has to stay stable across re-indexes.
+**Good to know:** There is also `add(id:, document: EmbeddingInput.text(...))`,
+which embeds through the index's embedder for you. This codelab already
+batch-embeds twelve documents, so `addVector` avoids doing that work twice.
+`id` is what a search result hands back, so it has to stay stable across
+re-indexes.
 
-And searching takes text, not a vector:
+And searching takes the query as an `EmbeddingInput`, not a vector:
 
 ```dart
-FlutterGemma.rag.searchSimilar(
-  query: query,
+await (await _index()).search(
+  query: EmbeddingInput.text(query),
   topK: 3,
   threshold: 0.3,
 );
@@ -420,14 +493,14 @@ FlutterGemma.rag.searchSimilar(
 The query is embedded for you, with `retrievalQuery` — the other half of Step
 2's asymmetry, handled.
 
-**Watch out:** `threshold` is not optional in spirit. Cosine similarity runs 0.0 to 1.0, and without a threshold a search always returns `topK` rows however bad they are — which reads as "found something" to every caller downstream, including the model in Step 5.
+**Watch out:** `threshold` is not optional in spirit. Cosine similarity runs from −1 to 1, and without a threshold a search always returns `topK` rows however bad they are — which reads as "found something" to every caller downstream, including the model in Step 5.
 
 ### The page
 
 `lib/embed_page.dart` changes shape with the store under it, and the full file
 is in `step_03_store`. Step 2's screen embedded and showed you a vector; this
-one opens the store on `initState`, reports what is already in it, and adds a
-search field:
+one takes the app's `RagStore`, opens it on `initState`, reports what is already
+in it, and adds a search field:
 
 ```dart
 @override
@@ -435,6 +508,26 @@ void initState() {
   super.initState();
   _open();          // RagStore.open() — the row count comes from a past run
 }
+```
+
+`_open()` checks `embedderInstalled` first. On a first run there is no embedder
+yet, so it leaves the store closed and says so; the **Index the corpus** button
+installs the embedder and only then indexes, which is the call that opens the
+store.
+
+The store itself is created once, in `main()`, and handed down through
+`ModelGate` and `ChatPage` to this page — `main.dart` in `step_03_store` has
+the full wiring, including the shutdown order Step 6 comes back to:
+
+```dart
+// lib/main.dart, after FlutterEdgeAi.initialize(...)
+final ragStore = RagStore(
+  databaseName: 'recipes-embeddinggemma-29888fcee321-unfiltered-v1.db',
+);
+runApp(QuickstartApp(ragStore: ragStore));
+
+// lib/chat_page.dart, the Recipes action
+builder: (_) => EmbedPage(hfToken: hfToken, ragStore: widget.ragStore),
 ```
 
 The header now reads **12 rows · 768 dimensions** rather than counting ticks,
@@ -461,9 +554,9 @@ query rather than around it.
 ### Declare what is filterable
 
 ```dart
-await FlutterGemma.initialize(
-  // ...
-  filterSchema: const FilterSchema(
+final ragStore = RagStore(
+  databaseName: 'recipes-embeddinggemma-29888fcee321-filters-v1.db',
+  filterSchema: FilterSchema(
     fields: [
       FilterField(name: 'cuisine', type: FilterFieldType.string),
       FilterField(name: 'minutes', type: FilterFieldType.number),
@@ -474,13 +567,12 @@ await FlutterGemma.initialize(
 ```
 
 `FilterFieldType` has exactly three values, and the corpus uses all three.
-
-This is threaded to the store **before** its own `initialize()`, and that
+The schema is part of `VectorStoreSpec` when `RagStore` opens its index, and that
 timing is the whole point on sqlite-vec: each declared field becomes a real
 typed `vec0` column, and vec0 has no `ALTER`. Adding a filter field later means
-re-creating the table and re-indexing the corpus.
+using a new schema-versioned location and re-indexing the corpus.
 
-**Watch out:** A `Filter` over a field that was never declared is **silently dropped**. The search comes back unfiltered — no error, no log in a release build, just more results than you asked for. Declare what you might filter on, not only what you filter on today.
+**Watch out:** A `Filter` over a field that was never declared is **refused**: `search()` fails with an `ArgumentError` that lists the declared fields, because such a condition could never match. Declare what you might filter on, not only what you filter on today.
 
 ### Build a filter
 
@@ -495,7 +587,7 @@ Filter? buildFilter({
       FieldMatchAny(key: 'cuisine', values: cuisines.toList()),
     if (maxMinutes != null)
       FieldRange(key: 'minutes', lte: maxMinutes.toDouble()),
-    if (vegetarianOnly) const FieldEquals(key: 'vegetarian', value: true),
+    if (vegetarianOnly) FieldEquals(key: 'vegetarian', value: true),
   ];
   return must.isEmpty ? null : Filter(must: must);
 }
@@ -515,8 +607,8 @@ skips filtering entirely.
 ### Pass it to the search
 
 ```dart
-FlutterGemma.rag.searchSimilar(
-  query: query,
+await (await _index()).search(
+  query: EmbeddingInput.text(query),
   topK: 3,
   threshold: 0.3,
   filter: filter,
@@ -559,7 +651,7 @@ Retrieval on its own gives a list. Grounding is handing that list to the model
 and constraining it to answer from there.
 
 ```dart
-final hits = await RagStore.search(text);
+final hits = await widget.ragStore.search(text);
 
 final prompt = hits.isEmpty
     ? text
@@ -567,7 +659,7 @@ final prompt = hits.isEmpty
 Answer the question using only the recipes below. If they do not contain the
 answer, say so rather than inventing one.
 
-${hits.map((h) => '- ${RagStore.recipeFor(h)?.title}: ${h.content}').join('\n')}
+${hits.map((h) => '- ${RagStore.recipeFor(h)?.title ?? h.id}: ${h.content}').join('\n')}
 
 Question: $text''';
 
@@ -585,7 +677,7 @@ and the question, in one turn.
 if (_sources.isNotEmpty)
   Wrap(children: [
     for (final h in _sources)
-      Chip(label: Text('${RagStore.recipeFor(h)?.title} · '
+      Chip(label: Text('${RagStore.recipeFor(h)?.title ?? h.id} · '
           '${h.similarity.toStringAsFixed(2)}')),
   ]),
 ```
@@ -598,22 +690,31 @@ where this came from, and how close it was".
 
 Ask **what can I make with beans that isn't Italian?** The sources strip shows
 gigantes plaki, and the answer talks about it rather than about ribollita. Ask
-something the corpus has no answer to — **how do I make sourdough?** — and
-watch the model say so instead of inventing one, because the prompt told it to
-and because no recipe cleared the threshold.
+something the corpus has no answer to — **how do I make sourdough?** — and no
+recipe clears the threshold. Then the question goes to the model bare, with no
+recipes and no instruction around it, so it answers from its own weights; the
+sources strip staying empty is how you can tell.
 
 ## Step 6: Survive a restart
 Duration: 5
 
-The index is on disk from Step 3, but the app only opens the store when you
-visit the recipes page. Move it to startup, so the very first question can be
-grounded:
+There is no new code in this step: `complete/` is `step_05_grounded`, byte for
+byte. What is left is to read why the index survives a restart, and what can
+still lose it.
+
+The index has been on disk since Step 3, and the app has never let a page open
+its own handle: the one `RagStore` that Step 3 created in `main()` — with Step
+4's filter schema since then — is passed to both the chat and the recipes page.
+`RagStore.open()` is single-flight, so whichever asks first opens the index and
+concurrent callers join it. The chat asks lazily, so on any run after the corpus
+was indexed the first question is grounded without visiting the recipes page;
+before the embedder exists, `search()` returns nothing and opens nothing. At
+shutdown the app disposes the index before the core runtime whose active
+embedder it borrows:
 
 ```dart
-await FlutterGemma.initialize(/* ... */);
-await RagStore.open();
-
-runApp(const QuickstartApp());
+await widget.ragStore.dispose();
+await FlutterEdgeAi.dispose();
 ```
 
 ### Where an index actually becomes durable
@@ -634,7 +735,7 @@ Which is why `RagStore.index()` calls it unconditionally rather than behind
 `if (kIsWeb)`: it costs nothing where it is a no-op, and it is the difference
 between a saved index and a lost one everywhere else.
 
-**Watch out:** `close()` persists too, but it reports differently: on qdrant-edge a failed save is only logged, while `flush()` throws it. If you want to know that the index was saved, flush.
+**Watch out:** `RagIndex.dispose()` persists too — it closes the store — but it reports differently: on qdrant-edge a failed save on close is only logged, while `flush()` throws it. If you want to know that the index was saved, flush.
 
 ### Run it offline
 
@@ -651,9 +752,12 @@ Duration: 3
 Three parts, all local: a model that turns text into vectors, a database that
 knows those vectors are vectors, and a prompt that keeps the answer honest.
 
-* **Swap the store.** One line — `vectorStore: QdrantVectorStore()` — and the
-  rest of the code is unchanged, which is the interface earning its keep. You
-  give up the web and gain HNSW on large corpora.
+* **Swap the store.** `flutter pub add flutter_edge_ai_qdrant`, add
+  `QdrantVectorStoreProvider()` to the orchestrator's `providers`, and set
+  `providerId: 'qdrant'` in `VectorStoreSpec` — the provider's `id`; there is
+  no `providerId` constant on it the way there is on
+  `SqliteVectorStoreProvider`. The `RagIndex` calls stay the same. You give up
+  the web and gain HNSW on large corpora.
 * **Bring your own corpus.** Nothing here is recipe-shaped except
   `recipes.dart`. Twelve constants become a folder of Markdown, and the only
   real design decision is what goes into `text` versus what becomes a filter
@@ -666,5 +770,5 @@ knows those vectors are vectors, and a prompt that keeps the answer honest.
 
 * [Embeddings & RAG documentation](/docs/embeddings-and-rag) — the full filter
   grammar, the store comparison, and the per-store `flush()` table
-* [flutter_gemma_rag_sqlite on pub.dev](https://pub.dev/packages/flutter_gemma_rag_sqlite)
-* [Source and this codelab's code](https://github.com/DenisovAV/flutter_gemma)
+* [flutter_edge_ai_sqlite on pub.dev](https://pub.dev/packages/flutter_edge_ai_sqlite)
+* [Source and this codelab's code](https://github.com/DenisovAV/flutter_edge_ai)

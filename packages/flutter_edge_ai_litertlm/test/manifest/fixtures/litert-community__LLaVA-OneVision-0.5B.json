@@ -1,0 +1,146 @@
+{
+  "manifest_schema": "0.1.2",
+  "repo": "litert-community/LLaVA-OneVision-0.5B",
+  "generated": "2026-09-05",
+  "generator": "make_manifest.py",
+  "model": {
+    "display_name": "LLaVA-OneVision-0.5B (LiteRT-LM)",
+    "base_model": "llava-hf/llava-onevision-qwen2-0.5b-ov-hf",
+    "architecture": "Compact vision-language model: SigLIP vision encoder (384x384) + MLP projector + Qwen2-0.5B decoder, LiteRT-LM fast_vlm bundle",
+    "parameters_b": 0.5,
+    "license": "apache-2.0",
+    "context_length": 2048,
+    "capabilities": {
+      "vision": true,
+      "audio": false,
+      "thinking": {
+        "declared": false
+      }
+    }
+  },
+  "variants": [
+    {
+      "file": "LLaVA-OneVision-0.5B.litertlm",
+      "sha256": "7f7cd7ae3d2ae435a1f69651de02a9d51e916be60fdfef5cadc721725310971a",
+      "size_bytes": 828590400,
+      "sections": [
+        {
+          "type": "LlmMetadataProto",
+          "size_bytes": 1885
+        },
+        {
+          "type": "HF_Tokenizer_Zlib",
+          "size_bytes": 1967910
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 138018208,
+          "model_type": "tf_lite_embedder"
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 281761472,
+          "model_type": "tf_lite_prefill_decode"
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 404903056,
+          "model_type": "tf_lite_vision_encoder"
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 1870144,
+          "model_type": "tf_lite_vision_adapter"
+        }
+      ],
+      "quantization": "decoder int4 (symmetric, blockwise-32 + OCTAV); SigLIP vision encoder + MLP projector int8; tied embedding INT8 (externalized)",
+      "backends": [
+        "cpu",
+        "gpu"
+      ],
+      "default_backend": "cpu",
+      "recommended": [
+        {
+          "platform": "android",
+          "device_class": "flagship",
+          "backend": "gpu",
+          "reason": "measured on one Galaxy S26 with one binary: GPU 83.88 tok/s decode / 1233.4 prefill, peak 441 MB, init 1.3 s (S4 GPU gate 2026-08-25, 1 run) against CPU 69.64 decode / 301.9 prefill, peak 603 MB, init 0.9 s (S7 Android backfill 2026-09-05, 2 cold runs). Same-device CPU control taken - a measured win for gpu on decode (1.2x) and prefill"
+        }
+      ],
+      "requirements": {
+        "platform_notes": [
+          "Context (KV cache) 2048; image input resized to 384x384",
+          "iPhone/macOS (Swift runtime / LiteRTDemo): load with the vision tower enabled (Modality.textImage / [.vision]); vision-only bundle, no audio tower",
+          "Android: Google AI Edge Gallery import must check 'Support image' (required for image input); pick GPU (fast) or CPU; v1.0.16+ imports directly from Hugging Face",
+          "Best for single-image VQA: ask about one image per chat and start a new conversation for a different image"
+        ]
+      },
+      "measured": [
+        {
+          "device": "Apple M4 Max",
+          "os": "macOS",
+          "backend": "cpu",
+          "runtime": "litert-lm 0.15.0",
+          "prompt_tokens": 256,
+          "decode_tokens": 256,
+          "prefill_tps": 955,
+          "decode_tps": 113.7,
+          "ttft_s": 0.31,
+          "max_num_tokens": 4096,
+          "runs": 3,
+          "date": "2026-08-24",
+          "source": "model card Performance table (cardbench harness)"
+        },
+        {
+          "device": "Apple M4 Max",
+          "os": "macOS",
+          "backend": "gpu",
+          "runtime": "litert-lm 0.15.0",
+          "prompt_tokens": 256,
+          "decode_tokens": 256,
+          "prefill_tps": 7030,
+          "decode_tps": 239.3,
+          "ttft_s": 0.04,
+          "max_num_tokens": 4096,
+          "runs": 3,
+          "date": "2026-08-24",
+          "source": "model card Performance table (cardbench harness)"
+        },
+        {
+          "device": "Galaxy S26 (SM-S942Q, Qualcomm SM8850, Adreno)",
+          "backend": "gpu",
+          "runtime": "litert_lm_advanced_main v0.16.0, LiteRT CL delegate",
+          "prompt_tokens": 203,
+          "decode_tokens": 81,
+          "prefill_tps": 1233.4,
+          "decode_tps": 83.88,
+          "ttft_s": 0.18,
+          "load_s": 1.3,
+          "peak_memory_mb": 441,
+          "runs": 1,
+          "date": "2026-08-25",
+          "source": "S4 GPU gate, 205-token benchmark, single run; full delegation (3098 ops across 3 subgraphs); generation gate answered the probe correctly. No same-device CPU control was taken, so this is a GPU speed, not a measured win over CPU."
+        },
+        {
+          "device": "Galaxy S26 (SM-S942Q, Qualcomm SM8850, Adreno)",
+          "backend": "cpu",
+          "runtime": "litert_lm_advanced_main v0.16.0 (XNNPACK CPU)",
+          "prompt_tokens": 213,
+          "decode_tokens": 69,
+          "prefill_tps": 301.9,
+          "decode_tps": 69.64,
+          "ttft_s": 0.72,
+          "load_s": 0.9,
+          "peak_memory_mb": 603,
+          "cache": "no",
+          "runs": 2,
+          "date": "2026-09-05",
+          "source": "S7 Android backfill: same-device CPU control - identical binary, prompt file and flags, only --backend differs; 205-token prompt with --benchmark, 2 cold runs (compile/weight caches deleted between runs, device cooled below 42 C before each run); the GPU path does not run for this file on this handset, so this row has no GPU counterpart"
+        }
+      ],
+      "known_issues": [
+        "Becomes unreliable when a second image is added to the same conversation (the answer truncates) — single-image VQA only, new conversation per image"
+      ]
+    }
+  ]
+}

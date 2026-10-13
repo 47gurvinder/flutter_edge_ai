@@ -1,0 +1,14 @@
+analyzer:
+  errors:
+    # Another package's lib/src is private to it (tool/check_core_surface.sh).
+    implementation_imports: error
+  exclude:
+    - build/**
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    prefer_const_constructors: true
+    prefer_const_declarations: true
+    avoid_print: true
+    prefer_single_quotes: true

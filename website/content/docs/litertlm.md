@@ -1,33 +1,39 @@
 ---
 title: LiteRT-LM
 description: The primary .litertlm engine — on-device inference over dart:ffi (LiteRT-LM C API) on all five native platforms plus a text-only web preview, with CPU / GPU / NPU acceleration and a LiteRT embedding backend.
-image: https://fluttergemma.dev/images/og-image.png
+meta:
+  - property: og:image
+    content: https://flutteredge.ai/images/og-image.png
 ---
 
-`flutter_gemma_litertlm` is the **primary `.litertlm` engine**. (Core registers
+`flutter_edge_ai_litertlm` is the **primary `.litertlm` engine**. (Core registers
 no engine by default — you opt in by registering `LiteRtLmEngine()`.) It runs
 `.litertlm` models through `dart:ffi` straight onto the **LiteRT-LM C API** — no
 JVM, no gRPC — and it is the **primary desktop engine** (macOS, Windows, Linux);
-[ONNX Runtime](/docs/onnx) also runs on desktop, and macOS can additionally use
-[Built-in AI](/docs/builtin-ai). The native library is fetched at build time via
-**Native Assets** (SHA256-verified, from the `native-v0.17.1-a` GitHub release), so
+[ONNX Runtime](/docs/onnx) also runs on desktop, and macOS and Windows can additionally
+use [Built-in AI](/docs/builtin-ai). The native library is fetched at build time via
+**Native Assets** (SHA256-verified, from the `native-v0.18.0-e` GitHub release), so
 there's no manual native setup.
 
-The same package also ships **`LiteRtEmbeddingBackend`**, the LiteRT C API
-embedding backend — see [Embeddings & RAG](/docs/embeddings-and-rag).
+The same package also ships **`LiteRtEmbeddingBackend`**: EmbeddingGemma 2 from
+one `.litertlm` bundle (native: text since 1.13.0, images from the 440m bundle
+since 1.13.1, audio and combined inputs from the 740m bundle; Web:
+text and images, on WebGPU, also since 1.13.1) and EmbeddingGemma 1 / Gecko
+`.tflite` models through the LiteRT C API (and LiteRT.js on web) — see
+[Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2).
 
 ## Platforms
 
 | Platform | Support |
 |----------|---------|
-| Android | ✅ FFI (GPU via OpenCL, NPU on Qualcomm Snapdragon) |
+| Android | ✅ FFI (GPU via OpenCL, NPU on Qualcomm — opt-in via `qualcomm_npu`) |
 | iOS | ✅ FFI (GPU via Metal on device; CPU on simulator) |
-| macOS / Linux | ✅ FFI (GPU via Metal / Vulkan) |
+| macOS / Linux | ✅ FFI (GPU via Metal / Vulkan; NPU on Qualcomm Linux arm64 — opt-in via `qualcomm_npu`) |
 | Windows | ✅ FFI (CPU + GPU via DirectX 12 + Intel NPU) |
 | Web | ⚠️ early preview via `@litert-lm/core` (text-only) |
 
 > **Web is a text-only preview.** It runs through `@litert-lm/core` (WebGPU/WASM)
-> supports function calling, but **not** vision, audio, thinking mode or LoRA. Native platforms have the full feature set. On web you also need the JS
+> and supports function calling and thinking, but **not** vision, audio or LoRA. Qwen3's emitted `<think>` tags are parsed by core on Web. Native platforms have the full feature set. On web you also need the JS
 > handshake in `web/index.html` (see [Web setup](#web-setup)).
 
 ## Setup
@@ -37,21 +43,21 @@ engines your app uses:
 
 ```
 dependencies:
-  flutter_gemma: latest_version
-  flutter_gemma_litertlm: latest_version   # .litertlm inference engine
+  flutter_edge_ai: latest_version
+  flutter_edge_ai_litertlm: latest_version   # .litertlm inference engine
 ```
 
 ```dart
-import 'package:flutter_gemma/flutter_gemma.dart';
-import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+import 'package:flutter_edge_ai_litertlm/flutter_edge_ai_litertlm.dart';
 
-await FlutterGemma.initialize(
+await FlutterEdgeAi.initialize(
   inferenceEngines: const [LiteRtLmEngine()],
 );
 ```
 
 `LiteRtLmEngine` claims models whose declared `ModelFileType` is `litertlm`; pass
-it alongside `MediaPipeEngine` (from `flutter_gemma_mediapipe`) if your app also
+it alongside `MediaPipeEngine` (from `flutter_edge_ai_mediapipe`) if your app also
 uses `.task` models.
 
 ## Install a `.litertlm` model
@@ -62,7 +68,7 @@ uses `.task` models.
 > MediaPipe instead of this engine.
 
 ```dart
-await FlutterGemma.installModel(
+await FlutterEdgeAi.installModel(
   modelType: ModelType.gemma4,
   fileType: ModelFileType.litertlm,
 ).fromNetwork(
@@ -71,7 +77,7 @@ await FlutterGemma.installModel(
 ).install();
 
 // Create the model once and keep it for the app's lifetime.
-final model = await FlutterGemma.getActiveModel(
+final model = await FlutterEdgeAi.getActiveModel(
   maxTokens: 4096,
   preferredBackend: PreferredBackend.gpu,
 );
@@ -91,8 +97,8 @@ Pick the accelerator with `preferredBackend:` on `getActiveModel`:
 | Backend | Where |
 |---------|-------|
 | `cpu` | All native platforms |
-| `gpu` | Metal (Apple), DirectX 12 / WebGPU (Windows), Vulkan / WebGPU (Linux); required on web |
-| `npu` | Android (Qualcomm Snapdragon, `.litertlm`) and Windows (Intel LunarLake / PantherLake) |
+| `gpu` | OpenCL (Android), Metal (Apple), DirectX 12 / WebGPU (Windows), Vulkan / WebGPU (Linux); on web the runtime picks WebGPU or WASM itself and `preferredBackend` is not applied |
+| `npu` | Qualcomm on Android and on Linux arm64 (opt-in, `.litertlm`), and Windows (Intel LunarLake / PantherLake) |
 
 GPU is the right default, but it is not uniformly faster: on Android the win is
 in **prefill**, and decode can be slower than CPU. One measured pair — Galaxy S26,
@@ -110,16 +116,57 @@ file decides. It applies to the text decoder of `.litertlm` models on Android,
 iOS and desktop — not on web, and not to the vision or audio encoders, which
 keep what the model file asks for. `float32` also needs more GPU memory, and a
 GPU engine that cannot be created falls back to CPU silently, so read
-`model.activeBackend` afterwards. It needs `flutter_gemma_litertlm` 1.8.3 or
-later; older versions ignore it. See [Troubleshooting → Wrong numbers on
+`model.activeBackend` afterwards. Every `flutter_edge_ai_litertlm` release
+applies it (it arrived in `flutter_gemma_litertlm` 1.8.3; older versions ignore it). See [Troubleshooting → Wrong numbers on
 GPU](/docs/troubleshooting#wrong-numbers-on-gpu).
 
 Windows NPU ships the Intel dispatch stack — `LiteRtDispatch.dll` + the OpenVino
-runtime + TBB — inside the Windows native archive. Android bundles the Qualcomm
-QNN dispatch stack. No extra downloads for either NPU path.
+runtime + TBB — inside the Windows native archive.
+
+**Android NPU is opt-in.** Qualcomm licenses its QNN runtime for redistribution
+inside an application only, so the package carries just LiteRT's dispatch
+library and your app asks for the rest in its `pubspec.yaml` (the workspace
+root's, if the app is a pub workspace member):
+
+```
+hooks:
+  user_defines:
+    flutter_edge_ai_litertlm:
+      qualcomm_npu: true
+```
+
+The build hook then fetches `com.qualcomm.qti:qnn-runtime:2.50.0` from Maven
+Central once, verifies its SHA-256, raises the Hexagon libraries to the 16 KB
+page alignment Google Play requires, and bundles them: about 22 MB more to
+download and 83 MB more installed, plus a copy of the same size made on the
+first NPU run, because the DSP loads them from files. Setting the flag accepts Qualcomm's AI
+Stack License; the hook prints where its `LICENSE.pdf` is. Offline or behind a
+mirror, add `qualcomm_npu_maven_url: <maven base URL>` or
+`qualcomm_npu_aar: <path to the same AAR>`. Without the flag, `npu` on Android
+falls back to GPU, then CPU, and the log says how to enable it.
+
+**Linux arm64 NPU takes the same flag.** On a Qualcomm Linux board with a
+Hexagon V68–V81 compute DSP (Dragonwing QCS6490, QCS8275 — the Arduino
+VENTUNO Q — QCS9075, …), `qualcomm_npu: true` bundles the stack into the
+Linux arm64 build. Qualcomm publishes no Maven artifact for Linux, so the hook
+reads the 14 libraries it needs out of Qualcomm's public QAIRT 2.50 SDK zip with
+HTTP range requests — about 32 MB of the 2.6 GB archive — checks each one
+against a pinned SHA-256, and caches them; about 90 MB more installed. Offline,
+download the zip yourself and add `qualcomm_npu_qairt_zip: <path>`. On the
+board, Qualcomm's FastRPC library has to be present (`qcom-fastrpc1` on Ubuntu;
+Qualcomm's images ship it) and the user has to be in group `fastrpc`
+(`sudo usermod -aG fastrpc $USER`, then log in again). Without either, `npu`
+falls back to GPU, then CPU, and the log names what is missing. Use the bundle
+compiled for your SoC, e.g. `gemma-4-E2B-it_qualcomm_qcs8275.litertlm`. A Linux
+x64 build ignores the flag.
 
 <Warning>
-**NPU is a Gemma 4 story today.** Our NPU verification runs Gemma 4 bundles, and
+
+**EmbeddingGemma 2 on the NPU** uses the same flag on Qualcomm Android and
+Linux arm64, with the per-SoC bundles, and never falls back: see
+[Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2-on-a-qualcomm-npu).
+
+**For LLMs, NPU is a Gemma 4 story today.** Our NPU verification runs Gemma 4 bundles, and
 those work on both vendors. The **Gemma 3** family does not, and it fails
 silently — the model answers from the first prefill chunk alone, fluently,
 with no error and nothing in the log:
@@ -149,14 +196,16 @@ macOS the native runtime was measured accepting `npu` anyway, which made
 `activeBackend` report an NPU that does not exist on the machine. On Windows
 the check is per OS, so a PC without an Intel NPU still attempts it, and
 `activeBackend` can then report `npu` while the model runs elsewhere.
+
 </Warning>
 
 ## `maxTokens` is the CONTEXT window, not the reply length
 
 `maxTokens` (on `getActiveModel` / `createModel`) sizes the whole **context
 window** — system prompt + history + message **plus** the generated output (the
-KV-cache budget), not the response length. `.litertlm` models bake a fixed
-`kv_cache_max_len` of 1024, so this engine **clamps `maxTokens` up to 1024** (with
+KV-cache budget), not the response length. CPU/GPU `.litertlm` bundles bake a
+minimum `kv_cache_max_len` (1024 for the supported bundles), so this engine
+**clamps `maxTokens` up to 1024** (with
 a log warning) to avoid a native KV-cache crash — on every backend attempt except
 the NPU one, where the bundle's own compiled `cache_length` governs instead (see
 the NPU warning above).
@@ -164,7 +213,7 @@ the NPU warning above).
 To cap **generation length**, use `maxOutputTokens` on the session:
 
 ```dart
-final model = await FlutterGemma.getActiveModel(maxTokens: 4096); // context
+final model = await FlutterEdgeAi.getActiveModel(maxTokens: 4096); // context
 final session = await model.createSession(maxOutputTokens: 100);  // reply cap
 ```
 
@@ -177,12 +226,26 @@ awaits `window.litertLmReady` (which resolves to the `Engine` constructor):
 ```
 <script type="module">
 window.litertLmReady = (async () => {
-  const m = await import('https://cdn.jsdelivr.net/npm/@litert-lm/core@0.17.1/+esm');
+  const m = await import('https://cdn.jsdelivr.net/npm/@litert-lm/core@0.18.0/+esm');
   window.Engine = m.Engine;
+  window.EmbeddingEngine = m.EmbeddingEngine;
   return m.Engine;
 })();
 </script>
 ```
+
+`window.EmbeddingEngine` (1.13.1) is what EmbeddingGemma 2 embedders run on in
+the browser — text and images, on WebGPU. A page without it fails the
+embedder's load with an `EmbeddingLoadException` naming the line, and so does a
+browser without WebGPU: there is no CPU fallback, because the CPU (WebAssembly)
+path of `@litert-lm/core` 0.18.0 cannot read these bundles' external weights.
+An LLM and an embedder on the same page share one WebAssembly module and one
+WebGPU device, and take turns: an embedding waits while a reply is being
+generated, and a reply waits for an embedding in progress. The module has 4 GB
+of memory, and the 440m's vision encoder does not fit in it next to Gemma 4
+E2B (measured): whichever loads second fails. Close the LLM before loading the
+440m with images, or embed text only — the 270m, or the 440m without images,
+loads next to the LLM.
 
 Native platforms need no web setup.
 

@@ -30,9 +30,9 @@ import 'main.server.options.dart';
 
 const String _landingDescription =
     'Run Gemma and other LLMs on-device in your Flutter app — '
-    'Android, iOS, Web, and Desktop. Multimodal vision & audio, '
-    'function calling, on-device agent skills, thinking mode, '
-    'GPU acceleration, embeddings, and RAG.';
+    'Android, iOS, Web, macOS, Windows and Linux. Multimodal, '
+    'function calling, agent skills, thinking mode, embeddings, '
+    'RAG and speech.';
 
 const String _codelabsDescription =
     'Hands-on, step-by-step guides for running language models inside a '
@@ -50,7 +50,7 @@ const String _codelabsDescription =
 const Map<String, Object?> _codelabsCollectionSchema = {
   '@context': 'https://schema.org',
   '@type': 'CollectionPage',
-  'name': 'flutter_gemma Codelabs',
+  'name': 'flutter_edge_ai Codelabs',
   'description': _codelabsDescription,
   'url': '$kSiteOrigin/codelabs',
 };
@@ -103,13 +103,13 @@ void main() {
           // Out-of-the-box layout for documentation sites.
           DocsLayout(
             header: Header(
-              title: 'flutter_gemma',
-              logo: '/images/logo.svg',
+              title: 'Flutter Edge AI',
+              logo: '/images/logo-mark.png',
               items: [
                 // Enables switching between light and dark mode.
                 ThemeToggle(),
                 // Shows github stats.
-                GitHubButton(repo: 'DenisovAV/flutter_gemma'),
+                GitHubButton(repo: 'DenisovAV/flutter_edge_ai'),
               ],
             ),
             sidebar: Sidebar(
@@ -171,8 +171,9 @@ void main() {
                   title: 'Reference',
                   links: [
                     SidebarLink(text: 'Packages', href: '/docs/packages'),
+                    SidebarLink(text: 'Capabilities', href: '/docs/capabilities'),
                     SidebarLink(text: 'Desktop Support', href: '/docs/desktop'),
-                    SidebarLink(text: 'Migration (0.x → 1.0)', href: '/docs/migration'),
+                    SidebarLink(text: 'Migration', href: '/docs/migration'),
                     SidebarLink(text: 'Troubleshooting', href: '/docs/troubleshooting'),
                   ],
                 ),
@@ -221,11 +222,11 @@ void main() {
             // glyphs (emoji, em-dashes) render as mojibake. `head:` adds the
             // Open Graph / Twitter Card / canonical tags (see seo.dart).
             builder: (context, state) => Document(
-              title: 'flutter_gemma — On-device LLMs for Flutter',
+              title: 'Flutter Edge AI — On-device LLMs for Flutter',
               lang: 'en',
               meta: const {'description': _landingDescription},
               head: seoHead(
-                title: 'flutter_gemma — On-device LLMs for Flutter',
+                title: 'Flutter Edge AI — On-device LLMs for Flutter',
                 description: _landingDescription,
                 path: '/',
               ),
@@ -240,11 +241,11 @@ void main() {
           Route(
             path: '/codelabs',
             builder: (context, state) => Document(
-              title: 'Codelabs — flutter_gemma',
+              title: 'Codelabs — Flutter Edge AI',
               lang: 'en',
               meta: const {'description': _codelabsDescription},
               head: seoHead(
-                title: 'Codelabs — flutter_gemma',
+                title: 'Codelabs — Flutter Edge AI',
                 description: _codelabsDescription,
                 path: '/codelabs',
                 structuredData: _codelabsCollectionSchema,

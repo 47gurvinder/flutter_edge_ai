@@ -1,8 +1,8 @@
-import 'package:flutter_gemma/flutter_gemma.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 
 /// One model this app knows how to install.
 ///
-/// [fileName] doubles as the model's id: `FlutterGemma.isModelInstalled` takes
+/// [fileName] doubles as the model's id: `FlutterEdgeAi.isModelInstalled` takes
 /// the file name the model was installed under, not a display name.
 ///
 /// Exactly one of [url] and [path] is set. A downloaded model has a URL; a
@@ -18,6 +18,8 @@ class ModelChoice {
     required this.supportsRequiredToolChoice,
     this.url,
     this.path,
+    this.maxTokens = 4096,
+    this.preferredBackend,
   }) : assert(
          (url == null) != (path == null),
          'a model comes from a URL or from a file, not both and not neither',
@@ -62,9 +64,19 @@ class ModelChoice {
   final String? url;
   final String? path;
 
+  /// The context window `getActiveModel` opens this model with — prompt,
+  /// history, declarations, tool calls, tool responses and the reply all
+  /// share it. It is NOT a reply-length cap; `maxOutputTokens` on the session
+  /// is.
+  final int maxTokens;
+
+  /// The backend to ask for, or `null` to let the engine choose. Set only
+  /// where one file needs it — see [Models.functionGemma].
+  final PreferredBackend? preferredBackend;
+
   /// Can these weights reason out loud before answering?
   ///
-  /// A property of the checkpoint, not of the app: `isThinking: true` on a
+  /// A property of the checkpoint, not of the app: `enableThinking: true` on a
   /// model with no thinking training does not produce reasoning, it produces
   /// an empty channel. FunctionGemma is a 270M model specialised for one
   /// thing, and reasoning is not it.
@@ -114,6 +126,14 @@ abstract final class Models {
     sizeLabel: '284 MB',
     supportsThinking: false,
     supportsRequiredToolChoice: false,
+    // What Steps 1–3 open it with. 1024 is the context this checkpoint was
+    // built and measured at. The CPU is a workaround for this FILE: it was
+    // converted before litetune 0.1.4 began setting
+    // `prefer_activation_type=fp32`, and without that key the GPU path
+    // answers every prompt with `<pad>` to the token limit. A model you
+    // re-convert in Step 4 carries the key, so `fromDisk` keeps the defaults.
+    maxTokens: 1024,
+    preferredBackend: PreferredBackend.cpu,
   );
 
   /// The reason to pay 2.59 GB instead of 284 MB.

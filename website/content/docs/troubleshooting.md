@@ -1,7 +1,9 @@
 ---
 title: Troubleshooting
 description: Common issues — downloads, memory, iOS simulator GPU, Android minSdk, web caching, and desktop storage.
-image: https://fluttergemma.dev/images/og-image.png
+meta:
+  - property: og:image
+    content: https://flutteredge.ai/images/og-image.png
 ---
 
 Common issues and fixes. For desktop-specific problems (Linux native logs,
@@ -10,9 +12,9 @@ glibc, Windows DXC, stale GPU shader cache) see
 
 ## Downloads
 
-- **Resume isn't supported by the HuggingFace CDN.** flutter_gemma uses smart retry with exponential backoff and **automatic restart** of interrupted downloads instead. Tune the attempt count via `maxDownloadRetries` in `FlutterGemma.initialize(...)` (default: 10).
+- **Resume isn't supported by the HuggingFace CDN.** flutter_edge_ai uses smart retry with exponential backoff and **automatic restart** of interrupted downloads instead. Tune the attempt count via `maxDownloadRetries` in `FlutterEdgeAi.initialize(...)` (default: 10).
 - **Large downloads on Android** need `foreground: true` to get a foreground service (which shows a notification) and bypass Android's 9-minute background execution limit. The default (`null`) does not configure a notification, and without one the platform never starts the service — so the size threshold alone does nothing. iOS uses native URLSession and needs no special handling. See [Models → downloads](/docs/models#android-foreground-service-large-downloads).
-- **Using `background_downloader` in your own app too?** flutter_gemma no longer listens to `FileDownloader().updates` (fixed in `flutter_gemma` 1.6.3). That stream takes a single subscription, so claiming it made every later `FileDownloader().updates.listen(...)` in the host app throw *"Stream has already been listened to"*. Updates are now scoped to flutter_gemma's own task group and the stream stays yours.
+- **Using `background_downloader` in your own app too?** flutter_edge_ai no longer listens to `FileDownloader().updates` (fixed in `flutter_gemma` 1.6.3). That stream takes a single subscription, so claiming it made every later `FileDownloader().updates.listen(...)` in the host app throw *"Stream has already been listened to"*. Updates are now scoped to flutter_edge_ai's own task group and the stream stays yours.
 - **Custom servers on Web** must enable CORS headers. HuggingFace is already configured correctly; for Firebase Storage see the [CORS configuration docs](https://firebase.google.com/docs/storage/web/download-files#cors_configuration).
 
 ### Gated models / download errors (401, 403)
@@ -21,7 +23,7 @@ glibc, Windows DXC, stale GPU shader cache) see
 
 ```dart
 try {
-  await FlutterGemma.installModel(modelType: ModelType.gemmaIt)
+  await FlutterEdgeAi.installModel(modelType: ModelType.gemmaIt)
       .fromNetwork(url, token: hfToken)
       .install();
 } on DownloadException catch (e) {
@@ -41,48 +43,51 @@ try {
 }
 ```
 
-For a **gated** model (401/403): pass a valid `huggingFaceToken` to `FlutterGemma.initialize(...)` (or `token:` on `fromNetwork(...)`), open the model page on HuggingFace, accept its license, and request access. Each `DownloadError` also exposes `toUserMessage()`, `toTitle()`, `isRetryable`, and `requiresUserAction` for building UI.
+For a **gated** model (401/403): pass a valid `huggingFaceToken` to `FlutterEdgeAi.initialize(...)` (or `token:` on `fromNetwork(...)`), open the model page on HuggingFace, accept its license, and request access. Each `DownloadError` also exposes `toUserMessage()`, `toTitle()`, `isRetryable`, and `requiresUserAction` for building UI.
 
 <Info>
+
 Auth errors (401/403/404) fail fast after one attempt — they are not retried. Only `NetworkError`, `ServerError`, and `RateLimitedError` are retryable (see `isRetryable`).
+
 </Info>
 
 ## Memory
 
-- **iOS:** ensure `Runner.entitlements` contains the memory entitlements and the deployment target is at least 15.0 (16.0 with `flutter_gemma_mediapipe`) — in Xcode on the Runner target under SPM, or in the `Podfile` when one exists. See [Installation → iOS](/docs/installation#ios).
+- **iOS:** ensure `Runner.entitlements` contains the memory entitlements and the deployment target is at least 15.0 (16.0 with `flutter_edge_ai_mediapipe`) — in Xcode on the Runner target under SPM, or in the `Podfile` when one exists. See [Installation → iOS](/docs/installation#ios).
+- **iOS, MediaPipe `.task` on GPU:** the app is terminated while the model loads, with the entitlements present and no crash report. Run `.task` models on `PreferredBackend.cpu` on iOS, or use the `.litertlm` build. See [MediaPipe → Backends](/docs/mediapipe#backends).
 - Reduce `maxTokens` if you hit memory pressure — but **keep it at 1024 or higher for `.litertlm` models** (see "maxTokens vs maxOutputTokens" below). To shorten replies, use `maxOutputTokens`, not a smaller `maxTokens`.
 - Use smaller models (1B-2B parameters) for devices with <6GB RAM. Multimodal models (Gemma 4, Gemma3n) need 8GB+.
 - Close sessions and models when not needed; monitor usage with `sizeInTokens()`.
-- To see what a model actually costs, measure the memory the OS cannot reclaim before and after loading it with [`flutter_gemma_diagnostics`](/docs/diagnostics) (Android + iOS). The RSS a profiler shows also counts mmapped weights the OS can drop, so it does not show that cost.
+- To see what a model actually costs, measure the memory the OS cannot reclaim before and after loading it with [`flutter_edge_ai_diagnostics`](/docs/diagnostics) (Android + iOS). The RSS a profiler shows also counts mmapped weights the OS can drop, so it does not show that cost.
 
 ## maxTokens vs maxOutputTokens
 
 `maxTokens` (on `getActiveModel`/`createModel`) is the **context window** — the total budget shared by the input (system prompt + history + your message) **and** the generated output (the KV-cache size). It is **not** the reply length.
 
-`.litertlm` models require a context window of at least **1024**. Passing a smaller `maxTokens` (e.g. `100`) used to crash with `DYNAMIC_UPDATE_SLICE failed to prepare` / `Failed to allocate tensors` (even on CPU — the failure is at graph compile, before the backend runs). As of **1.0.2** a too-small `maxTokens` is clamped up to 1024 automatically with a log warning.
+`.litertlm` models require a context window of at least **1024**. Passing a smaller `maxTokens` (e.g. `100`) used to crash with `DYNAMIC_UPDATE_SLICE failed to prepare` / `Failed to allocate tensors` (even on CPU — the failure is at graph compile, before the backend runs). As of **`flutter_gemma_litertlm` 1.0.2** a too-small `maxTokens` is clamped up to 1024 automatically with a log warning — except on `PreferredBackend.npu`, where the context is baked into the compiled bundle (see [NPU](#npu)).
 
 To limit how many tokens the model **generates**, use `maxOutputTokens` on `createSession`/`openSession`/`createChat`/`openChat` instead:
 
 ```dart
-final model = await FlutterGemma.getActiveModel(maxTokens: 1024); // context window
+final model = await FlutterEdgeAi.getActiveModel(maxTokens: 1024); // context window
 final chat = await model.createChat(maxOutputTokens: 100);        // reply cap
 ```
 
-(`maxOutputTokens` is honored on `.litertlm`; the MediaPipe `.task` path has no session-level output cap and ignores it.)
+(`maxOutputTokens` is honored on `.litertlm` and ONNX; the MediaPipe `.task` path has no session-level output cap and ignores it.)
 
 ## iOS
 
-- **Build issues:** ensure the minimum iOS version is at least 15.0 (16.0 with `flutter_gemma_mediapipe`). If the app has a `Podfile` (any app using `flutter_gemma_mediapipe` does — it ships no `Package.swift`), also use static linking (`use_frameworks! :linkage => :static`) and reinstall with `cd ios && pod install --repo-update`. An SPM-only app has no `Podfile`; there the deployment target lives on the Runner target in Xcode.
+- **Build issues:** ensure the minimum iOS version is at least 15.0 (16.0 with `flutter_edge_ai_mediapipe`). If the app has a `Podfile` (any app using `flutter_edge_ai_mediapipe` does — it ships no `Package.swift`), also use static linking (`use_frameworks! :linkage => :static`) and reinstall with `cd ios && pod install --repo-update`. An SPM-only app has no `Podfile`; there the deployment target lives on the Runner target in Xcode.
 - **Simulator GPU disabled:** iOS Simulator's Metal has a 256 MB single-allocation cap that LLM weight tensors exceed (e.g. Gemma 3 1B's KV cache alone is 288 MB). Use CPU on the simulator, or test GPU on a physical iPhone. This is a simulator limit, not a plugin bug.
 
 ## Android
 
 - **`.litertlm` models require minSdk 30.** `libLiteRtLm.so` depends on API 30+ Bionic syscalls (`pthread_cond_clockwait`, `sem_clockwait`) that can't be shimmed on older devices. MediaPipe `.task` models work on lower API levels.
-- **`.litertlm` / embeddings / vision are `arm64-v8a` only.** MediaPipe text inference (`.task` / `.bin`) also runs on `x86_64` and `armeabi-v7a`. If you only use arm64-only features, add `ndk { abiFilters 'arm64-v8a' }` so the Play Store doesn't offer broken APKs. See [Installation → Android architecture](/docs/installation#android-architecture-support).
-- **GPU:** nothing to add — the OpenCL `<uses-native-library>` entries come from `flutter_gemma`'s own manifest (1.2.0+) through the manifest merger. If the GPU backend still falls back, check that the merged manifest contains `libvndksupport.so` and `libOpenCL.so`. See [Installation → Android](/docs/installation#android).
-- **Google Play rejects the release: "Your app does not support 16 KB memory page sizes".** Fixed in `flutter_gemma_litertlm` 1.8.0. Nothing fails at build or run time — the rejection happens at submission. The Qualcomm Hexagon DSP blobs this package bundles for the NPU path (`libQnnHtpV{73,75,79,81}Skel.so`) arrived from the QAIRT SDK with a 4 KB `p_align`, and they ship in every APK because the NPU libraries are bundled unconditionally; Play scans `lib/**/*.so` without caring that a Hexagon image is loaded by the DSP rather than mapped by the kernel. Upgrade to 1.8.0 and check your own build with Google’s `check_elf_alignment.sh` against the APK. See [#529](https://github.com/DenisovAV/flutter_gemma/issues/529).
-- **GPU backend crashes at `engine_create` on Mali GPUs (`SIGSEGV`, `pc 0` in `libLiteRtOpenClAccelerator.so`).** Fixed in `flutter_gemma_litertlm` 1.8.2. In 1.7.0–1.8.1 the OpenCL and GPU accelerators called `AHardwareBuffer_allocate` without declaring `libandroid.so`, so Android bound the call to address 0; only Mali GPUs (Samsung A-series, MediaTek, Google Tensor) take that path, so CPU and Adreno were unaffected. Upgrade to 1.8.2. See [#545](https://github.com/DenisovAV/flutter_gemma/issues/545).
-- **Zero chunks and `Stream error: <U+FFFD>`, then `SIGABRT`.** Fixed in `flutter_gemma_litertlm` 1.5.2. On Android the first `dlopen` of `libLiteRtLm` decides for the whole process whether its symbols are reachable from the default search scope, and bionic never promotes it afterwards — so an app that embedded or transcribed anything before its first generation left the stream-callback ABI probe blind and the wrong callback shape was registered. Upgrade to 1.5.2. If your own or third-party code loads `libLiteRtLm` first, load it with `RTLD_GLOBAL` — 1.5.2 cannot repair that case, but it raises a `StateError` naming it rather than generating corrupt text. See [#447](https://github.com/DenisovAV/flutter_gemma/issues/447).
+- **`.litertlm` / embeddings / vision are `arm64-v8a` only.** MediaPipe text inference (`.task` / `.bin`) also runs on `x86_64` and `armeabi-v7a`. If you only use arm64-only features, add `ndk { abiFilters 'arm64-v8a' }` (in `build.gradle.kts`: `ndk { abiFilters += listOf("arm64-v8a") }`) so the Play Store doesn't offer broken APKs. See [Installation → Android architecture](/docs/installation#android-architecture-support).
+- **GPU:** nothing to add — the OpenCL `<uses-native-library>` entries come from the core plugin's own manifest (`flutter_gemma` 1.2.0+) through the manifest merger. If the GPU backend still falls back, check that the merged manifest contains `libvndksupport.so` and `libOpenCL.so`. See [Installation → Android](/docs/installation#android).
+- **Google Play rejects the release: "Your app does not support 16 KB memory page sizes".** Fixed in `flutter_gemma_litertlm` 1.8.0; every `flutter_edge_ai_litertlm` release includes the fix. Nothing fails at build or run time — the rejection happens at submission. The Qualcomm Hexagon DSP blobs of the NPU path (`libQnnHtpV{73,75,79,81}Skel.so`) come from Qualcomm with a 4 KB `p_align`, and Play scans `lib/**/*.so` without caring that a Hexagon image is loaded by the DSP rather than mapped by the kernel. Since 1.10.0 they ship only in apps that set `qualcomm_npu: true`, and the build hook raises them to 16 KB. Check your own build with Google’s `check_elf_alignment.sh` against the APK. See [#529](https://github.com/DenisovAV/flutter_edge_ai/issues/529).
+- **GPU backend crashes at `engine_create` on Mali GPUs (`SIGSEGV`, `pc 0` in `libLiteRtOpenClAccelerator.so`).** Fixed in `flutter_gemma_litertlm` 1.8.2; every `flutter_edge_ai_litertlm` release includes the fix. In 1.7.0–1.8.1 the OpenCL and GPU accelerators called `AHardwareBuffer_allocate` without declaring `libandroid.so`, so Android bound the call to address 0; only Mali GPUs (Samsung A-series, MediaTek, Google Tensor) take that path, so CPU and Adreno were unaffected. See [#545](https://github.com/DenisovAV/flutter_edge_ai/issues/545).
+- **Zero chunks and `Stream error: <U+FFFD>`, then `SIGABRT`.** Fixed in `flutter_gemma_litertlm` 1.5.2; every `flutter_edge_ai_litertlm` release includes the fix. On Android the first `dlopen` of `libLiteRtLm` decides for the whole process whether its symbols are reachable from the default search scope, and bionic never promotes it afterwards — so an app that embedded or transcribed anything before its first generation left the stream-callback ABI probe blind and the wrong callback shape was registered. If your own or third-party code loads `libLiteRtLm` first, load it with `RTLD_GLOBAL` — the package cannot repair that case, but it raises a `StateError` naming it rather than generating corrupt text. See [#447](https://github.com/DenisovAV/flutter_edge_ai/issues/447).
 
 ## Web
 
@@ -95,45 +100,48 @@ final chat = await model.createChat(maxOutputTokens: 100);        // reply cap
 | **Chrome/Firefox** | ~2 GB | ArrayBuffer limit |
 | **Safari** | ~50 MB | ⚠️ Not suitable |
 
-- **Large models (>2GB):** use `WebStorageMode.streaming` (OPFS) to bypass the ~2 GB blob limit. Check support with `await FlutterGemma.isStreamingSupported()`. See [Installation → web storage](/docs/installation#2-initialize-flutter-gemma).
+- **Large models (>2GB):** use `WebStorageMode.streaming` (OPFS) to bypass the ~2 GB blob limit. Check support with `await FlutterEdgeAi.isStreamingSupported()`. See [Installation → web storage](/docs/installation#2-initialize-flutter-edge-ai).
 - **Storage modes:** `cacheApi` (default, persists across restarts, <2GB), `streaming` (OPFS, large models, requires Chrome 86+/Edge 86+/Safari 15.2+), `none` (ephemeral, testing only).
 
 ### Web `.litertlm` (early preview) feature matrix
 
-Web `.litertlm` inference runs Gemma `.litertlm` models in the browser via the
+Web `.litertlm` inference runs `.litertlm` models in the browser via the
 upstream [`@litert-lm/core`](https://www.npmjs.com/package/@litert-lm/core)
 package (WebGPU + WASM). It is an **early preview** and a subset of the native
 path. MediaPipe `.task` on web is unaffected and remains fully supported.
 
 **Works on web `.litertlm`:** text generation (sync + streaming), multi-turn chat
 with history, system instruction, **function calling / tool calls** (Gemma 4),
-concurrent sessions (serialized), large models via OPFS streaming, GPU only.
+**thinking mode** (Gemma 4 measured in Chrome; Qwen3 `<think>` tags parsed by
+core), concurrent sessions (serialized), large models via OPFS streaming.
 
 **Not supported on web `.litertlm` yet (mobile/desktop only):**
 
-- ❌ **Vision / image input** — image inputs are dropped with a debug warning.
-- ❌ **Audio input** — no Audio executor config in the JS API.
-- ⚠️ **Thinking mode** — Qwen3 and DeepSeek R1 reasoning is still split out of the
-  token stream (that part is pure Dart). Gemma 4 thinking needs the native
-  `extraContext` channel: the web engine passes it to `@litert-lm/core`, but it
-  has never been verified end to end — treat it as unsupported until it is.
+- ❌ **Vision / image input** — an image message throws `UnsupportedError`; the
+  JS API creates the LLM engine with no vision executor.
+- ❌ **Audio input** — an audio message throws `UnsupportedError`; no audio
+  executor either.
 - ❌ **LoRA weights** — `loraPath` throws `UnsupportedError`.
 
 <Info>
-For vision / audio / thinking on web today, use MediaPipe
-`.task` web models instead. These web `.litertlm` limits track the upstream
+
+For vision on Web today, use a compatible MediaPipe `.task` build. Neither Web
+engine supports audio. These Web `.litertlm` limits track the upstream
 `@litert-lm/core` early-preview API and will lift as Google extends the JS
 executor surface.
+
 </Info>
 
 ## Windows desktop GPU crashes
 
 <Warning>
-**Fixed in litertlm 1.4.0.** Windows **discrete GPUs** crash on
-`PreferredBackend.gpu` in litertlm 1.2.0–1.3.1. Upgrade to 1.4.0; on the
-affected versions use `PreferredBackend.cpu` or `.npu`. macOS/Linux GPU and
+
+**Historical.** Windows **discrete GPUs** crashed on `PreferredBackend.gpu` in
+`flutter_gemma_litertlm` 1.2.0–1.3.1, fixed in 1.4.0 — before the rename, so
+every `flutter_edge_ai_litertlm` release has the fix. macOS/Linux GPU and
 Windows CPU/NPU were never affected. See [Desktop → Known
 limitations](/docs/desktop#known-limitations).
+
 </Warning>
 
 ## Wrong numbers on GPU
@@ -145,7 +153,7 @@ The published Gemma 4 `.litertlm` files ask for half-precision activations;
 ask for full precision instead:
 
 ```dart
-final model = await FlutterGemma.getActiveModel(
+final model = await FlutterEdgeAi.getActiveModel(
   preferredBackend: PreferredBackend.gpu,
   activationDataType: ActivationDataType.float32,
 );
@@ -161,8 +169,9 @@ setting — and so do MediaPipe, ONNX and built-in AI. On the engines that read
 it, it reaches the text decoder only: the vision and audio encoders keep the
 type the model file asks for.
 
-It needs `flutter_gemma_litertlm` 1.8.3 or later; older versions accept the
-argument and ignore it.
+Every `flutter_edge_ai_litertlm` release applies it (it arrived in
+`flutter_gemma_litertlm` 1.8.3; older versions accepted the argument and
+ignored it).
 
 On Android the GPU shares system memory, so on a 4–6 GB phone running out of it
 at `float32` can end the app rather than fall back to CPU. Both precisions share
@@ -176,7 +185,7 @@ digits are then right and the model is far slower, which is easy to mistake for
 the fix working. Read the backend the model actually got:
 
 ```dart
-final model = await FlutterGemma.getActiveModel(
+final model = await FlutterEdgeAi.getActiveModel(
   preferredBackend: PreferredBackend.gpu,
   activationDataType: ActivationDataType.float32,
 );
@@ -188,11 +197,13 @@ if (model.activeBackend != PreferredBackend.gpu) {
 ## Windows embeddings and speech fail with status 3
 
 <Warning>
+
 **Fixed in litertlm 1.7.0.** On Windows, embeddings and on-device speech
 (STT/TTS) fail with `LiteRT call failed: CreateTensorBufferFromHostMemory(...)
-(status=3)` in litertlm 1.4.0–1.6.4. Upgrade `flutter_gemma_litertlm` to 1.7.0
-(and `flutter_gemma_speech` to 0.5.1). Text generation and the other platforms
+(status=3)` in litertlm 1.4.0–1.6.4. Fixed in `flutter_gemma_litertlm` 1.7.0 and
+`flutter_gemma_speech` 0.5.1, so every `flutter_edge_ai_*` release has it. Text generation and the other platforms
 were never affected.
+
 </Warning>
 
 ## NPU
@@ -214,6 +225,33 @@ pass the `cache_length` it was built for. If the NPU fails to initialize the
 engine falls back to GPU and then CPU, and the floor applies to those attempts,
 so the fallback is clamped rather than crashed.
 
+**`PreferredBackend.npu` on Android falls back to GPU after an upgrade.** From
+`flutter_edge_ai_litertlm` 1.10.0 the Qualcomm QNN runtime is not part of the
+package; the app opts in with `qualcomm_npu: true` under `hooks: user_defines:
+flutter_edge_ai_litertlm:` in its pubspec — see [LiteRT-LM](/docs/litertlm). The
+log names the reason. If it says the stack is not enabled although the flag is
+set, the flag is in the wrong pubspec: in a pub workspace only the workspace
+root's `user_defines` count. If the build fails fetching `qnn-runtime`, the
+machine cannot reach Maven Central; set `qualcomm_npu_maven_url` to a mirror or
+`qualcomm_npu_aar` to a local copy of the same AAR.
+
+**`PreferredBackend.npu` on a Qualcomm Linux board falls back to GPU.** The
+same `qualcomm_npu: true` covers Linux arm64 builds. The log names which of
+these is missing:
+- The build did not bundle the stack — the flag is not set, or not in the
+  workspace root's pubspec.
+- `/dev/fastrpc-cdsp` does not exist — the board exposes no compute DSP.
+- It, or `/dev/dma_heap/system`, is not accessible — add the user to group
+  `fastrpc` (`sudo usermod -aG fastrpc $USER`) and log in again.
+- `libcdsprpc.so.1` does not open — install Qualcomm's FastRPC
+  (`qcom-fastrpc1` on Ubuntu).
+
+If the build fails reading the QAIRT SDK, the machine cannot reach
+`softwarecenter.qualcomm.com`; download `v2.50.0.260828.zip` elsewhere and set
+`qualcomm_npu_qairt_zip` to its path. Do not set `DSP_LIBRARY_PATH`: FastRPC
+prefers it over `ADSP_LIBRARY_PATH`, which is where the bundled Skels are
+announced.
+
 **`PreferredBackend.npu` is unavailable on a recent Snapdragon.** SoC coverage is
 the runtime's, not ours: Snapdragon 8 Gen 5 (**SM8845** — OnePlus 15R, iQOO 15R
 and the like) is not covered upstream, and a context compiled for SM8850 is
@@ -231,6 +269,8 @@ to avoid OneDrive / iCloud / Domain-Roaming sync corrupting FFI mmap of large
 - **macOS:** `~/Library/Application Support/<bundle>/flutter_gemma/`
 - **Linux:** `~/.local/share/<app>/flutter_gemma/`
 
+The directory keeps its `flutter_gemma` name across the rename, so installed models stay found.
+
 Models installed by older 0.14.x / 0.15.0 builds that still live under
 `Documents/` keep working via a fallback read.
 
@@ -244,7 +284,7 @@ if you hit it.
 
 ## Multimodal
 
-- Ensure you're using a multimodal model (Gemma 4, Gemma3n E2B/E4B, FastVLM).
+- Ensure you're using a multimodal model (Gemma 4, Gemma3n E2B/E4B, FastVLM, Qwen2-VL, SmolVLM2, LLaVA-OneVision).
 - Set `supportImage: true` (and `supportAudio: true` for audio) when creating the model.
 - Check device memory — multimodal models require more RAM.
 - **Image input crashes at model load on a GPU text backend (older releases).**
@@ -262,9 +302,9 @@ if you hit it.
 Some packages download their native library from a GitHub Release when you first
 build for a platform, then cache it under `~/.cache/flutter_gemma/native/`
 (`~/Library/Caches/…` on macOS, `%LOCALAPPDATA%\…` on Windows). This applies to
-`flutter_gemma_litertlm` (always has), `flutter_gemma_onnx`, and
-`flutter_gemma_rag_sqlite` **from 1.3.0** — before that it shipped the loadables
-inside the package.
+`flutter_edge_ai_litertlm` (always has), `flutter_edge_ai_onnx`, and
+`flutter_edge_ai_sqlite` (every release; as `flutter_gemma_rag_sqlite` from
+1.3.0 — before that it shipped the loadables inside the package).
 
 - **The build fails with a download error or an HTTP status.** The first build of
   each platform needs `github.com` reachable. In an air-gapped or proxied CI,
@@ -282,15 +322,19 @@ inside the package.
   package claims to support now fails the build when its library cannot be
   produced.
 - **Maintainers only:** a local `native/<name>/prebuilt/<target>/` overrides the
-  pinned release. `flutter_gemma_rag_sqlite` says so on stderr when it takes that
-  path; `flutter_gemma_litertlm` and `flutter_gemma_onnx` take it silently. If a
+  pinned release. `flutter_edge_ai_sqlite` says so on stderr when it takes that
+  path; `flutter_edge_ai_litertlm` and `flutter_edge_ai_onnx` take it silently. If a
   new release "did not take", look for that directory first.
 
 ## Embeddings
 
-- **`StateError: No embedding tokenizer is configured`** on the first embedding. Since `flutter_gemma` 1.9.0 an embedding backend no longer carries a tokenizer: which family a model needs (Gemma SentencePiece, BERT WordPiece) is a property of the model, not of the engine that runs it, so the app registers it once. Add `flutter_gemma_embeddings` to `pubspec.yaml`, import it, and pass `embeddingTokenizers: [GemmaEmbeddingTokenizers()]` to `FlutterGemma.initialize()` beside `embeddingBackends:`. The error text names the package and the parameter. See [Embeddings & RAG](/docs/embeddings-and-rag).
-- **`Target of URI doesn't exist: package:flutter_gemma_embeddings/web_embedding_model.dart`** at `flutter build web`. `flutter_gemma_embeddings` 2.2.0 moved that file into `flutter_gemma_litertlm` 1.8.0, alongside the rest of the LiteRT.js bundle it belongs to. A lockfile holding `flutter_gemma_litertlm` at 1.7.x while `flutter_gemma_embeddings` moves to 2.2.0 resolves cleanly and only then fails to compile. Upgrade `flutter_gemma_litertlm` to 1.8.0. Native builds are unaffected — that import sits behind a web-only conditional export.
+- **`EmbeddingLoadException` naming `web/litert_embeddings.js`** on web, at the first `getActiveEmbedder()` after upgrading to `flutter_edge_ai_litertlm` 1.13.0. The LiteRT.js bundle changed its API, and your app's `web/` still holds the copy of an earlier version. Copy all four files again from the package's `web/` (`litert_embeddings.js`, `sentencepiece.js`, `litert.js`, `tensorflow.js`). See [Installation → Web](/docs/installation#web).
+- **`EmbeddingLoadException: window.EmbeddingEngine is not set`** on web, when an EmbeddingGemma 2 (`.litertlm`) embedder loads. Since `flutter_edge_ai_litertlm` 1.13.1 it runs on `@litert-lm/core`'s `EmbeddingEngine`, which your `web/index.html` does not expose yet. Add `window.EmbeddingEngine = m.EmbeddingEngine;` next to `window.Engine = m.Engine;` in the `@litert-lm/core` module script. See [Installation → Web](/docs/installation#web).
+- **`EmbeddingLoadException: EmbeddingGemma 2 on the web needs WebGPU`** on web, when an EmbeddingGemma 2 (`.litertlm`) embedder loads in a browser without WebGPU — no `navigator.gpu`, or no GPU adapter (WebGPU switched off, a blocklisted driver, a headless browser without a GPU). On the web EmbeddingGemma 2 runs on WebGPU only: the CPU (WebAssembly) path of `@litert-lm/core` 0.18.0 fails on these bundles with "Failed to get external weight", so there is nothing to fall back to. Use a browser with WebGPU enabled; check `navigator.gpu` and `await navigator.gpu.requestAdapter()` in its console. See [Embeddings & RAG](/docs/embeddings-and-rag#embeddinggemma-2).
+- **`EmbeddingInputTooLongException`** from `embed`, `embedAll` or `RagIndex.add`/`search`. The input is longer than the model's `maxInputTokens`, task prefix, BOS and EOS included; since 2.3.0 it is refused instead of silently truncated. Split the text into smaller chunks — at most 512 tokens for EmbeddingGemma 2, whose limit is 1024. See [Embeddings & RAG](/docs/embeddings-and-rag#embedding-api).
+- **`StateError: No embedding tokenizer is configured`** on the first embedding. Since `flutter_gemma` 1.9.0 an embedding backend no longer carries a tokenizer: which family a model needs (Gemma SentencePiece, BERT WordPiece) is a property of the model, not of the engine that runs it, so the app registers it once. Add `flutter_edge_ai_embeddings` to `pubspec.yaml`, import it, and pass `embeddingTokenizers: [GemmaEmbeddingTokenizers()]` to `FlutterEdgeAi.initialize()` beside `embeddingBackends:`. The error text names the package and the parameter. See [Embeddings & RAG](/docs/embeddings-and-rag).
+- **On the old `flutter_gemma_*` packages: `Target of URI doesn't exist: package:flutter_gemma_embeddings/web_embedding_model.dart`** at `flutter build web`. `flutter_gemma_embeddings` 2.2.0 moved that file into `flutter_gemma_litertlm` 1.8.0, alongside the rest of the LiteRT.js bundle it belongs to. A lockfile holding `flutter_gemma_litertlm` at 1.7.x while `flutter_gemma_embeddings` moves to 2.2.0 resolves cleanly and only then fails to compile. Upgrade `flutter_gemma_litertlm` to 1.8.0. Native builds are unaffected — that import sits behind a web-only conditional export.
 
 ## Function calling
 
-- Function calling is supported only by select models (Gemma 4, Gemma3n, Gemma 3 1B, FunctionGemma, DeepSeek, Qwen, Phi-4). Unsupported models log a warning and ignore tools — they still work for text generation. Check `supportsFunctionCalls`. See [Function Calling](/docs/function-calling).
+- Function calling is supported by Gemma 4, Gemma3n E4B (`.litertlm` build), FunctionGemma, DeepSeek, Qwen and Phi-4 Mini. If you pass `tools` with `supportsFunctionCalls: false`, the chat logs a warning and does not inject them — the model still works for text generation. Pass `supportsFunctionCalls: true` for models that support it. See [Function Calling](/docs/function-calling).

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# test_all.sh — run every workspace package's tests, from the package's own dir.
+# test_all.sh — run every workspace package's tests, and the host tests of every
+# example app, each from its own dir.
 #
 # WHY THIS EXISTS
 #
 # `flutter test` at the repo root tests nothing: the workspace root has no
 # test/ directory. Pointing it at a package (`flutter test packages/<pkg>`)
 # runs from the WRONG working directory — several suites read fixtures through
-# paths relative to the package root (flutter_gemma_agent's
+# paths relative to the package root (flutter_edge_ai_agent's
 # test/fixtures/skills/*.SKILL.md), and 20 of them fail on a missing file.
 #
 # Until 2026-08-18 CI ran only packages/flutter_gemma, leaving 97 of the repo's
@@ -21,9 +22,10 @@
 #
 # Usage:
 #   tool/test_all.sh              # all packages
-#   tool/test_all.sh --coverage   # plus lcov for flutter_gemma (what CI does)
+#   tool/test_all.sh --coverage   # plus lcov for flutter_edge_ai (what CI does)
 #
-# Exit: 0 all green · 1 any package failed, or nothing was discovered.
+# Exit: 0 all green · 1 any package failed, the public-surface or web-graph
+#       check failed, or nothing was discovered.
 
 set -uo pipefail
 
@@ -49,7 +51,7 @@ WANT_COVERAGE=0
 # being set — which it never was — so a suite that had never once executed
 # looked exactly like a suite that passed.
 if [[ -z "${VEC0_DYLIB:-}" ]]; then
-  _vec0_base="packages/flutter_gemma_rag_sqlite/native/sqlite_vec/prebuilt"
+  _vec0_base="packages/flutter_edge_ai_sqlite/native/sqlite_vec/prebuilt"
   case "$(uname -s)" in
     Darwin) _vec0_rel="$_vec0_base/macos_arm64/libvec0.dylib" ;;
     # Both linux_x86_64 and linux_arm64 ship, so ask uname -m rather than
@@ -77,14 +79,14 @@ fi
 # NOTE: the cross-backend parity suite needs no wiring here. qdrant-edge's
 # library is DOWNLOADED by a Native Assets hook and `flutter test` runs hooks,
 # so it is already on disk by the time the suite opens a store. Since
-# flutter_gemma_rag_qdrant 2.0.0 that hook belongs to the official `qdrant_edge`
+# flutter_gemma_rag_qdrant 1.3.0 that hook belongs to the official `qdrant_edge`
 # SDK — the package carries no hook/ and no native/ of its own, and there is no
 # locator file to point at. An earlier draft exported $QDRANT_DYLIB from a cargo
 # target directory and told CI to build Rust; that was solving a problem the
 # hook had already solved.
 
 # NOTE, so nobody re-adds it: an earlier revision of this script excluded
-# flutter_gemma_speech's `qwen3-artifacts` tag whenever the HuggingFace model
+# flutter_edge_ai_speech's `qwen3-artifacts` tag whenever the HuggingFace model
 # snapshot was absent, on the assumption that those suites would otherwise fail
 # in CI. That assumption was never tested and is false — the suites check for
 # the snapshot themselves and call markTestSkipped. Measured with
@@ -97,8 +99,41 @@ fi
 fail=0 tested=0 untested=0 total=0
 summary=""
 
-for dir in packages/*/; do
-  pkg="$(basename "$dir")"
+# The public-surface guard first: seconds, no Flutter, and a red test further
+# down cannot hide it. It fails on deep imports of core internals and on
+# unannotated cross-package src/ imports (see the script's header).
+echo "::group::check_core_surface"
+tool/check_core_surface.sh
+surface_rc=$?
+echo "::endgroup::"
+if [[ $surface_rc -eq 0 ]]; then
+  summary="${summary}  ok  tool/check_core_surface.sh"$'\n'
+else
+  summary="${summary}  FAILED  tool/check_core_surface.sh"$'\n'
+  fail=1
+fi
+
+# The web import graph next (seconds): no file a web build can reach may
+# import dart:io, dart:ffi or dart:isolate. The web compilers accept those
+# imports, so without this a leak surfaces only at runtime.
+echo "::group::check_web_graph"
+dart tool/check_web_graph.dart
+web_graph_rc=$?
+echo "::endgroup::"
+if [[ $web_graph_rc -eq 0 ]]; then
+  summary="${summary}  ok  tool/check_web_graph.dart"$'\n'
+else
+  summary="${summary}  FAILED  tool/check_web_graph.dart"$'\n'
+  fail=1
+fi
+
+# Example apps too. They are not workspace members, so the root `pub get` never
+# resolves them, and until 2026-10-09 this loop never visited them either: two
+# of the core example's host tests had gone stale (a default the app changed in
+# August, and a device test left behind in test/) with nobody running them.
+for dir in packages/*/ packages/*/example/; do
+  pkg="${dir#packages/}"
+  pkg="${pkg%/}"
   [[ -f "${dir}pubspec.yaml" ]] || continue
   total=$((total + 1))
 
@@ -122,8 +157,12 @@ for dir in packages/*/; do
   # "unbound variable" error. CI runs bash 5 and would never have shown it —
   # this script is meant to be run locally too.
   echo "::group::flutter test — $pkg"
-  if [[ $WANT_COVERAGE -eq 1 && "$pkg" == "flutter_gemma" ]]; then
+  if [[ $WANT_COVERAGE -eq 1 && "$pkg" == "flutter_edge_ai" ]]; then
     (cd "$dir" && flutter test --coverage)
+  elif [[ "$pkg" == */example ]]; then
+    # Outside the workspace: resolve it here, so a resolution failure is
+    # reported as one rather than as a failing test.
+    (cd "$dir" && flutter pub get && flutter test)
   else
     (cd "$dir" && flutter test)
   fi

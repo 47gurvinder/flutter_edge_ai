@@ -1,12 +1,14 @@
 ---
 title: Agent Skills
-description: On-device agentic skills for flutter_gemma — give the model a SKILL.md catalog and let it pick and run skills through the tool-calling loop, fully offline.
-image: https://fluttergemma.dev/images/og-image.png
+description: On-device agentic skills for flutter_edge_ai — give the model a SKILL.md catalog and let it pick and run skills through the tool-calling loop, fully offline.
+meta:
+  - property: og:image
+    content: https://flutteredge.ai/images/og-image.png
 ---
 
-`flutter_gemma_agent` is an opt-in satellite package that turns the inference
+`flutter_edge_ai_agent` is an opt-in satellite package that turns the inference
 core into an on-device **agent**: you give the model a set of *skills*
-(`SKILL.md` files), and it decides which to invoke through flutter_gemma's
+(`SKILL.md` files), and it decides which to invoke through flutter_edge_ai's
 existing function-calling, runs them, and feeds the results back — fully offline.
 
 It is reverse-engineered from
@@ -14,35 +16,43 @@ It is reverse-engineered from
 and is **Gallery-compatible**: their `SKILL.md` catalog parses unmodified, and
 their JavaScript skills run as-is.
 
+To build an agent step by step — a text-only skill, native intents and your
+own JavaScript skill — follow the
+[On-Device Agents codelab](/codelabs/on-device-agent-flutter-gemma).
+
 <Info>
+
 Agent skills build on function calling, so they need a function-calling-capable
 model (Gemma 4 E2B/E4B recommended). See <a href="/docs/function-calling">Function
 Calling</a> for the model support matrix.
+
 </Info>
 
 <Info>
+
 Not to be confused with <a href="/docs/package-skills">Package Skills</a> — the
-skills flutter_gemma bundles for <em>your coding assistant</em>, installed with
+skills flutter_edge_ai bundles for <em>your coding assistant</em>, installed with
 <code>dart run skills@ get --all</code>. The skills on this page are run by the
 <em>on-device model</em> at runtime; those are read by the assistant that writes
-your code. There is no bundled skill for <code>flutter_gemma_agent</code> itself.
+your code. There is no bundled skill for <code>flutter_edge_ai_agent</code> itself.
+
 </Info>
 
 ## Install
 
-Add the core and the agent package. The agent builds on flutter_gemma's
+Add the core and the agent package. The agent builds on flutter_edge_ai's
 function-calling loop, so you also register an inference engine from an engine
-package (e.g. `flutter_gemma_litertlm`, which provides the `LiteRtLmEngine()`
+package (e.g. `flutter_edge_ai_litertlm`, which provides the `LiteRtLmEngine()`
 used below).
 
 ```
 dependencies:
-  flutter_gemma: ^1.11.3
-  flutter_gemma_agent: ^0.2.6
-  flutter_gemma_litertlm: ^1.8.5   # an inference engine (LiteRtLmEngine)
+  flutter_edge_ai: ^2.3.1
+  flutter_edge_ai_agent: ^0.2.9
+  flutter_edge_ai_litertlm: ^1.13.1   # an inference engine (LiteRtLmEngine)
 ```
 
-The agent is **unverified on Web** — nothing disables it, but it has never been driven in a browser. See the note below.
+The agent is **not supported on Web** — never verified end-to-end, and the example app disables it. See the note below.
 
 ## The four skill mechanisms
 
@@ -60,11 +70,8 @@ execution mechanisms:
 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
 (pre-installed on Windows 11). ² Linux has no embeddable webview, so JS skills
 return an `ErrorResult`; text / native-intent / MCP skills work on Linux.
-³ Unverified on Web rather than disabled: nothing in the package gates on the
-platform, and the web `.litertlm` path does emit well-formed tool calls. What is
-missing is a run of the agent itself (see the note below). On web, native-intent
-skills open `mailto:` / `sms:` links and a Google Calendar event page instead of
-OS surfaces.
+³ Not supported on Web — never verified end-to-end, and the example app
+disables it (see the note below).
 
 JS skills run in a headless, sandboxed webview. To grant a secure context (so
 skills using `crypto.subtle` and other secure-context Web APIs work), the package
@@ -73,35 +80,31 @@ serves each skill's assets over a loopback HTTP server (`http://127.0.0.1`, a W3
 WebView2 / WKWebView / Android WebView, verified on hardware. On the web the skill
 runs in a sandboxed `<iframe>`.
 
-> **Web is unverified.** The columns above describe where each skill *type* can
-> execute once invoked, and the pieces the loop needs are in place: the web
-> `.litertlm` path emits well-formed tool calls and survives the
-> call → result → continue round-trip. What is missing is a run of the agent
-> itself in a browser — that has never been done, and the loop's context
-> balancing leans on `sizeInTokens`, which is approximate on web. On web,
-> native-intent skills open `mailto:` / `sms:` links and a Google Calendar event
-> page rather than OS surfaces. The agent is verified on **Android, iOS,
-> macOS, and Windows** — use those until a web run exists. The example app
-> disables the agent on web accordingly.
+> **Not supported on Web** — never verified end-to-end, and the example app
+> disables it. The web `.litertlm` path emits well-formed tool calls and
+> survives the call → result → continue round-trip, but the agent loop itself
+> has never run in a browser, and its context balancing leans on
+> `sizeInTokens`, which is approximate on web. The agent is verified on
+> **Android, iOS, macOS, and Windows**.
 
 ## Quick start
 
 ```dart
-import 'package:flutter_gemma/flutter_gemma.dart';
-import 'package:flutter_gemma_agent/flutter_gemma_agent.dart';
-import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
+import 'package:flutter_edge_ai_agent/flutter_edge_ai_agent.dart';
+import 'package:flutter_edge_ai_litertlm/flutter_edge_ai_litertlm.dart';
 
 // 1. Register the inference engine (and, optionally, the skill executors).
-await FlutterGemma.initialize(
+await FlutterEdgeAi.initialize(
   inferenceEngines: [LiteRtLmEngine()],
 );
 
 // 2. Install + load a function-calling model (Gemma 4 E2B/E4B recommended).
-await FlutterGemma
+await FlutterEdgeAi
     .installModel(modelType: ModelType.gemma4, fileType: ModelFileType.litertlm)
     .fromNetwork(gemma4E2BUrl)
     .install();
-final model = await FlutterGemma.getActiveModel(maxTokens: 4096);
+final model = await FlutterEdgeAi.getActiveModel(maxTokens: 4096);
 
 // 3. Load the bundled starter skills and build the agent session.
 final source = AssetSkillSource();
@@ -122,6 +125,10 @@ final session = await AgentSession.fromModel(
 //   AgentChatView(session: session)
 // e.g. "Calculate the hash of hello" or "Show Paris on interactive map".
 ```
+
+`load()` returns one skill per bundled name or throws a `BundledSkillLoadError` (a
+`StateError`) whose `failures` names each skill that did not load and why. On web,
+a deployment that does not serve `assets/packages/flutter_edge_ai_agent/` causes it.
 
 The package also ships an adaptive UI: `AgentChatView`, `SkillManagerView`,
 `McpManagerView`, `SecretEditorDialog`, and `SkillTesterView`.
@@ -196,7 +203,7 @@ engines are registered):
 
 ```dart
 // Global registration (then omit `executors:` on fromModel):
-await FlutterGemma.initialize(
+await FlutterEdgeAi.initialize(
   inferenceEngines: [LiteRtLmEngine()],
   skillExecutors: [TextSkillExecutor(), JsSkillExecutor(sourceFor: ...), NativeIntentExecutor()],
 );
@@ -216,7 +223,7 @@ Most skills need no platform setup. For the platform-specific bits:
   <key>NSCalendarsUsageDescription</key>
   <string>Create calendar events from the agent.</string>
   ```
-- **Android** — `flutter_gemma_agent` depends on `flutter_local_notifications`,
+- **Android** — `flutter_edge_ai_agent` depends on `flutter_local_notifications`,
   which requires core-library desugaring in `android/app/build.gradle(.kts)`.
   This is unconditional: an app that never uses the `schedule_notification`
   intent still fails to build without it. Kotlin DSL below; in Groovy the lines
@@ -236,13 +243,15 @@ Most skills need no platform setup. For the platform-specific bits:
   AGP deprecates this opt-out and plans to remove it in AGP 10.
 
 <Warning>
+
 Adding a skill grants the model the ability to run that skill's code or open OS
 surfaces. Only load skills you trust — `require-secret` skill keys are stored in
 memory and passed to the skill, never to the model prompt.
+
 </Warning>
 
 ## Third-party attribution
 
 The bundled starter skills and the `SKILL.md` format are derived from
 [google-ai-edge/gallery](https://github.com/google-ai-edge/gallery), licensed
-under the Apache License 2.0. `flutter_gemma_agent` itself is MIT-licensed.
+under the Apache License 2.0. `flutter_edge_ai_agent` itself is MIT-licensed.

@@ -1,0 +1,129 @@
+{
+  "manifest_schema": "0.1.2",
+  "repo": "litert-community/DeepSeek-R1-Distill-Qwen-7B",
+  "generated": "2026-09-05",
+  "generator": "make_manifest.py",
+  "model": {
+    "display_name": "DeepSeek-R1-Distill-Qwen-7B",
+    "base_model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+    "architecture": "Qwen2 dense decoder (Qwen2ForCausalLM, shallow-wide 28 layers); reasoning model that emits a <think>...</think> chain before the answer",
+    "parameters_b": 7,
+    "license": "mit",
+    "session_defaults": {
+      "max_output_tokens_min": 2048,
+      "notes": "Reasoning model emitting a <think>...</think> chain before the answer; the card's GSM8K accuracy run uses max_new_tokens=2048 to fit the reasoning chain."
+    },
+    "context_length": 4096,
+    "capabilities": {
+      "vision": false,
+      "audio": false,
+      "thinking": {
+        "declared": true,
+        "channel": {
+          "start": "<think>\n",
+          "end": "\n</think>"
+        }
+      },
+      "channels": [
+        {
+          "name": "thought",
+          "start": "<think>\n",
+          "end": "\n</think>"
+        }
+      ]
+    }
+  },
+  "variants": [
+    {
+      "file": "DeepSeek-R1-Distill-Qwen-7B_q4_block32_ekv4096.litertlm",
+      "sha256": "511d59c11704f7ab39b9cb3a0eef1a88f8c05673d0b74bcb4b19c15845ab4a7f",
+      "size_bytes": 4531978224,
+      "sections": [
+        {
+          "type": "LlmMetadataProto",
+          "size_bytes": 598
+        },
+        {
+          "type": "HF_Tokenizer_Zlib",
+          "size_bytes": 2142167
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 3981133856,
+          "model_type": "tf_lite_prefill_decode"
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 548650992,
+          "model_type": "tf_lite_embedder"
+        }
+      ],
+      "quantization": "int4 weights - blockwise (block 32) + OCTAV optimal-clipping, symmetric; embedding INT8",
+      "backends": [
+        "cpu",
+        "gpu"
+      ],
+      "default_backend": "gpu",
+      "recommended": [
+        {
+          "platform": "android",
+          "device_class": "flagship",
+          "backend": "gpu",
+          "reason": "the Android path verified on a Galaxy S26 (S4 gate 2026-08-24): full delegation (2375 ops across 2 subgraphs) and a correct answer to the probe; 10.0 tok/s decode, engine init 21.0 s, peak 1537 MB. No same-device CPU control was taken, so this is the verified choice for the class, not a measured win over CPU"
+        }
+      ],
+      "requirements": {
+        "platform_notes": [
+          "Desktop (Mac) and high-RAM (12 GB+) Android only; iPhone / 8 GB phones are excluded - at ~4.2-4.5 GB the build exceeds the budget and its weights section exceeds the iOS mmap budget, so there is no on-device row"
+        ]
+      },
+      "measured": [
+        {
+          "device": "Apple M4 Max",
+          "os": "macOS",
+          "backend": "cpu",
+          "runtime": "litert-lm benchmark (litert-lm 0.15.0)",
+          "prompt_tokens": 256,
+          "decode_tokens": 256,
+          "prefill_tps": 64,
+          "decode_tps": 18.2,
+          "ttft_s": 4.69,
+          "max_num_tokens": 4096,
+          "runs": 3,
+          "date": "2026-08-24",
+          "source": "model card Performance table (cardbench harness)"
+        },
+        {
+          "device": "Apple M4 Max",
+          "os": "macOS",
+          "backend": "gpu",
+          "runtime": "litert-lm benchmark (litert-lm 0.15.0)",
+          "prompt_tokens": 256,
+          "decode_tokens": 256,
+          "prefill_tps": 644,
+          "decode_tps": 65.9,
+          "ttft_s": 0.43,
+          "max_num_tokens": 4096,
+          "runs": 3,
+          "date": "2026-08-24",
+          "source": "model card Performance table (cardbench harness)"
+        },
+        {
+          "device": "Galaxy S26 (SM-S942Q, Qualcomm SM8850, Adreno)",
+          "backend": "gpu",
+          "runtime": "litert_lm_advanced_main v0.16.0, LiteRT CL delegate",
+          "prompt_tokens": 197,
+          "decode_tokens": 1089,
+          "prefill_tps": 135.3,
+          "decode_tps": 10.04,
+          "ttft_s": 1.56,
+          "load_s": 21.0,
+          "peak_memory_mb": 1537,
+          "runs": 1,
+          "date": "2026-08-24",
+          "source": "S4 GPU gate, 205-token benchmark, single run; full delegation (2375 ops across 2 subgraphs); generation gate answered the probe correctly. No same-device CPU control was taken, so this is a GPU speed, not a measured win over CPU."
+        }
+      ]
+    }
+  ]
+}

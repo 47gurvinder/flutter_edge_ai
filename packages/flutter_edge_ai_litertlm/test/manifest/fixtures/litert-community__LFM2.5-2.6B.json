@@ -1,0 +1,282 @@
+{
+  "manifest_schema": "0.1.2",
+  "repo": "litert-community/LFM2.5-2.6B",
+  "generated": "2026-09-21",
+  "generator": "make_manifest.py",
+  "model": {
+    "display_name": "LFM2.5-2.6B",
+    "base_model": "LiquidAI/LFM2.5-2.6B",
+    "architecture": "Hybrid: 22 gated short-convolution blocks + 8 grouped-query attention layers; thinking model (reasons in a <think> block, thought channel declared)",
+    "parameters_b": 2.6,
+    "license": "lfm-open-license-v1.0",
+    "session_defaults": {
+      "max_output_tokens_min": 2048,
+      "notes": "Thinking model — reasoning turns are long; give at least 2048 tokens of budget for math/complex questions or the think block may not close. Decode speed drops as the token budget grows, so don't set it higher than needed."
+    },
+    "context_length": 4096,
+    "capabilities": {
+      "vision": false,
+      "audio": false,
+      "thinking": {
+        "declared": true,
+        "channel": {
+          "start": "<think>",
+          "end": "</think>"
+        }
+      },
+      "channels": [
+        {
+          "name": "thought",
+          "start": "<think>",
+          "end": "</think>"
+        }
+      ]
+    }
+  },
+  "variants": [
+    {
+      "file": "LFM2.5-2.6B_int4.litertlm",
+      "sha256": "d3e943dae301d88086c792b46786f26a60339998dac8fee34ed3f6cc4acccaac",
+      "size_bytes": 1668151680,
+      "sections": [
+        {
+          "type": "LlmMetadataProto",
+          "size_bytes": 1677
+        },
+        {
+          "type": "ExecutorMetadataProto",
+          "size_bytes": 2465
+        },
+        {
+          "type": "HF_Tokenizer_Zlib",
+          "size_bytes": 2574159
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 1665513856,
+          "model_type": "tf_lite_prefill_decode"
+        }
+      ],
+      "quantization": "int4 blockwise-32 + OCTAV linears, int8 embedding, convs float",
+      "backends": [
+        "cpu",
+        "gpu"
+      ],
+      "default_backend": "gpu",
+      "recommended": [
+        {
+          "platform": "android",
+          "backend": "gpu",
+          "reason": "at this size the GPU wins across the board on-device (needs litert-lm >= 0.16.0)"
+        },
+        {
+          "platform": "ios",
+          "backend": "cpu",
+          "reason": "int4 is the recommended phone variant; iOS Metal fails at engine creation (upstream LiteRT-LM#3129) — CPU on iOS"
+        },
+        {
+          "platform": "macos",
+          "backend": "gpu",
+          "reason": "~12x prefill, ~3.7x decode vs CPU on the same file"
+        }
+      ],
+      "requirements": {
+        "platform_notes": [
+          "Requires litert-lm >= 0.14; GPU requires litert-lm >= 0.16.0 (Android OpenCL and macOS, verified by generation)",
+          "AI Edge Gallery bundles its own runtime which may lag 0.16.0 — if its GPU toggle fails, use CPU there",
+          "Context (KV cache): 4096 max"
+        ]
+      },
+      "measured": [
+        {
+          "device": "Mac M4 Max",
+          "backend": "cpu",
+          "prompt_tokens": 256,
+          "prefill_tps": 156,
+          "decode_tps": 43.7,
+          "ttft_s": 1.66,
+          "max_num_tokens": 1024,
+          "date": "2026-08-24",
+          "source": "model card Performance table (cardbench harness)",
+          "runtime": "litert-lm (version not stated on card)"
+        },
+        {
+          "device": "Mac M4 Max",
+          "backend": "cpu",
+          "prompt_tokens": 1024,
+          "prefill_tps": 193,
+          "max_num_tokens": 2048,
+          "date": "2026-08-24",
+          "source": "model card Performance table (cardbench harness)",
+          "runtime": "litert-lm (version not stated on card)"
+        },
+        {
+          "device": "Mac M4 Max",
+          "backend": "gpu",
+          "runtime": "litert-lm 0.16.0",
+          "prompt_tokens": 256,
+          "prefill_tps": 1972,
+          "decode_tps": 161.6,
+          "cache": "no",
+          "date": "2026-08-24",
+          "source": "model card Performance table (cardbench harness)"
+        },
+        {
+          "device": "Pixel 8a (Tensor G3)",
+          "backend": "gpu",
+          "runtime": "litert_lm_main v0.16.0 built from the release tag",
+          "prompt_tokens": 261,
+          "decode_tokens": 256,
+          "prefill_tps": "87.8-88.4",
+          "decode_tps": "11.0-11.2",
+          "ttft_s": "3.04-3.06",
+          "runs": 3,
+          "date": "2026-08-24",
+          "source": "model card Performance table (cardbench harness)"
+        },
+        {
+          "device": "Pixel 8a (Tensor G3)",
+          "backend": "cpu",
+          "runtime": "litert_lm_main v0.16.0 built from the release tag",
+          "prompt_tokens": 261,
+          "decode_tokens": 256,
+          "prefill_tps": "16.2-30.2",
+          "decode_tps": "7.4-10.2",
+          "ttft_s": "8.7-16.3",
+          "runs": 3,
+          "date": "2026-08-24",
+          "source": "model card Performance table (cardbench harness)"
+        },
+        {
+          "device": "Galaxy S26 (SM-S942Q, Qualcomm SM8850, Adreno)",
+          "backend": "gpu",
+          "runtime": "litert_lm_advanced_main v0.16.0, LiteRT CL delegate",
+          "prompt_tokens": 206,
+          "decode_tokens": 3304,
+          "prefill_tps": 494.8,
+          "decode_tps": 20.87,
+          "ttft_s": 0.46,
+          "load_s": 12.6,
+          "peak_memory_mb": 1231,
+          "runs": 1,
+          "date": "2026-08-24",
+          "source": "S4 GPU gate, 205-token benchmark, single run; full delegation (11132 ops across 12 subgraphs); generation gate answered the probe correctly. No same-device CPU control was taken, so this is a GPU speed, not a measured win over CPU."
+        }
+      ],
+      "known_issues": [
+        "iOS Metal still fails at engine creation (tracked upstream in LiteRT-LM#3129)",
+        "Multi-turn: the conversation context retains previous turns' reasoning, so long chats fill the context faster than the visible text suggests — prefer fresh conversations for unrelated questions"
+      ],
+      "min_runtime_version": "0.14.0"
+    },
+    {
+      "file": "LFM2.5-2.6B_int8.litertlm",
+      "sha256": "f1a4eba63bdeabb5cff9b4b483ad21fe6fdf3f5a9ff043540976da42f903b1a7",
+      "size_bytes": 2868199040,
+      "sections": [
+        {
+          "type": "LlmMetadataProto",
+          "size_bytes": 1677
+        },
+        {
+          "type": "ExecutorMetadataProto",
+          "size_bytes": 2465
+        },
+        {
+          "type": "HF_Tokenizer_Zlib",
+          "size_bytes": 2574159
+        },
+        {
+          "type": "TFLiteModel",
+          "size_bytes": 2865561216,
+          "model_type": "tf_lite_prefill_decode"
+        }
+      ],
+      "quantization": "int8 dynamic (linears + convs + embedding)",
+      "backends": [
+        "cpu",
+        "gpu"
+      ],
+      "default_backend": "gpu",
+      "requirements": {
+        "platform_notes": [
+          "Requires litert-lm >= 0.14; GPU requires litert-lm >= 0.16.0 (Android OpenCL and macOS, verified by generation)",
+          "iPhone 17 Pro: loads and runs only when the host app carries the extended-virtual-addressing / increased-memory entitlements (the 2.87 GB single weight section exceeds what a default-entitlement app will memory-map); int4 is the recommended phone variant",
+          "AI Edge Gallery bundles its own runtime which may lag 0.16.0 — if its GPU toggle fails, use CPU there",
+          "Context (KV cache): 4096 max"
+        ]
+      },
+      "measured": [
+        {
+          "device": "Mac M4 Max",
+          "backend": "cpu",
+          "prompt_tokens": 256,
+          "prefill_tps": 169,
+          "decode_tps": 38.0,
+          "ttft_s": 1.54,
+          "max_num_tokens": 1024,
+          "date": "2026-08-24",
+          "source": "model card Performance table (cardbench harness)",
+          "runtime": "litert-lm (version not stated on card)"
+        },
+        {
+          "device": "Mac M4 Max",
+          "backend": "cpu",
+          "prompt_tokens": 1024,
+          "prefill_tps": 434,
+          "max_num_tokens": 2048,
+          "date": "2026-08-24",
+          "source": "model card Performance table (cardbench harness)",
+          "runtime": "litert-lm (version not stated on card)"
+        },
+        {
+          "device": "Mac M4 Max",
+          "backend": "gpu",
+          "runtime": "litert-lm 0.16.0",
+          "prompt_tokens": 256,
+          "prefill_tps": 1893,
+          "decode_tps": 125.6,
+          "cache": "no",
+          "date": "2026-08-24",
+          "source": "model card Performance table (cardbench harness)"
+        },
+        {
+          "device": "Galaxy S26 (SM-S942Q, Qualcomm SM8850, Adreno)",
+          "backend": "gpu",
+          "runtime": "litert_lm_advanced_main v0.16.0, LiteRT CL delegate",
+          "prompt_tokens": 206,
+          "decode_tokens": 2892,
+          "prefill_tps": 474.3,
+          "decode_tps": 16.3,
+          "ttft_s": 0.5,
+          "load_s": 4.8,
+          "peak_memory_mb": 1189,
+          "runs": 1,
+          "date": "2026-08-25",
+          "source": "S4 GPU gate, 205-token benchmark, single run; full delegation (11132 ops across 12 subgraphs); generation gate answered the probe correctly. No same-device CPU control was taken, so this is a GPU speed, not a measured win over CPU."
+        },
+        {
+          "device": "Galaxy S26 (SM-S942Q, Qualcomm SM8850, Adreno)",
+          "backend": "cpu",
+          "runtime": "litert_lm_advanced_main v0.16.0 (XNNPACK CPU)",
+          "prompt_tokens": 206,
+          "decode_tokens": 3616,
+          "prefill_tps": "222.2-269.2",
+          "decode_tps": "13.71-15.53",
+          "ttft_s": "0.84-0.99",
+          "load_s": 5.8,
+          "peak_memory_mb": 3704,
+          "cache": "no",
+          "runs": 2,
+          "date": "2026-09-06",
+          "source": "S7 Android backfill: same-device CPU control - identical binary, prompt file and flags, only --backend differs; 205-token prompt with --benchmark, 2 cold runs (compile/weight caches deleted between runs, device cooled below 42 C before each run); same-device control for an existing GPU row on this handset"
+        }
+      ],
+      "known_issues": [
+        "iOS Metal still fails at engine creation (tracked upstream in LiteRT-LM#3129)",
+        "Multi-turn: the conversation context retains previous turns' reasoning, so long chats fill the context faster than the visible text suggests — prefer fresh conversations for unrelated questions"
+      ],
+      "min_runtime_version": "0.14.0"
+    }
+  ]
+}

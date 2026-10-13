@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_gemma/flutter_gemma.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 
 import 'model.dart';
 import 'recipes.dart';
@@ -46,7 +46,7 @@ class _EmbedPageState extends State<EmbedPage> {
     try {
       // install() is idempotent: the bytes are fetched once and the second
       // run of this button skips straight past it.
-      await FlutterGemma.installEmbedder()
+      await FlutterEdgeAi.installEmbedder()
           .modelFromNetwork(
             _embedder.modelUrl,
             token: widget.hfToken.isEmpty ? null : widget.hfToken,
@@ -66,10 +66,11 @@ class _EmbedPageState extends State<EmbedPage> {
         _status = 'Embedding ${kRecipes.length} recipes...';
       });
 
-      final embedder = await FlutterGemma.getActiveEmbedder();
+      final embedder = await FlutterEdgeAi.getActiveEmbedder();
 
-      // One call for the whole corpus rather than a loop: the worker isolate
-      // is set up once and the model stays resident between texts.
+      // One call for the whole corpus rather than a loop: `embedAll` checks
+      // every text before the first is sent, and keeps the next one queued
+      // while the model works on the current one.
       //
       // `retrievalDocument` is the half of the asymmetry that matters here.
       // EmbeddingGemma was trained with a different prefix for documents than
@@ -81,10 +82,9 @@ class _EmbedPageState extends State<EmbedPage> {
       // Index with the query prefix and nothing errors — the vectors just land
       // slightly off, and every search afterwards is a little worse for a
       // reason no exception will ever point at.
-      final vectors = await embedder.generateEmbeddings(
-        kRecipes.map((r) => r.text).toList(),
-        taskType: TaskType.retrievalDocument,
-      );
+      final vectors = await embedder.embedAll([
+        for (final r in kRecipes) EmbeddingInput.text(r.text),
+      ], taskType: TaskType.retrievalDocument);
 
       if (!mounted) return;
       setState(() {

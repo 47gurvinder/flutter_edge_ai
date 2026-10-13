@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_gemma/flutter_gemma.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 
 import 'model.dart';
 
@@ -56,7 +56,7 @@ class _ChatPageState extends State<ChatPage> {
     try {
       // maxTokens is the CONTEXT WINDOW — prompt + history + reply share it.
       // It is NOT a reply-length cap; for that, pass maxOutputTokens below.
-      final inference = await FlutterGemma.getActiveModel(maxTokens: 1024);
+      final inference = await FlutterEdgeAi.getActiveModel(maxTokens: 1024);
       // Hold the runtime before opening a chat on it: `createChat` can throw,
       // and a model this page never stored is a model `dispose` can never
       // close. A page that is already gone holds nothing, so it closes it here.
@@ -140,10 +140,11 @@ class _ChatPageState extends State<ChatPage> {
 
   /// The models this app can offer that it is not already running.
   ///
-  /// `Models.builtIn` throws where the OS has no built-in arm, and this getter
-  /// runs inside `itemBuilder` — a throw during a build is a red screen, not
-  /// something a `catch` around the tap could reach. So ask here and drop the
-  /// entry instead. Windows and Linux have no built-in arm at all.
+  /// `Models.builtIn` throws where this app has no built-in arm, and this
+  /// getter runs inside `itemBuilder` — a throw during a build is a red screen,
+  /// not something a `catch` around the tap could reach. So ask here and drop
+  /// the entry instead. The sample gives Windows no built-in entry, and Linux
+  /// has no OS model at all.
   List<ModelChoice> get _alternatives {
     final all = <ModelChoice>[...Models.downloadable];
     try {
@@ -201,7 +202,7 @@ class _ChatPageState extends State<ChatPage> {
         _chat = null;
       });
     }
-    await FlutterGemma.uninstallModel(widget.model.id);
+    await FlutterEdgeAi.uninstallModel(widget.model.id);
     if (mounted) widget.onModelRemoved();
   }
 

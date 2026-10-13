@@ -1,4 +1,4 @@
-import 'package:flutter_gemma/flutter_gemma.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 
 /// Supplied at run time, never committed:
 ///   flutter run --dart-define=HF_TOKEN=hf_your_token
@@ -9,7 +9,7 @@ const hfToken = String.fromEnvironment('HF_TOKEN');
 
 /// One model this app knows how to install.
 ///
-/// [fileName] doubles as the model's id: `FlutterGemma.isModelInstalled` takes
+/// [fileName] doubles as the model's id: `FlutterEdgeAi.isModelInstalled` takes
 /// the file name the model was installed under, not a display name.
 class ModelChoice {
   const ModelChoice({
@@ -93,16 +93,21 @@ abstract final class Models {
 ///
 /// `seq256` in the file name is the **sequence length in tokens**, not the
 /// embedding dimension. The vectors this model emits are 768 long regardless;
-/// 256 is how much text fits into one forward pass before it is truncated.
+/// 256 tokens, task prefix included, is the most one forward pass takes. A
+/// longer input throws `EmbeddingInputTooLongException` rather than being cut.
 abstract final class Embedders {
   static const embeddingGemma = EmbedderChoice(
     label: 'EmbeddingGemma 300M',
+    profileId:
+        'embeddinggemma-300m-seq256-mp-rev-29888fcee321-'
+        'retrieval-prefix-meanpool-l2-v1',
     modelUrl:
         'https://huggingface.co/litert-community/embeddinggemma-300m/resolve/'
-        'main/embeddinggemma-300M_seq256_mixed-precision.tflite',
+        '29888fcee3216acadc7e844906e5fe0d79a61875/'
+        'embeddinggemma-300M_seq256_mixed-precision.tflite',
     tokenizerUrl:
         'https://huggingface.co/litert-community/embeddinggemma-300m/resolve/'
-        'main/sentencepiece.model',
+        '29888fcee3216acadc7e844906e5fe0d79a61875/sentencepiece.model',
     sizeLabel: '0.2 GB',
     // Same licence gate as Gemma 3 above, and the same HF_TOKEN covers both.
     requiresToken: true,
@@ -113,6 +118,7 @@ abstract final class Embedders {
 class EmbedderChoice {
   const EmbedderChoice({
     required this.label,
+    required this.profileId,
     required this.modelUrl,
     required this.tokenizerUrl,
     required this.sizeLabel,
@@ -120,6 +126,7 @@ class EmbedderChoice {
   });
 
   final String label;
+  final String profileId;
   final String modelUrl;
   final String tokenizerUrl;
   final String sizeLabel;

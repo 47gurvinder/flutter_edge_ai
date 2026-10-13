@@ -1,7 +1,9 @@
 ---
 title: Function Calling
 description: Let on-device models call external functions and integrate with other services.
-image: https://fluttergemma.dev/images/og-image.png
+meta:
+  - property: og:image
+    content: https://flutteredge.ai/images/og-image.png
 ---
 
 Function calling lets a model request that your app run an external function —
@@ -13,8 +15,8 @@ and then continue the conversation with the result.
 ### Models with function calling support
 
 - **Gemma 4** (E2B, E4B) — full support (native function-call tokens).
-- **Gemma3n** (E2B, E4B) — full support.
-- **Gemma 3 1B** — function calling support.
+- **Gemma3n E4B** — function calling on the downloadable E4B `.litertlm` build;
+  not on E2B or the MediaPipe `.task` builds.
 - **FunctionGemma 270M** — Google's specialized function-calling model.
 - **DeepSeek R1** — function calling + thinking mode.
 - **Qwen** models (0.5B, 0.6B, 1.5B) — full support.
@@ -23,6 +25,7 @@ and then continue the conversation with the result.
 ### Models without function calling support
 
 - **Gemma 3 270M** — text generation only.
+- **Gemma 3 1B** — text generation only.
 - **SmolLM 135M** — text generation only.
 - **LFM2.5 230M** — text generation only.
 - **SmolLM3 3B** — text generation with reasoning, no function calling.
@@ -33,16 +36,18 @@ and then continue the conversation with the result.
 - **LLaVA-OneVision 0.5B** — vision model, no function calling.
 
 <Info>
-When you pass tools to an unsupported model, the plugin logs a warning and
-ignores the tools — the model still works normally for text generation. Check the
-`supportsFunctionCalls` property in your model configuration.
+
+If you pass `tools` with `supportsFunctionCalls: false`, the chat logs a warning
+and does not inject them — the model still works normally for text generation.
+Pass `supportsFunctionCalls: true` for models that support it.
+
 </Info>
 
 ### Built-in AI (OS models)
 
 [Built-in AI](/docs/builtin-ai) models — Gemini Nano (Android), Apple Foundation
-Models (iOS/macOS), and the Chrome Prompt API (Web) — also support function
-calling, but it is **prompt-based**: these OS models don't expose a usable
+Models (iOS/macOS), Phi Silica (Windows), and browser Prompt APIs (Web) — also
+support function calling, but it is **prompt-based**: these OS models don't expose a usable
 structured tool API, so core `InferenceChat` weaves the tool definitions into
 the prompt and parses the calls back out of the model's text. You declare tools
 the same way (see below). Gemini Nano handles single-turn tool calls; multi-turn
@@ -90,6 +95,7 @@ final chat = await model.createChat(
   call — and with parsing off it reaches the stream as raw text.
 
 <Info>
+
 `ToolChoice.required` reaches the model only where the SDK writes the
 declarations itself. Gemma 4, and FunctionGemma on a `.litertlm`, hand them to
 the runtime instead, and the runtime's tool payload carries no `tool_choice` —
@@ -97,6 +103,7 @@ so for those two `required` behaves as `auto`, silently. A `.task`
 FunctionGemma gets the old "not supported" warning, and the JSON-format
 families (Qwen, DeepSeek, Phi-4 Mini) do get a "you must call a function"
 instruction written into their prompt.
+
 </Info>
 
 ## Who renders the declarations
@@ -104,15 +111,16 @@ instruction written into their prompt.
 On a `.litertlm`, both Gemma 4 and FunctionGemma go through LiteRT-LM's own tool
 path: the declarations travel to the runtime as structured data, the call comes
 back parsed, and the result of a turn goes back as one role-`tool` message that
-continues the same model turn. Since **flutter_gemma 1.8.4 with
-flutter_gemma_litertlm 1.7.1** that is true for FunctionGemma too — before them,
+continues the same model turn. That is true for FunctionGemma too, in every
+`flutter_edge_ai` release (it arrived in `flutter_gemma` 1.8.4 with
+`flutter_gemma_litertlm` 1.7.1) — before them,
 its tool results were sent as an ordinary user message, and the model answered
 them by repeating the call it had just made. Both halves are needed: core decides
 the wire format, the engine sends it.
 
 Where a call comes back as text rather than structured `tool_calls` — the web
 SDK, or a `.litertlm` exported without the FunctionGemma model type, whose
-runtime opens no tool-call channel — flutter_gemma parses that text itself, so
+runtime opens no tool-call channel — flutter_edge_ai parses that text itself, so
 your code still receives a `FunctionCallResponse`.
 
 Two consequences worth knowing:
@@ -155,6 +163,7 @@ chat.generateChatResponseAsync().listen((response) {
 ```
 
 <Info>
+
 A model can also request **several** calls at once — the stream then emits a
 `ParallelFunctionCallResponse` carrying a `calls` list of `FunctionCallResponse`s.
 `generateChatResponseWithTools` (below) handles this internally; a manual
@@ -167,6 +176,7 @@ listener must handle it too:
   }
 }
 ```
+
 </Info>
 
 Send the function result back to the model so it can continue:
@@ -189,6 +199,11 @@ until the model produces a final call-free answer (bounded by `maxToolTurns`).
 You only implement the tools; the parse → execute → feed-back loop is handled.
 
 ```dart
+// Stage the user message first, as for generateChatResponseAsync.
+await chat.addQueryChunk(
+  Message.text(text: 'Make the background blue', isUser: true),
+);
+
 final stream = chat.generateChatResponseWithTools(
   onToolCall: (call) async {
     // Run whatever tool the model asked for; return its result map.
@@ -214,25 +229,29 @@ runs function calls inside a spoken turn through it (see
 
 Function calling is supported on **Android, iOS, Web, and Desktop**. For Gemma 4,
 the native function-call tokens are routed through the LiteRT-LM SDK chat-template
-path (use `ModelType.gemma4`).
+path (use `ModelType.gemma4`), so Gemma 4 function calling needs a `.litertlm`
+model: with MediaPipe `.task` (including the web `-web.task` builds) and with ONNX
+the tools do not reach a Gemma 4 model. See [Capabilities](/docs/capabilities).
 
-With the [Built-in AI](/docs/builtin-ai) engine (`flutter_gemma_builtin_ai`)
+With the [Built-in AI](/docs/builtin-ai) engine (`flutter_edge_ai_builtin_ai`)
 function calling is prompt-based rather than a native tool API — Gemini Nano
-(Android) and Apple Foundation Models (iOS/macOS) handle single-turn tool calls;
-on Web (Chrome Prompt API) multi-turn agent chaining is not supported. Tool
+(Android), Apple Foundation Models (iOS/macOS), and Phi Silica (Windows) handle
+single-turn tool calls; on Web multi-turn agent chaining is not supported. Tool
 declarations are deliberately not handed to the OS runner as well, which would
 run two competing tool loops for one turn. Apple's *native* tool calling stays
 reachable through `flutter_local_ai`'s own `LocalAiSession` API, outside
-flutter_gemma's chat loop.
+flutter_edge_ai's chat loop.
 
 <Warning>
+
 Function calling works on the web `.litertlm` path, with one upstream caveat:
 constrained decoding is left off there ([LiteRT-LM#2434](https://github.com/google-ai-edge/LiteRT-LM/issues/2434)
 aborts the next turn after a tool call when it is on), so the call's JSON shape
 is not grammar-enforced. See [Troubleshooting](/docs/troubleshooting).
+
 </Warning>
 
 See [Models](/docs/models#modeltype-reference) for the correct `ModelType` per
 model family.
 
-**Writing this with a coding assistant?** `dart run skills@ get --all` installs [`flutter-gemma-function-calling`](/docs/package-skills), the skill that teaches it declaring tools, handling `FunctionCallResponse`, and the built-in tool loop.
+**Writing this with a coding assistant?** `dart run skills@ get --all` installs [`flutter-edge-ai-function-calling`](/docs/package-skills), the skill that teaches it declaring tools, handling `FunctionCallResponse`, and the built-in tool loop.

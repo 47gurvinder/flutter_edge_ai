@@ -50,25 +50,25 @@ const _features = [
   _FeatureData(
     icon: '🔍',
     title: 'On-device RAG',
-    desc: 'qdrant-edge native vector store, sqlite-vec on all platforms incl. web',
+    desc: 'Independent RAG with pluggable qdrant-edge or sqlite-vec storage',
     accent: Brand.green,
   ),
   _FeatureData(
     icon: '⚡',
-    title: 'GPU Acceleration',
-    desc: 'Metal / Vulkan / WebGPU / DX12 — all backends covered',
+    title: 'Hardware Acceleration',
+    desc: 'CPU/GPU across native targets, plus supported Qualcomm Android and Intel Windows NPUs',
     accent: Brand.orange,
   ),
   _FeatureData(
     icon: '📱',
     title: 'Built-in AI',
-    desc: 'Run Gemini Nano & Apple Intelligence — an OS-owned model, zero download',
+    desc: 'Gemini Nano, Apple Foundation Models, Phi Silica & Chrome Prompt API — zero model download',
     accent: Brand.blue,
   ),
   _FeatureData(
     icon: '🔌',
-    title: 'Pluggable Engines',
-    desc: 'LiteRT-LM, MediaPipe, ONNX Runtime & built-in OS AI — register the engine you need',
+    title: 'Pluggable Runtimes',
+    desc: 'Choose inference, embedding and speech runtimes independently — register only what you need',
     accent: Brand.orange,
   ),
   _FeatureData(
@@ -80,7 +80,7 @@ const _features = [
   _FeatureData(
     icon: '🧑‍💻',
     title: 'Package Skills',
-    desc: 'Claude Code, Codex, Cursor & Copilot learn the flutter_gemma API from skills shipped in the package',
+    desc: 'Claude Code, Codex, Cursor & Copilot learn the flutter_edge_ai API from skills shipped in the package',
     accent: Brand.blue,
   ),
 ];

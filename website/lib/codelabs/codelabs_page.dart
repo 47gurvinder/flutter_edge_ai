@@ -50,29 +50,29 @@ class CodelabsPage extends StatelessComponent {
   /// Ordered as a learning path, not a feature list: first run, then teaching
   /// your coding assistant the API so it writes the rest with you, then the
   /// engines that run a model, then the model capabilities built on top
-  /// (multimodal, function calling), then the pipelines that combine several
-  /// of them (RAG, voice, hybrid routing).
+  /// (multimodal, function calling, agents), then the pipelines that combine
+  /// several of them (RAG, voice, hybrid routing).
   static const _items = <_Codelab>[
     _Codelab(
       title: 'Getting Started with On-Device LLMs in Flutter',
       blurb:
-          'Install flutter_gemma, pick and download a model, and stream your '
+          'Install flutter_edge_ai, pick and download a model, and stream your '
           'first reply — then have the app open on the chat, not the download '
           'screen.',
       duration: '35 min',
       level: 'Beginner',
-      tags: ['flutter_gemma', 'Gemma 3', 'streaming'],
+      tags: ['flutter_edge_ai', 'Gemma 3', 'streaming'],
       accent: Brand.blue,
       href: '/codelabs/getting-started-flutter-gemma',
     ),
     _Codelab(
-      title: 'Package Skills in Flutter: Teach Your Coding Assistant flutter_gemma',
+      title: 'Package Skills in Flutter: Teach Your Coding Assistant flutter_edge_ai',
       blurb:
-          'flutter_gemma ships agent skills inside the package. Install them '
+          'flutter_edge_ai ships agent skills inside the package. Install them '
           'for your assistant with one command, ask it for an offline chat '
           'and a tool call, and check its code against the traps the skills '
           'exist to prevent.',
-      duration: '45 min',
+      duration: '44 min',
       level: 'Beginner',
       tags: ['agent skills', 'Antigravity', 'Claude Code'],
       accent: Brand.orange,
@@ -116,6 +116,19 @@ class CodelabsPage extends StatelessComponent {
       tags: ['function calling', 'tools', 'fine-tuning', 'thinking mode'],
       accent: Brand.green,
       href: '/codelabs/function-calling-flutter-gemma',
+    ),
+    _Codelab(
+      title: 'On-Device Agents in Flutter: SKILL.md Skills with Gemma 4',
+      blurb:
+          'Turn the function-calling loop into an agent: write SKILL.md skills '
+          'the model finds by their description, let it open the calendar and '
+          'the mail composer through native intents, and hand exact work to '
+          'your own JavaScript.',
+      duration: '52 min',
+      level: 'Intermediate',
+      tags: ['agents', 'skills', 'SKILL.md', 'JavaScript'],
+      accent: Brand.green,
+      href: '/codelabs/on-device-agent-flutter-gemma',
     ),
     _Codelab(
       title: 'On-Device RAG in Flutter: Embeddings and Vector Search',

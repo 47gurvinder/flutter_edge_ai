@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_gemma/flutter_gemma.dart';
+import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:record/record.dart';
 
@@ -114,7 +114,7 @@ class _ChatPageState extends State<ChatPage> {
       // told to. Set them on the chat alone and everything looks fine until
       // the first image or clip, when native fails the turn with
       // `INVALID_ARGUMENT: Vision executor should not be null`.
-      final inference = await FlutterGemma.getActiveModel(
+      final inference = await FlutterEdgeAi.getActiveModel(
         maxTokens: 4096,
         supportImage: _imageCapability.available,
         supportAudio: _audioCapability.available,
@@ -133,8 +133,8 @@ class _ChatPageState extends State<ChatPage> {
         // Still two session flags on one model — but no longer hard-coded
         // `true`. Each is the AND of both answers: what the weights accept
         // and what this platform will carry to them. Asking for a modality
-        // the platform cannot deliver opens a session nothing will ever
-        // feed, and on the web that failure is silent.
+        // the platform cannot deliver buys nothing: on the web the session
+        // still opens, and the first picture or clip sent to it throws.
         supportImage: _imageCapability.available,
         supportAudio: _audioCapability.available,
         maxOutputTokens: 256,
@@ -405,7 +405,7 @@ class _ChatPageState extends State<ChatPage> {
           _chat = null;
         });
       }
-      await FlutterGemma.uninstallModel(widget.model.fileName);
+      await FlutterEdgeAi.uninstallModel(widget.model.fileName);
       if (mounted) widget.onModelRemoved();
     } catch (error) {
       // Deleting can fail too — a missing install record, a file the OS still
