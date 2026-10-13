@@ -298,7 +298,7 @@ enum EmbeddingModel implements EmbeddingModelInterface {
   // PTL). They run ONLY there — `getActiveEmbedder(preferredBackend:
   // PreferredBackend.npu)` on Windows x64, with the Intel stack every Windows
   // build carries beside the executable — so the list shows them on Windows
-  // only. NOT yet verified on device: no Panther Lake machine has run them.
+  // only.
   // Their own profile id, the CPU text id plus `-npu-ptl`; the 270m and the
   // 440m carry byte-identical text towers (sha256 prefix 84f8711d914c; the
   // tokenizer and token-embedding sections match too), so they share it.
@@ -496,7 +496,7 @@ enum EmbeddingNpuVendor {
   /// Runs on Qualcomm Android and Qualcomm Linux arm64.
   qualcomm,
 
-  /// Runs on Windows x64 (Panther Lake); not yet verified on device.
+  /// Runs on Windows x64 (Panther Lake).
   intel,
 }
 

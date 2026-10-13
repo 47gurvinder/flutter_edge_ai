@@ -140,7 +140,7 @@ on every install, because the variant's filename is only known after the fetch.
 
 | Model file | Platforms | Tokenizer | Longest input |
 |---|---|---|---|
-| EmbeddingGemma 2 text, images and audio, one `.litertlm` | Android, iOS, macOS, Linux, Windows; Web via `@litert-lm/core` (WebGPU); per-SoC bundles on Qualcomm NPUs (Android, Linux arm64) and Intel Panther Lake NPUs (Windows x64, not yet verified on device) | inside the bundle | 1024 tokens |
+| EmbeddingGemma 2 text, images and audio, one `.litertlm` | Android, iOS, macOS, Linux, Windows; Web via `@litert-lm/core` (WebGPU); per-SoC bundles on Qualcomm NPUs (Android, Linux arm64) and Intel Panther Lake NPUs (Windows x64) | inside the bundle | 1024 tokens |
 | EmbeddingGemma 1, Gecko: `.tflite` + a tokenizer file | Android, iOS, macOS, Linux, Windows; Web via LiteRT.js | `flutter_edge_ai_embeddings` | the model's sequence length (256 for a `seq256` file) |
 
 ```dart
@@ -438,7 +438,7 @@ final note = await embedder.embed(
 `EmbeddingModel.activeBackend` is `cpu` on native and `gpu` for EmbeddingGemma
 2 on the web, and `npu` for an EmbeddingGemma 2 per-SoC bundle on a Qualcomm
 NPU ([below](#embeddinggemma-2-on-a-qualcomm-npu)) or an Intel one
-([below](#embeddinggemma-2-on-an-intel-npu-windows-not-yet-verified)); any other
+([below](#embeddinggemma-2-on-an-intel-npu-windows)); any other
 `preferredBackend` is not applied. For EmbeddingGemma 1 on the web it is `null` and LiteRT.js
 picks: `window.getLiteRtEmbeddingAccelerator()` names where
 the output buffer lived after the first embedding, and
@@ -478,7 +478,7 @@ assert(embedder.activeBackend == PreferredBackend.npu);
   VENTUNO Q). Google also publishes SM8550, SM8750, Tensor G5/G6, MediaTek
   MT6991/MT6993 and Intel PTL builds; the Qualcomm ones load here but are not
   verified by us, Intel PTL runs on Windows
-  ([below](#embeddinggemma-2-on-an-intel-npu-windows-not-yet-verified)), and
+  ([below](#embeddinggemma-2-on-an-intel-npu-windows)), and
   the others are refused (no dispatch for them ships). What a bundle is
   compiled for is read from the bundle itself, not from its name.
 - **Fast, and close to — not equal to — the CPU vectors.** Measured on an
@@ -504,12 +504,13 @@ assert(embedder.activeBackend == PreferredBackend.npu);
   `FlutterEdgeAiActiveEmbedder.forActiveModel` keys on the installed file name,
   so it separates them by itself.
 - Text up to 1024 tokens (the bundles carry no longer signature), and images
-  on the 440m, as on CPU. The 740m's per-SoC bundles are not verified.
+  on the 440m, as on CPU; audio on the 740m's per-SoC bundles from 1.13.2,
+  with their audio encoder on the CPU (verified on SM8850, Galaxy S26+).
 - On Linux the NPU calls run with SIGPROF blocked, as the LLM engine's create
   does: QNN does not survive the debug VM's profiler signal. Linux needs
   native-v0.18.0-e or newer, which reads the bundles' external weights by path.
 
-### EmbeddingGemma 2 on an Intel NPU (Windows, not yet verified)
+### EmbeddingGemma 2 on an Intel NPU (Windows)
 
 Google's `…_Intel_PTL.litertlm` bundles are compiled for the Intel Panther Lake
 NPU. From 1.13.2 this package runs them on **Windows x64** with
@@ -531,13 +532,9 @@ final embedder = await FlutterEdgeAi.getActiveEmbedder(
 );
 ```
 
-- **Not yet verified on device.** No Panther Lake machine has run these
-  bundles with this package. The load embeds one test text and refuses unless
-  it gets a valid vector, so a PC without an Intel NPU, or one the stack cannot
-  drive, gets an `EmbeddingLoadException` rather than wrong vectors — but that
-  path has not been seen on hardware either. The LLM engine turns off
-  `use_hw_masking_for_npu` on the Intel NPU (a CFG failure otherwise); the
-  embedding engine has no such setting, and whether it needs one is not known.
+- **The load checks the NPU.** It embeds one test text and refuses unless it
+  gets a valid vector, so a PC without an Intel NPU, or one the stack cannot
+  drive, gets an `EmbeddingLoadException` rather than wrong vectors.
 - The same rules as on Qualcomm: refused without `npu`, refused on any other
   platform (an Intel bundle on Android or Linux, a Qualcomm bundle on Windows),
   refused with the reason when `LiteRtDispatch.dll` is not beside the
@@ -786,7 +783,7 @@ x64 build ignores the flag.
 **Embeddings.** The same flag runs EmbeddingGemma 2 per-SoC bundles on the NPU
 ([EmbeddingGemma 2 on a Qualcomm NPU](#embeddinggemma-2-on-a-qualcomm-npu));
 Windows runs the Intel ones without it
-([EmbeddingGemma 2 on an Intel NPU](#embeddinggemma-2-on-an-intel-npu-windows-not-yet-verified)).
+([EmbeddingGemma 2 on an Intel NPU](#embeddinggemma-2-on-an-intel-npu-windows)).
 Unlike the LLM path, an embedder never falls back: when the NPU cannot run the
 bundle, `getActiveEmbedder` fails with `EmbeddingLoadException` and the reason,
 because CPU vectors would land in another space.

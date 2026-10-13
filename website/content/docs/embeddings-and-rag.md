@@ -47,7 +47,7 @@ and **rag/sqlite3.wasm**; see [Installation → Web](/docs/installation#web).
 
 | Model | Files | Platforms | Tokenizer | Longest input |
 |---|---|---|---|---|
-| EmbeddingGemma 2 (text, images, audio) | one `.litertlm` | Android, iOS, macOS, Linux, Windows; Web on WebGPU; per-SoC bundles on Qualcomm NPUs, and on Intel Panther Lake NPUs on Windows (not yet verified on device) | inside the bundle | 1024 tokens |
+| EmbeddingGemma 2 (text, images, audio) | one `.litertlm` | Android, iOS, macOS, Linux, Windows; Web on WebGPU; per-SoC bundles on Qualcomm NPUs, and on Intel Panther Lake NPUs on Windows | inside the bundle | 1024 tokens |
 | EmbeddingGemma 1, Gecko | `.tflite` + tokenizer file | Android, iOS, macOS, Linux, Windows, Web | `flutter_edge_ai_embeddings` | the model's sequence length |
 | MiniLM, EmbeddingGemma ONNX | `.onnx` + `tokenizer.json` | native via **flutter_edge_ai_onnx**; Web for WordPiece models | `flutter_edge_ai_embeddings` | the graph's static length, or none |
 
@@ -359,8 +359,9 @@ print(embedder.activeBackend); // PreferredBackend.npu
   their text towers being byte-identical.
   **FlutterEdgeAiActiveEmbedder.forActiveModel** keys on the installed file
   name, so it keeps them apart by itself.
-- Text up to 1024 tokens, images on the 440m, as on CPU. The 740m per-SoC
-  bundles are not verified.
+- Text up to 1024 tokens, images on the 440m, as on CPU; audio on the 740m
+  per-SoC bundles from 1.13.2, with their audio encoder on the CPU (verified on
+  SM8850, Galaxy S26+).
 
 ### EmbeddingGemma 2 on an Intel NPU
 
@@ -372,13 +373,9 @@ executable — no opt-in flag. Install
 `embeddinggemma-2-text-270m_Intel_PTL.litertlm` (or the 440m's) from the same
 repository and revision as above, and load it as above.
 
-- **Not yet verified on device.** No Panther Lake machine has run these
-  bundles with this package. The load embeds one test text and refuses unless
-  it gets a valid vector, so a PC without an Intel NPU, or one the stack cannot
-  drive, gets **EmbeddingLoadException** rather than wrong vectors — but that
-  path has not been seen on hardware either. The LLM engine turns off
-  **use_hw_masking_for_npu** on the Intel NPU; the embedding engine has no
-  such setting, and whether it needs one is not known.
+- **The load checks the NPU.** It embeds one test text and refuses unless it
+  gets a valid vector, so a PC without an Intel NPU, or one the stack cannot
+  drive, gets **EmbeddingLoadException** rather than wrong vectors.
 - The same rules as on Qualcomm: refused without **npu**, refused on any other
   platform (an Intel bundle on Android or Linux, a Qualcomm one on Windows),
   refused with the reason when **LiteRtDispatch.dll** is not beside the

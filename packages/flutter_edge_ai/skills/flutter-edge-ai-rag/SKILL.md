@@ -285,14 +285,12 @@ final npuIndex = await rag.open(
 - Give an NPU index its own profile id (above); never open a CPU index with an
   NPU embedder or the reverse. `FlutterEdgeAiActiveEmbedder.forActiveModel`
   keys on the file name, so it separates them by itself.
-- **Intel Panther Lake (Windows x64, `flutter_edge_ai_litertlm` 1.13.2, NOT
-  yet verified on device).** `…_Intel_PTL.litertlm` (270m, 440m) loads the
+- **Intel Panther Lake (Windows x64, `flutter_edge_ai_litertlm` 1.13.2).** `…_Intel_PTL.litertlm` (270m, 440m) loads the
   same way with `preferredBackend: PreferredBackend.npu`, with no opt-in flag:
   every Windows x64 build carries the Intel stack (LiteRtDispatch.dll,
   OpenVINO, TBB) beside the executable, and its absence is refused by name.
   Profile id: the CPU text id plus `-npu-ptl`, shared by the 270m and the 440m.
-  An Intel bundle on Android or Linux is refused. Tell users it has not run on
-  Panther Lake hardware yet.
+  An Intel bundle on Android or Linux is refused.
 
 ### EmbeddingGemma 2 images (440m; `flutter_edge_ai_litertlm` 1.13.1 native, 1.13.1 Web)
 

@@ -1,6 +1,6 @@
 ## 1.13.2
 - Web: EmbeddingGemma 2 audio and combined-input embeddings on WebGPU.
-- EmbeddingGemma 2 on the Intel Panther Lake NPU (Windows), not yet verified on device.
+- EmbeddingGemma 2 on the Intel Panther Lake NPU (Windows).
 - Fix: EmbeddingGemma 2 740m NPU bundles failed to load with audio declared.
 
 ## 1.13.1

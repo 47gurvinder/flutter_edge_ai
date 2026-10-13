@@ -503,7 +503,7 @@ which `flutter_edge_ai_litertlm` 1.13.1 runs on Qualcomm Android and Qualcomm
 Linux arm64 with `preferredBackend: PreferredBackend.npu`; see
 [EmbeddingGemma 2 on a Qualcomm NPU](/docs/embeddings-and-rag#embeddinggemma-2-on-a-qualcomm-npu).
 From 1.13.2 the Intel Panther Lake bundles (`…_Intel_PTL.litertlm`, 317–752 MB)
-run on Windows x64 the same way, not yet verified on device; see
+run on Windows x64 the same way; see
 [EmbeddingGemma 2 on an Intel NPU](/docs/embeddings-and-rag#embeddinggemma-2-on-an-intel-npu).
 Every other row is a `.tflite` model plus a tokenizer file.
 

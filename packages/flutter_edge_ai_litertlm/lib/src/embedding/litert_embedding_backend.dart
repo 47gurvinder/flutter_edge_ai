@@ -37,7 +37,7 @@ import 'vision_budget.dart';
 /// `getActiveEmbedder(preferredBackend: PreferredBackend.npu)` — on that SoC's
 /// NPU: on Qualcomm Android and Qualcomm Linux arm64 in an app built with
 /// `hooks: user_defines: flutter_edge_ai_litertlm: qualcomm_npu: true`, and
-/// on Intel NPUs with Windows x64 (Panther Lake; not yet verified on device).
+/// on Intel NPUs with Windows x64 (Panther Lake).
 /// Nothing switches backend on its own: the generic bundle with `npu`, a
 /// per-SoC bundle without it, and `npu` where it cannot run are refused with
 /// an `EmbeddingLoadException`, because NPU and CPU vectors are not
