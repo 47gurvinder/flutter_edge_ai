@@ -144,9 +144,9 @@ class _HomeScreenState extends State<HomeScreen> {
               key: const Key('home-knowledge'),
               title: 'Knowledge',
               subtitle:
-                  'Search notes, photos and voice memos by text, then ask '
-                  'Gemma 4 — EmbeddingGemma 2 (740M), speech-to-text and an '
-                  'LLM, all on the device',
+                  'Find notes, photos and voice memos by meaning, hear a '
+                  'meeting live, ask Gemma 4 — EmbeddingGemma 2 and Gemma 4, '
+                  'all on the device',
               icon: Icons.hub_outlined,
               color: Colors.indigoAccent,
               onTap: () => _push(const KnowledgeScreen()),
