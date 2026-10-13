@@ -97,6 +97,7 @@ extension type _Response._(JSObject _) implements JSObject {
 
 extension type _ReadableStream._(JSObject _) implements JSObject {
   external _Reader getReader();
+  external JSPromise<JSAny?> cancel();
 }
 
 extension type _Reader._(JSObject _) implements JSObject {
@@ -195,6 +196,12 @@ final class WindowLiteRtLmWebRuntime implements LiteRtLmWebRuntime {
     }
     final response = await _fetch(url.toJS, init).toDart;
     if (!response.ok) {
+      // An error page can be large or streamed: drop it before throwing.
+      try {
+        await response.body?.cancel().toDart;
+      } catch (e) {
+        edgeAiLog('[LiteRtLmWebEmbeddingPass] cancelling the read of $url: $e');
+      }
       throw StateError('fetch($url) answered HTTP ${response.status}');
     }
     final body = response.body;

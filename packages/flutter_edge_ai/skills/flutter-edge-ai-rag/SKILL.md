@@ -142,9 +142,9 @@ replaced the model before it ran (`EmbedderClosedException`) is retried once.
 Queries over text documents use `TaskType.retrievalQuery`; pass `queryTask:`
 for another task, e.g. `TaskType.questionAnswering`.
 
-## EmbeddingGemma 2 (one `.litertlm` file, native)
+## EmbeddingGemma 2 (one `.litertlm` file)
 
-EmbeddingGemma 2 text ships as one `.litertlm` bundle that carries its own
+EmbeddingGemma 2 ships as one `.litertlm` bundle that carries its own
 tokenizer: install the model alone — no `tokenizerFrom…()` call, and no
 `flutter_edge_ai_embeddings` or `embeddingTokenizers:` needed. The repo is not
 gated:
