@@ -1458,6 +1458,32 @@ void main() {
   group('a per-SoC bundle on the NPU', () {
     setUp(() => native.textSignatures = _npuSignatures);
 
+    test(
+      'declared audio on the 740m: the audio encoder is named "cpu" (its '
+      'per-SoC builds compile it for cpu/gpu only), vision stays NULL',
+      () async {
+        File(_header740m).copySync(modelPath);
+        native.visionSignatures = const [70, 140];
+        await pass(
+          npuTarget: _sm8850,
+          declaredMedia: {EmbeddingModality.image, EmbeddingModality.audio},
+        ).load();
+        expect(native.settingsBackend, 'npu');
+        expect(native.settingsAudioBackend, 'cpu');
+        expect(native.settingsVisionBackend, isNull);
+      },
+    );
+
+    test('no audio declared on the 740m: both towers stay NULL', () async {
+      File(_header740m).copySync(modelPath);
+      native.visionSignatures = const [70, 140];
+      await pass(
+        npuTarget: _sm8850,
+        declaredMedia: {EmbeddingModality.image},
+      ).load();
+      expect(native.towerBackendsNull, isTrue);
+    });
+
     test('settings on "npu", towers NULL, the dispatch directory handed to '
         'every executor, and a probe embedding before load returns', () async {
       native.visionSignatures = const [70, 140];
@@ -1760,6 +1786,8 @@ final class _FakeLiteRtLm extends LiteRtLmEmbeddingBindings {
   String? settingsModelPath;
   String? settingsBackend;
   bool towerBackendsNull = false;
+  String? settingsVisionBackend;
+  String? settingsAudioBackend;
   String? cacheDir;
   int? maxInputLength;
   int? numThreads;
@@ -1938,6 +1966,12 @@ final class _FakeLiteRtLm extends LiteRtLmEmbeddingBindings {
     settingsBackend = _string(backend_str);
     towerBackendsNull =
         vision_backend_str == nullptr && audio_backend_str == nullptr;
+    settingsVisionBackend = vision_backend_str == nullptr
+        ? null
+        : _string(vision_backend_str);
+    settingsAudioBackend = audio_backend_str == nullptr
+        ? null
+        : _string(audio_backend_str);
     final failure = failSettings;
     return failure != null ? _fail(failure) : _create('settings');
   }

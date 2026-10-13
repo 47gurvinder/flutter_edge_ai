@@ -340,6 +340,7 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
         // Only when images will be embedded: the budget means nothing to a
         // text request, and the bundle's own default is 140 anyway.
         visionTokensPerImage: images ? _config.visionTokensPerImage : null,
+        audio: audio,
       );
       _options = _createOptions(b);
       if (_config.npuTarget case final target?) {
@@ -925,23 +926,33 @@ final class LiteRtLmEmbeddingPass extends EmbeddingPass {
     required int maxInputLength,
     required String cacheDir,
     required int? visionTokensPerImage,
+    required bool audio,
   }) {
     final path = _config.modelPath.toNativeUtf8(allocator: _alloc);
     final backend = (_onNpu ? 'npu' : 'cpu').toNativeUtf8(allocator: _alloc);
+    // Tower backends NULL (D26): present towers run on the main backend, and
+    // naming one the bundle lacks fails create with code 5. One exception:
+    // the per-SoC 740m bundles compile the audio encoder for cpu/gpu only —
+    // on the NPU its NULL backend fails create with "Audio backend constraint
+    // mismatch. Model requires one of [cpu,gpu] but Audio backend is NPU"
+    // (Galaxy S26+, SM8850, 2026-10-13). Audio is declared only on a bundle
+    // whose container has an audio encoder, so naming it here is safe.
+    final audioBackend = _onNpu && audio
+        ? 'cpu'.toNativeUtf8(allocator: _alloc)
+        : nullptr;
     final Pointer<LiteRtLmEmbeddingEngineSettings> settings;
     try {
-      // Tower backends NULL (D26): present towers run on the main backend,
-      // and naming one the bundle lacks fails create with code 5.
       b.litert_lm_clear_last_error();
       settings = b.litert_lm_embedding_engine_settings_create(
         path.cast(),
         backend.cast(),
         nullptr,
-        nullptr,
+        audioBackend.cast(),
       );
     } finally {
       _alloc.free(path);
       _alloc.free(backend);
+      if (audioBackend != nullptr) _alloc.free(audioBackend);
     }
     if (settings == nullptr) {
       final (:code, :message) = _lastError(b);
