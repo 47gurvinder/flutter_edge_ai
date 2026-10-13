@@ -1,7 +1,5 @@
 ## 2.3.2
-- Fix: the active model keeps its LoRA across a restart (#649).
-- `ModelFileType.gguf`: GGUF models are chosen by type and counted in storage (#649).
-- Docs and skills: EmbeddingGemma 2 audio on the web and on the Intel Panther Lake NPU.
+- The active model keeps its LoRA across a restart; `ModelFileType.gguf` (#649).
 
 ## 2.3.1
 - Combined text, image and audio inputs: `EmbeddingInput(text:, images:, audio:)`.
