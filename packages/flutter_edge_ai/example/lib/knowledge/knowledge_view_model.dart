@@ -65,6 +65,12 @@ const kSurfaceSecondLift = 0.10;
 /// An item surfaced this few windows ago pulses instead of surfacing again.
 const kSurfaceQuiet = 3;
 
+/// The lifts above are the CPU 740M's. The SM8850 NPU bundle spreads the
+/// same meeting about twice as wide (Galaxy S26+, 2026-10-13: matches lift
+/// 0.27–0.35, the best non-match 0.115, small talk 0.048), so on the NPU the
+/// two lift thresholds are scaled by this (the margin is not).
+const kSurfaceNpuScale = 2.0;
+
 /// What a question asked by voice is called on screen and in the log: it is
 /// never written out.
 const kSpokenLabel = 'Spoken question';
@@ -168,6 +174,9 @@ final class KnowledgeViewModel extends ChangeNotifier {
 
   final KnowledgeDependencies _deps;
   KnowledgeIndex? _index;
+
+  /// [kSurfaceNpuScale] when the embedder runs on an NPU, else 1.
+  double _liftScale = 1;
   KnowledgeLibrary _library = KnowledgeLibrary.seeded();
   bool _disposed = false;
   Timer? _recordingLimit;
@@ -354,6 +363,7 @@ final class KnowledgeViewModel extends ChangeNotifier {
         return;
       }
       _index = index;
+      _liftScale = embedder.backend?.name == 'npu' ? kSurfaceNpuScale : 1;
       await _reconcile(index, embedder);
       _set(() {
         openTook = watch.elapsed;
@@ -1020,12 +1030,16 @@ final class KnowledgeViewModel extends ChangeNotifier {
     if (hits.isEmpty || _disposed) return;
     final top = hits.first;
     final margin = top.lift - (hits.length > 1 ? hits[1].lift : 0);
-    if (top.lift < kSurfaceLift || margin < kSurfaceMargin) return;
+    // The margin is not scaled: on the NPU the Q3 note and its chart come
+    // 0.034 apart, and the lift alone keeps the non-matches out.
+    if (top.lift < kSurfaceLift * _liftScale || margin < kSurfaceMargin) {
+      return;
+    }
     final added = _surfaceOne(w, top);
     if (added &&
         hits.length > 1 &&
         hits[1].kind != top.kind &&
-        hits[1].lift >= kSurfaceSecondLift) {
+        hits[1].lift >= kSurfaceSecondLift * _liftScale) {
       _surfaceOne(w, hits[1]);
     }
     liveEvents.value++;

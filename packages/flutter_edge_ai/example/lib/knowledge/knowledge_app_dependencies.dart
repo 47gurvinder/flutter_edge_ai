@@ -30,6 +30,21 @@ const kKnowledgeLibraryKey = 'knowledge_library_v1';
 const _llmBackendDefine = String.fromEnvironment('KNOWLEDGE_LLM_BACKEND');
 const _llmMaxTokensDefine = int.fromEnvironment('KNOWLEDGE_LLM_MAX_TOKENS');
 
+/// Where the language model's vision and audio encoders run (`npu`, `gpu` or
+/// `cpu`; unset leaves the package default, the CPU). Google's Gemma 4 E2B
+/// builds that compile every modality for the Hexagon NPU need `npu` here.
+const _llmEncodersDefine = String.fromEnvironment('KNOWLEDGE_LLM_ENCODERS');
+
+/// The name shown for a language model outside the catalog (else its file).
+const _llmNameDefine = String.fromEnvironment('KNOWLEDGE_LLM_NAME');
+
+PreferredBackend? _backendNamed(String name) => switch (name) {
+  'npu' => PreferredBackend.npu,
+  'gpu' => PreferredBackend.gpu,
+  'cpu' => PreferredBackend.cpu,
+  _ => null,
+};
+
 /// The app's wiring of the Knowledge screen: the models the three model
 /// lists left active, SQLite indexes (one location per kind and embedding
 /// space), photos and memos kept in the app's documents (photos in OPFS on
@@ -175,7 +190,11 @@ _llm() {
   final supportAudio = model?.supportAudio ?? gemma4;
   return (
     info: KnowledgeLlmInfo(
-      name: model?.displayName ?? id ?? spec.name,
+      name:
+          model?.displayName ??
+          (_llmNameDefine.isEmpty ? null : _llmNameDefine) ??
+          id ??
+          spec.name,
       seesImages: supportImage,
       hearsAudio: supportAudio,
     ),
@@ -322,6 +341,8 @@ final class _LlmAnswerer implements KnowledgeAnswerer {
       supportImage: llm.supportImage,
       supportAudio: llm.supportAudio,
       maxNumImages: llm.supportImage ? 1 : null,
+      preferredVisionBackend: _backendNamed(_llmEncodersDefine),
+      preferredAudioBackend: _backendNamed(_llmEncodersDefine),
     );
   }
 

@@ -83,6 +83,11 @@ else
     --dart-define=KNOWLEDGE_LLM_BACKEND=npu
     --dart-define=KNOWLEDGE_LLM_MAX_TOKENS=1024
   )
+  # ENCODERS=npu for a build whose vision and audio encoders are compiled for
+  # the NPU too (Google's all-NPU Gemma 4 E2B); unset keeps them on the CPU.
+  if [[ -n "${ENCODERS:-}" ]]; then
+    DEFINES+=("--dart-define=KNOWLEDGE_LLM_ENCODERS=$ENCODERS")
+  fi
 fi
 
 # Back-to-back screen recording while the test runs.
