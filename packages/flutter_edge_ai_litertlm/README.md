@@ -682,7 +682,7 @@ Native platforms need no web setup.
 | Android  | ✅ FFI (GPU via OpenCL, NPU on Qualcomm — opt-in, below) |
 | iOS      | ✅ FFI (GPU via Metal on device; CPU on simulator) |
 | macOS / Linux | ✅ FFI (GPU via Metal / Vulkan; NPU on Qualcomm Linux arm64 — opt-in, below) |
-| Windows  | ✅ FFI (CPU + GPU via DirectX 12 + Intel NPU) |
+| Windows  | ✅ FFI on x64 (CPU + GPU via DirectX 12 + Intel NPU); ARM64 has no native archive, see [Troubleshooting](#windows-arm64-litert-lm-inference-is-not-available) |
 | Web      | ⚠️ early preview via `@litert-lm/core` (CDN; LLMs text-only; EmbeddingGemma 2 text, images and audio on WebGPU) |
 
 The native library (`native-v0.18.0-e`, LiteRT-LM v0.18.0) is fetched at build
@@ -789,6 +789,21 @@ bundle, `getActiveEmbedder` fails with `EmbeddingLoadException` and the reason,
 because CPU vectors would land in another space.
 
 ## Troubleshooting
+
+### Windows ARM64: LiteRT-LM inference is not available
+
+Symptom: a native Windows ARM64 build (a Snapdragon X laptop) succeeds, then
+the first `.litertlm` model fails with `Failed to load dynamic library
+'StreamProxy.dll'` (error 126). The build hook now prints why while it builds.
+
+Cause: there is no `windows_arm64` LiteRT-LM archive. Upstream does not build
+LiteRT-LM for Windows ARM64, so there is nothing to package. The hook skips the
+target instead of failing, so an app that uses another engine still builds.
+
+What works today: MediaPipe has no desktop engine and the ONNX engine is
+Windows x64 only (ARM64 is not released), so the option is to build the app for
+x64, which runs under Windows x64 emulation. See
+[#326](https://github.com/DenisovAV/flutter_edge_ai/issues/326).
 
 ### Wrong digits from a long prompt on GPU
 
