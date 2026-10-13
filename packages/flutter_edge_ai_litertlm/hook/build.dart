@@ -9,6 +9,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_edge_ai_litertlm/src/hook/download.dart';
 import 'package:flutter_edge_ai_litertlm/src/hook/qairt_linux.dart';
 import 'package:flutter_edge_ai_litertlm/src/hook/qnn_runtime.dart';
+import 'package:flutter_edge_ai_litertlm/src/hook/unsupported_target.dart';
 import 'package:flutter_edge_ai_litertlm/src/npu_stacks.dart';
 import 'package:hooks/hooks.dart';
 
@@ -782,20 +783,17 @@ Future<void> _processBundle({
   required String dirName,
 }) async {
   // Skip the bundle entirely if it has no checksum for this platform.
-  // Both bundles use this as the "is this target supported" gate. Keep the
-  // build non-fatal so an app that only uses another engine can still build,
-  // but explain why no CodeAsset will be produced. Without this warning a
-  // Windows ARM64 build appears successful and only fails later when an app
-  // first tries to load a `.litertlm` model (#326).
+  // Both bundles use this as the "is this target supported" gate. The skip is
+  // non-fatal on purpose, so an app that uses another engine still builds; only
+  // Windows ARM64 says so (see `missingArchiveNotice`, #326).
   final archiveName = bundle.archiveName(dirName);
   if (!bundle.checksums.containsKey(archiveName)) {
-    stderr.writeln(
-      'flutter_gemma_litertlm: no native archive is published for '
-      '$dirName ($archiveName). LiteRT-LM `.litertlm` inference is not '
-      'available on this target. Use a supported target or another engine '
-      'such as MediaPipe `.task` or ONNX; this build can continue for other '
-      'engines.',
+    final notice = missingArchiveNotice(
+      packageName: _packageName,
+      dirName: dirName,
+      archiveName: archiveName,
     );
+    if (notice != null) stderr.writeln(notice);
     return;
   }
 
