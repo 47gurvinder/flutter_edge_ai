@@ -1,3 +1,6 @@
+## Unreleased
+- Build hook says so when Windows ARM64 has no LiteRT-LM native archive (#326).
+
 ## 1.13.1
 - EmbeddingGemma 2 image embeddings on native platforms.
 - Web: EmbeddingGemma 2 text and image embeddings on WebGPU via @litert-lm/core 0.18.0.
