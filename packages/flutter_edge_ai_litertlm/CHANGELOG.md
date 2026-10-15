@@ -1,5 +1,6 @@
 ## 1.14.0
 - **Behaviour change:** Gemma 4 gets its audio after the text, as its model card asks.
+- EmbeddingGemma 2 reports its image token budget, so image-fitted deciders are bound to it.
 
 ## 1.13.3
 - README: Qwen3 0.6B bundle that loads (#659); NPU mask formula corrected.
