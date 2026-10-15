@@ -159,6 +159,14 @@ the cross-fit refused 89 / 90 / 94 %. When requests that fit no option matter,
 keep the cross-fit, or check that the threshold `fromLabelled` picked still
 refuses them.
 
+An input of another modality than the options needs its own threshold. A
+spoken request compared with text options reaches lower cosines than the same
+request typed: in the example's Tiny Island (EmbeddingGemma 2 740m, synthetic
+speech) typed requests calibrate at 0.866 and spoken ones at 0.745 for about
+the same error. One decider has one threshold, so Tiny Island keeps a second
+decider over the same options for spoken requests, with
+`minSimilarity(0.745)` measured on spoken requests.
+
 ## Measured accuracy
 
 All numbers: Google's int4 `embeddinggemma-2-text-270m.litertlm` through
@@ -176,12 +184,15 @@ English, one-sentence requests.
 | 2–20 options, linear, cross-fit, 10 examples | 90–94 % of in-scope answered, ≤ 0.6 % error on them, 92–99 % of out-of-subset and 98–99.8 % of CLINC out-of-scope refused |
 | 150 options, linear, cross-fit, 5 / 10 / 30 examples | out-of-scope refused 89 / 90 / 94 %; error on answered 6.0 / 3.8 / 3.1 % |
 | Linear, fixed cosine 0.875, 2–20 options, 5–10 examples | about as good as the cross-fit for this file and prompt |
+| Tiny Island (the example app): 184 actions, centroid, 5 examples each; 144 held-out paraphrases (141 English, 3 German) and 30 out-of-scope requests; EmbeddingGemma 2 text 270m, macOS CPU | cross-fit: 93.8 % answered, 3.0 % error on them, 30 of 30 out-of-scope refused. `fromLabelled(maxError: 0.05)`, two folds: 98.6 / 100 % answered, 4.2 / 4.2 % error (6 of 143 answers wrong over both), 30 of 30 refused; `linear` gave the same answers and adds 15 s to the fit |
 
 Which inputs are answered and refused depends only on the abstain signal and
 its threshold, the same for both methods; the error on the answered ones was
 measured with `linear`, and `centroid` makes more (it is less accurate). At 150
 options with 5 examples, the cross-fit's error (6.0 %) is over a 5 % budget:
-calibrate with `fromLabelled` there.
+calibrate with `fromLabelled` there. On Tiny Island the cross-fit stays within
+it (3.0 %); the app calibrates with `fromLabelled` anyway, which answers more of
+the requests (99 % against 94 %) at 4.2 % error.
 
 **The prompt.** Sentence similarity was the most accurate EmbeddingGemma 2
 prompt on CLINC150 and on the example app's Tiny Island catalog (184 actions),
@@ -197,9 +208,8 @@ options and Google Decision Maker's `title: <option> | text:` candidates:
 | Tiny Island (740m), spoken requests (audio): right / answered | 0.592 / 18 % | 0.772 / 54 % |
 
 On HWU64 classification was ahead with every method, and so it is not best
-everywhere. Not measured yet: another data set for "none of the above",
-requests longer than a sentence, languages other than English, and accuracy on
-a phone or an NPU.
+everywhere. Not measured yet: requests longer than a sentence, a large set in
+languages other than English, and accuracy on a phone or an NPU.
 
 ## Speed
 

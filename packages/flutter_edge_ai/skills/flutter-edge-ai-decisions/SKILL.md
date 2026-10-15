@@ -27,7 +27,15 @@ CI that fails on warnings fail.
    option. A zero-shot option set (descriptions only) cannot cross-fit: use
    `DeciderCalibration.none()`, or `DeciderCalibration.minSimilarity(t)` with a
    `t` you MEASURED for your model file and prompt — never a guessed value.
-   Always handle `answer.choice == null`.
+   With ~5 examples per option among many options the cross-fit's error on
+   answered requests can exceed a 5 % budget (CLINC150, 150 options: 6 %);
+   there, calibrate with `fromLabelled` on held-out requests. It sees only
+   requests that belong to an option, so check that its threshold still
+   refuses the ones that fit none. An audio request against text options
+   scores lower than the same request typed (EmbeddingGemma 2 740m: 0.745
+   against 0.866 for about the same error), so give spoken requests a decider
+   of their own, calibrated on spoken requests. Always handle
+   `answer.choice == null`.
 4. A raw score is not a probability. `RankedOption.probability`,
    `DeciderAnswer.probabilities` and `DeciderAnswer.confidence` are null unless
    the decider was calibrated with `DeciderCalibration.fromLabelled` on held-out
