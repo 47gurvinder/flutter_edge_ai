@@ -42,6 +42,7 @@ Core registers no engine. Add `flutter_edge_ai` plus what your app needs:
 |---|---|
 | Run any `.litertlm` model, and LiteRT embeddings | [`flutter_edge_ai_litertlm`](https://pub.dev/packages/flutter_edge_ai_litertlm) |
 | Run `.task` / `.bin` models (MediaPipe; mobile and web; maintenance-only upstream, prefer `.litertlm`) | [`flutter_edge_ai_mediapipe`](https://pub.dev/packages/flutter_edge_ai_mediapipe) |
+| Run GGUF models through llama.cpp (unreleased contribution) | [`flutter_edge_ai_llama`](https://github.com/DenisovAV/flutter_edge_ai/tree/main/packages/flutter_edge_ai_llama) |
 | Run ONNX models — text generation and embeddings | [`flutter_edge_ai_onnx`](https://pub.dev/packages/flutter_edge_ai_onnx) |
 | Use the model built into the OS or browser | [`flutter_edge_ai_builtin_ai`](https://pub.dev/packages/flutter_edge_ai_builtin_ai) |
 | Tokenizers for text embeddings (needed for `.tflite` / `.onnx` embedders; an EmbeddingGemma 2 `.litertlm` carries its own) | [`flutter_edge_ai_embeddings`](https://pub.dev/packages/flutter_edge_ai_embeddings) |
