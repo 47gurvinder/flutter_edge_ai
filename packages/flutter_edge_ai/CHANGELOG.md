@@ -1,8 +1,9 @@
 ## 2.4.0
 - Experimental `Decider` API: pick one of N options or abstain (`EmbeddingModel.createDecider`).
-- **Breaking for `implements InferenceModel`:** add `createDecider`; `extends` inherits the default.
+- **Breaking for `implements InferenceModel`:** add `createDecider` and the two getters below; `extends` inherits the defaults.
 - `getActiveModel(multimodalOrder:)`: per-model order of images, audio and text.
 - Structured tool calls: `Message.toolCall(calls:)`, `toolCallId`, `FunctionCallResponse.id`, `toolCallsOf`.
+- `InferenceModel.activeVisionBackend`/`activeAudioBackend`; an unset encoder backend is the engine's choice.
 - Gemma 4: a sentence before a tool call no longer streams the call's JSON as text.
 
 ## 2.3.3
