@@ -48,7 +48,7 @@ used below).
 ```
 dependencies:
   flutter_edge_ai: ^2.4.0
-  flutter_edge_ai_agent: ^0.3.0
+  flutter_edge_ai_agent: ^0.4.0
   flutter_edge_ai_litertlm: ^1.14.0   # an inference engine (LiteRtLmEngine)
 ```
 
@@ -331,8 +331,9 @@ JS skills additionally ship `scripts/index.html` exposing
 
 `NativeIntentExecutor` runs six built-in intents (`send_email`, `send_text`,
 `create_calendar_event`, `read_calendar_events`, `schedule_notification`,
-`get_current_date_and_time`). Add your own through `handlers:`; the built-ins
-keep running next to them. `validators:` checks an intent's parameters before
+`get_current_date_and_time`); `schedule_notification` runs only once the app
+turns it on (see [Setup](#setup)). Add your own through `handlers:`; the
+built-ins keep running next to them. `validators:` checks an intent's parameters before
 its handler runs: null when they are valid, otherwise the reason, which goes
 back to the model.
 
@@ -388,17 +389,119 @@ final session = await AgentSession.fromModel(model, registry: registry);
 
 ## Setup
 
-Most skills need no platform setup. For the platform-specific bits:
+Most skills need no platform setup. The intents open OS surfaces, and those
+need declarations in the app:
 
-- **Windows** — JS skills require the
-  [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
-  (pre-installed on Windows 11; bundle the bootstrapper for Windows 10).
-- **iOS** — the `create-calendar-event` intent needs a usage description in
-  `ios/Runner/Info.plist`:
+- **Android 11 and newer** — `send_email` and `send_text` ask url_launcher
+  whether an app can open the link, and `create_calendar_event` asks
+  `add_2_calendar` whether a calendar can insert the event. Both answers are
+  "no" unless the app declares them in `android/app/src/main/AndroidManifest.xml`,
+  as a child of `<manifest>`; the mail and SMS intents then report that no app
+  is available, the calendar one that it could not open the event editor:
   ```
+  <queries>
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:scheme="mailto" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:scheme="sms" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.INSERT" />
+      <data android:mimeType="vnd.android.cursor.dir/event" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.INSERT" />
+      <data android:mimeType="vnd.android.cursor.item/event" />
+    </intent>
+  </queries>
+  ```
+- **iOS** — the same check for mail and SMS, plus `add_2_calendar`'s usage
+  descriptions (it recommends the contacts one: Apple's event editor offers
+  location autocomplete), in `ios/Runner/Info.plist`:
+  ```
+  <key>LSApplicationQueriesSchemes</key>
+  <array>
+    <string>mailto</string>
+    <string>sms</string>
+  </array>
   <key>NSCalendarsUsageDescription</key>
   <string>Create calendar events from the agent.</string>
+  <key>NSContactsUsageDescription</key>
+  <string>Suggest locations for calendar events.</string>
   ```
+- **Notifications** — since 0.4.0 `schedule_notification` is off until the
+  app turns it on. The app sets up `flutter_local_notifications` itself and
+  passes `NotificationIntentSettings`; without them the intent returns an error
+  that says so and makes no plugin call. The agent never calls `initialize`: a
+  second call would replace the app's notification callbacks, default icon and
+  presentation options. It never asks for a permission either.
+  ```
+  // Once at startup, with the app's own callbacks and default icon.
+  // initialize throws ArgumentError on a platform whose settings are missing.
+  await FlutterLocalNotificationsPlugin().initialize(
+    settings: const InitializationSettings(
+      android: AndroidInitializationSettings('app_icon'),
+      iOS: DarwinInitializationSettings(),
+      macOS: DarwinInitializationSettings(),
+      linux: LinuxInitializationSettings(defaultActionName: 'Open'),
+      windows: WindowsInitializationSettings(
+        appName: 'My App',
+        appUserModelId: 'Com.Example.MyApp',
+        guid: 'a GUID of your own',
+      ),
+    ),
+  );
+
+  final intents = NativeIntentExecutor(
+    notifications: const NotificationIntentSettings(
+      androidSmallIcon: 'ic_reminder', // optional; null = initialize's icon
+    ),
+  );
+  ```
+  Passing the settings without calling `initialize` crashes the app: on macOS
+  when the intent schedules, on Android when a reminder without
+  `androidSmallIcon` fires. An empty string in the settings throws
+  `ArgumentError` when the executor is built.
+  - Before it schedules, the intent checks the permissions and refuses, with a
+    reason the model can pass on, when notifications are off for the app
+    (Android `areNotificationsEnabled()`; iOS and macOS `checkPermissions()`
+    with neither full nor provisional permission), when the user turned off its
+    Android channel, or, on Android 12 and newer, when the app may not schedule
+    exact alarms. Asking is the app's job: `requestNotificationsPermission()`
+    on Android 13 and newer, `DarwinInitializationSettings()` or
+    `requestPermissions()` on iOS and macOS. With provisional permission the
+    reminder arrives quietly, with no banner or sound, and the intent's answer
+    says so.
+  - On Android the intent schedules an exact alarm (`exactAllowWhileIdle`). The
+    app declares `SCHEDULE_EXACT_ALARM` in its manifest, and on Android 14 and
+    newer the user must also grant it: it is off by default there, and the app
+    asks with `requestExactAlarmsPermission()`. `USE_EXACT_ALARM` (Android 13
+    and newer) needs no grant, but Google Play allows it only for alarm and
+    calendar apps. With `NotificationIntentSettings(androidExactAlarm: false)`
+    the intent schedules `inexactAllowWhileIdle` instead, which needs neither
+    and may fire up to an hour late (later under battery saver or Doze); the
+    intent never switches on its own. The plugin's receivers and
+    `RECEIVE_BOOT_COMPLETED` go in the manifest as well: see
+    [flutter_local_notifications' Android setup](https://pub.dev/packages/flutter_local_notifications#androidmanifestxml-setup).
+    Its icon must survive resource shrinking in a release build: a drawable
+    named only from Dart needs a `keep.xml`.
+  - On iOS the plugin's setup also needs one line in `AppDelegate.swift`, in
+    `didFinishLaunchingWithOptions`; without it iOS shows no reminder while the
+    app is in the foreground:
+    ```
+    UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
+    ```
+  - The intent refuses on the web and on Linux, where the plugin cannot
+    schedule a notification, and a date and time that have already passed. A
+    time without a date that has passed today is scheduled for tomorrow. On
+    Windows it has no permission to check and relies on the app's `initialize`.
+  - It schedules the instant in UTC and leaves the time zone database and
+    `tz.local` to the app.
+  - `notifications:` together with a `schedule_notification` entry in
+    `handlers:` throws `ArgumentError`.
 - **Android** — `flutter_edge_ai_agent` depends on `flutter_local_notifications`,
   which requires core-library desugaring in `android/app/build.gradle(.kts)`.
   This is unconditional: an app that never uses the `schedule_notification`
@@ -417,6 +520,12 @@ Most skills need no platform setup. For the platform-specific bits:
   android.r8.proguardAndroidTxt.disallowed=false
   ```
   AGP deprecates this opt-out and plans to remove it in AGP 10.
+- **Windows** — JS skills require the
+  [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
+  (pre-installed on Windows 11; bundle the bootstrapper for Windows 10). The
+  webview plugin fetches its native dependencies with the
+  [NuGet CLI](https://learn.microsoft.com/nuget/install-nuget-client-tools)
+  while the app builds, so `nuget` has to be on the `PATH`.
 
 <Warning>
 

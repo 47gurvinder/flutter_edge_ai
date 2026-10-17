@@ -198,7 +198,7 @@ bundles it:
 dependencies:
   flutter_edge_ai: ^2.4.0
   flutter_edge_ai_litertlm: ^1.14.0
-  flutter_edge_ai_agent: ^0.3.0
+  flutter_edge_ai_agent: ^0.4.0
 
 flutter:
   assets:
@@ -409,12 +409,13 @@ how to run on each platform:
 | `create_calendar_event` | opens the calendar's event editor, filled in |
 | `send_email` | opens the mail composer with recipient, subject and text |
 | `send_text` | opens the SMS composer |
-| `schedule_notification` | schedules a local notification |
+| `schedule_notification` | schedules a local notification, once the app turns it on |
 | `read_calendar_events` | answers only if you inject a handler for it |
 
 This app sets up the three its skills use. `send_text` needs the `sms` scheme
-declared the way `mailto` is below, and `schedule_notification` needs
-`flutter_local_notifications`' own platform setup.
+declared the way `mailto` is below, and `schedule_notification` stays off
+until the app initializes `flutter_local_notifications` itself and passes
+`NativeIntentExecutor(notifications:)` (see the [agent docs](/docs/agent#setup)).
 
 An intent that changes something opens an OS screen and stops there. The
 model fills in the event or the email; the user presses Save or Send. An
@@ -458,11 +459,15 @@ throws and says which.
 
 On iOS 15 and 16 the calendar editor asks for calendar access first, and iOS
 stops an app that asks without a usage description. (From iOS 17 the editor
-opens without asking.) Add to `ios/Runner/Info.plist`:
+opens without asking.) Its location field suggests places from the contacts,
+and `add_2_calendar` warns that the app may crash there without a contacts
+usage description. Add both to `ios/Runner/Info.plist`:
 
 ```xml
 <key>NSCalendarsUsageDescription</key>
 <string>The agent opens the calendar's event editor for events you ask it to create.</string>
+<key>NSContactsUsageDescription</key>
+<string>The calendar's event editor suggests locations from your contacts.</string>
 ```
 
 The mail composer opens through a `mailto:` link, and the agent first asks

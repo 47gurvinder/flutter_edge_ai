@@ -1,10 +1,43 @@
 ---
 title: Migration
-description: Upgrade to Flutter Edge AI 2.4 (backends follow the .litertlm file, Gemma 4 audio after the text, agent 0.3), 2.3 (the embedding API, EmbeddingGemma 2, RAG 1.1), 2.2 (sampling defaults from the model), 2.1 (enableThinking, opt-in Qualcomm NPU) and 2.0 (RAG moves to flutter_edge_ai_rag), move from flutter_gemma to flutter_edge_ai, and from the 0.16.x monolith to the modular packages.
+description: Upgrade to flutter_edge_ai_agent 0.4 (notifications are opt-in), Flutter Edge AI 2.4 (backends follow the .litertlm file, Gemma 4 audio after the text, agent 0.3), 2.3 (the embedding API, EmbeddingGemma 2, RAG 1.1), 2.2 (sampling defaults from the model), 2.1 (enableThinking, opt-in Qualcomm NPU) and 2.0 (RAG moves to flutter_edge_ai_rag), move from flutter_gemma to flutter_edge_ai, and from the 0.16.x monolith to the modular packages.
 meta:
   - property: og:image
     content: https://flutteredge.ai/images/og-image.png
 ---
+
+## `flutter_edge_ai_agent` 0.4.0: `schedule_notification` is opt-in
+
+```
+dependencies:
+  flutter_edge_ai_agent: ^0.4.0
+```
+
+`NativeIntentExecutor()` no longer schedules notifications: the intent returns
+an error until the app passes `NotificationIntentSettings`. Before, it
+scheduled whether or not the app had called `initialize`, and without it the
+app crashed: on macOS when the intent scheduled, on Android when the reminder
+fired with no small icon. An app that uses the intent:
+
+1. calls `FlutterLocalNotificationsPlugin().initialize(...)` once at startup,
+   with its own callbacks, its default icon and settings for every platform it
+   builds for (`initialize` throws without them) — the agent never does;
+2. passes `NativeIntentExecutor(notifications: const NotificationIntentSettings())`;
+3. on Android, declares `SCHEDULE_EXACT_ALARM` and, on Android 14 and newer,
+   asks for it with `requestExactAlarmsPermission()`, or passes
+   `androidExactAlarm: false` for an inexact reminder.
+
+The intent checks the permissions and refuses instead of asking for them, and
+it no longer loads the time zone database, which reset the app's `tz.local`
+to UTC. A `schedule_notification` entry in `handlers:` still replaces the
+built-in intent, but not together with `notifications:`.
+
+Every `schedule_notification` call, an app's own handler included, is now
+refused before it runs when its date is partial (a `day` without `year` and
+`month`) or does not exist (February 31). Without a date, a time that has
+passed today moves to tomorrow at the same wall-clock time, across a clock
+change too. The mail and SMS intents write a space as `%20` instead of `+`.
+See [Agent → Setup](/docs/agent#setup).
 
 ## flutter_edge_ai 2.4.0 / flutter_edge_ai_litertlm 1.14.0: backends follow the model file
 
